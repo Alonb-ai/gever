@@ -27,9 +27,9 @@ Browserbase + Stagehand (ביצוע באתר) → אישור חוזר ב‑Whats
 **החלטות שכבר קיבלנו:**
 - מתחילים מ‑Ontopo (חינמי, הפיך, בלי תשלום/ת"ז) — לא מביטוח/כרטיסים.
 - לא מאחסנים כרטיס אשראי גולמי — תשלום per‑action או טוקניזציה.
-- מודל שמניע את Stagehand: **PoC** = `claude-fable-5` (הכי מדויק במדד Stagehand,
-  90.6%, יוני 2026 — אמינות לשער go/no-go). **פרודקשן** = שתי שכבות:
-  סוס עבודה זול `gemini-3-flash-preview` + fallback ל‑`claude-fable-5` בדפים קשים.
+- מודלים: **שיחה מול המשתמש** = `gemini-2.5-flash` (עברית מדוברת חזקה, זול;
+  `gemini-2.5-flash-lite` כאופציה להוזלה). **מנוע הדפדפן (Stagehand)** =
+  `claude-sonnet-4-6`. נמנעים ממודלים סיניים לשיחה — עברית חלשה שוברת את הפרסונה.
 - WhatsApp דרך **Twilio** (Sandbox מבטל המתנה לאישורי Meta). תשלום דרך
   **Lemon Squeezy** (Merchant of Record — checkout מתארח, לא נוגעים בכרטיסים).
 

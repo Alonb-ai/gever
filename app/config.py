@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     browserbase_api_key: str = ""
     browserbase_project_id: str = ""
     model_api_key: str = ""
-    model_name: str = "anthropic/claude-fable-5"
+    model_name: str = "anthropic/claude-sonnet-4-6"
 
     # Gemini (שיחה)
     gemini_api_key: str = ""

@@ -37,7 +37,7 @@ async def main() -> None:
 
     client = AsyncStagehand()
     session = await client.sessions.create(
-        model_name=os.getenv("MODEL_NAME", "anthropic/claude-fable-5"),
+        model_name=os.getenv("MODEL_NAME", "anthropic/claude-sonnet-4-6"),
     )
 
     try:
