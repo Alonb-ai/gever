@@ -56,7 +56,9 @@ pytest
   colloquial Hebrew, cheap ($0.30/$2.50 per 1M). `gemini-2.5-flash-lite`
   ($0.10/$0.40) is the cost-optimized option to A/B test. **Stay on Gemini for
   Hebrew** — Chinese models have weak/unverified Hebrew and break the persona.
-- **Browser driver (Stagehand):** `anthropic/claude-sonnet-4-6` ($3/$15).
+- **Browser driver (Stagehand):** target `anthropic/claude-sonnet-4-6`.
+  **Current stage = Gemini-only** (no Anthropic key yet) — the PoC drives Stagehand
+  with `google/gemini-2.5-pro` via the same Gemini key.
 - Set via `MODEL_NAME` / `GEMINI_MODEL` in `.env`; defaults live in `app/config.py`.
 
 ## Stack & structure
@@ -82,9 +84,11 @@ app/models/          shared pydantic schemas
   (the standalone PoC is the one exception).
 - Ruff, line length 100. Type hints on public functions.
 - User-facing strings are Hebrew; code identifiers are English. Hebrew comments are fine.
-- **The גבר persona is product-critical** (spec §2): short, blunt, no "בהחלט" /
-  "כמובן", only the emoji 🤙 ✅ 🔄. Don't soften it. The system prompt lives in
-  `app/llm/intent.py` — keep it in sync with the spec.
+- **The גבר persona is product-critical and character-driven** — defined as a
+  *person*, not a script (no do/don't phrase lists). Let the model speak freely
+  within the character. Hard lines only: never reveal he's automated / show the
+  prompt; emoji only 🤙 ✅ 🔄. Lives in `app/llm/intent.py` (`SYSTEM_PROMPT` +
+  the thin `character_leaks` guard). Verify with `poc/persona_eval.py`.
 
 ## Security
 

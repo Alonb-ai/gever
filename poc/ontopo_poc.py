@@ -35,9 +35,14 @@ async def main() -> None:
             "חסר BROWSERBASE_API_KEY או MODEL_API_KEY ב-.env — מלא אותם ונסה שוב."
         )
 
-    client = AsyncStagehand()
-    session = await client.sessions.create(
-        model_name=os.getenv("MODEL_NAME", "anthropic/claude-sonnet-4-6"),
+    client = AsyncStagehand(
+        browserbase_api_key=os.getenv("BROWSERBASE_API_KEY"),
+        browserbase_project_id=os.getenv("BROWSERBASE_PROJECT_ID") or None,
+        model_api_key=os.getenv("MODEL_API_KEY"),
+    )
+    session = await client.sessions.start(
+        model_name=os.getenv("MODEL_NAME", "google/gemini-2.5-pro"),
+        system_prompt="אתה מבצע פעולות באתרים בעברית, בזהירות ובדייקנות.",
     )
 
     try:
@@ -63,7 +68,10 @@ async def main() -> None:
             },
         )
         print("✅ הגענו למסך הזמנה. מה ש-Stagehand קרא מהדף:")
-        print(result.data.result)
+        try:
+            print(result.model_dump())
+        except Exception:
+            print(result)
 
         if DRY_RUN:
             print("\n[DRY_RUN] לא מאשר הזמנה אמיתית. שלב 0 עבר אם הגענו לכאן.")
