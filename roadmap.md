@@ -41,13 +41,15 @@
 - [ ] ניהול הקשר שיחה (היסטוריה, שדות חסרים) חוצה הודעות
 - [ ] להריץ `persona_eval` על כל שינוי prompt (תפיסת רגרסיות)
 
-## זרוע 3 · 💬 ערוץ — WhatsApp / Twilio
+## זרוע 3 · 💬 ערוץ — WhatsApp (Meta Cloud API)
 - [x] חיבור `webhook → pipeline → reply` (`app/main.py` + `app/pipeline.py`, מצב per-phone בזיכרון)
-- [x] שליחת תשובות + סטטוס חי (`app/whatsapp/client.py`, Twilio REST)
+- [x] שליחת תשובות + סטטוס חי (`app/whatsapp/client.py`, Meta Graph API)
 - [x] הזמנה ברקע (book_table איטי → לא חוסם את ה-webhook)
-- [ ] חשבון Twilio + Sandbox + tunnel ל-localhost (עליך)
-- [ ] אימות `X-Twilio-Signature` לפני אמון ב-payload
-- [ ] (שלב 2) sender אמיתי + אימות עסק ב‑Meta
+- [x] **לופ חי מקצה-לקצה (יוני 2026)**: App ב-Meta + מספר טסט, webhook מאומת + subscribe ל-`messages`, הודעת וואטסאפ אמיתית → גבר ענה ✅
+- [ ] **System User token קבוע** במקום ה-Temporary (פג ~24ש' → גבר מפסיק לענות) — בלוקר לרציפות
+- [ ] **host יציב** במקום tunnel זמני (lhr.life מתנתק → Callback URL מתיישן) — ראה זרוע 5
+- [ ] אימות `X-Hub-Signature-256` לפני אמון ב-payload (כרגע אין; בסדר למספר-טסט נעול, חובה לפני קהל)
+- [ ] (שלב 2) מספר עסקי אמיתי + אימות עסק ב‑Meta + פרסום ה-App
 - [ ] (שלב 3) templates מאושרים להודעות מחוץ לחלון 24 ש'
 
 ## זרוע 4 · ⚙️ Backend — FastAPI + Supabase
@@ -59,8 +61,8 @@
 
 ## זרוע 5 · ☁️ תשתית — Docker / Coolify
 - [x] `Dockerfile` + `.dockerignore`; `pyproject` בר‑התקנה
-- [ ] (עכשיו) הרצה מקומית ב‑localhost (venv + uvicorn)
-- [ ] deploy ל‑Coolify: app חדש מה‑repo, subdomain + SSL (Traefik), env ב‑UI
+- [x] (עכשיו) הרצה מקומית ב‑localhost (venv + uvicorn) + tunnel זמני (lhr.life) — הספיק ללופ הראשון
+- [ ] **⭐ הצעד הבא לרציפות** — deploy ל‑Coolify: app חדש מה‑repo (בונה את ה-`Dockerfile`, uvicorn:8000), env ב‑UI (תוכן `.env`), subdomain + SSL (Traefik). ואז Callback URL ב-Meta = הסאב-דומיין הקבוע במקום ה-tunnel
 - [ ] אי‑התנגשות עם n8n/Coolify (80/443/5678/8000 תפוסים → דרך Coolify בלבד, לא docker run -p)
 
 ## זרוע 6 · 💳 תשלום — Lemon Squeezy
