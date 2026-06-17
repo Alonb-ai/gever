@@ -16,10 +16,11 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
 
-    # WhatsApp via Twilio
-    twilio_account_sid: str = ""
-    twilio_auth_token: str = ""
-    twilio_whatsapp_from: str = "whatsapp:+14155238886"
+    # WhatsApp via Meta Cloud API
+    whatsapp_access_token: str = ""
+    whatsapp_phone_number_id: str = ""
+    whatsapp_verify_token: str = "gever_verify_2026"  # אנחנו בוחרים; חייב להתאים לדאשבורד של Meta
+    whatsapp_api_version: str = "v21.0"
 
     # Supabase
     supabase_url: str = ""

@@ -42,10 +42,11 @@
 - [ ] להריץ `persona_eval` על כל שינוי prompt (תפיסת רגרסיות)
 
 ## זרוע 3 · 💬 ערוץ — WhatsApp / Twilio
-- [ ] חשבון Twilio + Sandbox (אפס אישורי Meta, מתחילים מיד)
-- [ ] webhook נכנס: אימות `X-Twilio-Signature`
-- [ ] חיבור `webhook → understand → automation → reply`
-- [ ] שליחת תשובות (`app/whatsapp/client.py`)
+- [x] חיבור `webhook → pipeline → reply` (`app/main.py` + `app/pipeline.py`, מצב per-phone בזיכרון)
+- [x] שליחת תשובות + סטטוס חי (`app/whatsapp/client.py`, Twilio REST)
+- [x] הזמנה ברקע (book_table איטי → לא חוסם את ה-webhook)
+- [ ] חשבון Twilio + Sandbox + tunnel ל-localhost (עליך)
+- [ ] אימות `X-Twilio-Signature` לפני אמון ב-payload
 - [ ] (שלב 2) sender אמיתי + אימות עסק ב‑Meta
 - [ ] (שלב 3) templates מאושרים להודעות מחוץ לחלון 24 ש'
 
