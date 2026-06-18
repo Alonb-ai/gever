@@ -1,7 +1,12 @@
 """בדיקות ל-_match_restaurant (דיסאמביגואציה) ול-_PAGE (חילוץ page id מ-URL)."""
 
-from app.automation.ontopo import _match_restaurant
-from app.automation.resolve import _PAGE
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app.automation.ontopo import _match_restaurant  # noqa: E402
+from app.automation.resolve import _PAGE  # noqa: E402
 
 
 def test_match_one():

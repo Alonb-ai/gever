@@ -8,6 +8,7 @@
 
 import asyncio
 import json
+import logging
 
 from google import genai
 from google.genai import types
@@ -37,8 +38,18 @@ _SCHEMA = {
     "required": ["reply", "ready"],
 }
 
+log = logging.getLogger("gever")
+
 _client: genai.Client | None = None
 _chats: dict = {}  # phone -> chat session
+_pending: set = set()  # ponytail: hold strong refs — create_task() tasks get GC'd mid-flight otherwise
+
+
+def _spawn(coro) -> None:
+    """כמו create_task, אבל שומר reference (אחרת ה-task נעלם בשקט ב-GC)."""
+    task = asyncio.create_task(coro)
+    _pending.add(task)
+    task.add_done_callback(_pending.discard)
 
 
 def _chat_for(phone: str):
@@ -65,31 +76,47 @@ async def converse(phone: str, text: str) -> dict:
     return json.loads(resp.text)
 
 
+BOOKING_TIMEOUT_S = 240  # ponytail: תקרה קשיחה — צעד Stagehand תקוע נכשל בקול, לא בדממה אינסופית
+
+
 async def run_booking(phone: str, fields: dict) -> None:
-    """רץ ברקע אחרי שהמשתמש אישר. שולח resolve/סטטוס/תוצאה ל-WhatsApp."""
+    """רץ ברקע אחרי שהמשתמש אישר. שולח resolve/סטטוס/תוצאה ל-WhatsApp.
+
+    עטוף ב-try + timeout: תקיעה או חריגה הופכות להודעת כישלון בדמות, לא לדממה.
+    """
 
     async def notify(msg: str) -> None:
         await send_text(phone, msg)
 
     name = (fields.get("restaurant") or "").strip()
-    found = await resolve_ontopo_url(name)
-    if found["status"] == "none":
-        await send_text(phone, f"לא מצאתי את '{name}' ב-Ontopo. נסה שם אחר.")
-        return
-    if found["status"] == "many":
-        opts = " / ".join(c["title"][:30] for c in found["candidates"][:3])
-        await send_text(phone, f"יש כמה כאלה — לאיזה? {opts}")
-        return
+    try:
+        found = await resolve_ontopo_url(name)
+        if found["status"] == "none":
+            await send_text(phone, f"לא מצאתי את '{name}' ב-Ontopo. נסה שם אחר.")
+            return
+        if found["status"] == "many":
+            opts = " / ".join(c["title"][:30] for c in found["candidates"][:3])
+            await send_text(phone, f"יש כמה כאלה — לאיזה? {opts}")
+            return
 
-    await book_table(
-        restaurant=name,
-        page_url=found["url"],
-        date=fields.get("date") or "",
-        time=fields.get("time") or "20:00",
-        party_size=fields.get("party_size") or 2,
-        dry_run=True,
-        notify=notify,
-    )
+        await asyncio.wait_for(
+            book_table(
+                restaurant=name,
+                page_url=found["url"],
+                date=fields.get("date") or "",
+                time=fields.get("time") or "20:00",
+                party_size=fields.get("party_size") or 2,
+                dry_run=True,
+                notify=notify,
+            ),
+            timeout=BOOKING_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        log.warning("booking timed out (%ss) for %s", BOOKING_TIMEOUT_S, phone)
+        await send_text(phone, "אחי זה נתקע לי, לקח יותר מדי. ננסה שוב?")
+    except Exception:
+        log.exception("booking failed for %s", phone)
+        await send_text(phone, "נתקעתי באמצע, לא הצלחתי לסגור. ננסה שוב?")
 
 
 async def handle_inbound(phone: str, text: str) -> None:
@@ -97,4 +124,4 @@ async def handle_inbound(phone: str, text: str) -> None:
     result = await converse(phone, text)
     await send_text(phone, result.get("reply", "רגע 🔄"))
     if result.get("ready"):
-        asyncio.create_task(run_booking(phone, result))
+        _spawn(run_booking(phone, result))
