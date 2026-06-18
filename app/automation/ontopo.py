@@ -11,6 +11,7 @@ playbook הזמנת מסעדה ב-Ontopo (זרוע הביצוע).
 """
 
 import os
+import re
 from typing import Awaitable, Callable
 
 from stagehand import AsyncStagehand
@@ -26,6 +27,17 @@ async def _noop(_: str) -> None:
 
 def _norm(s: str) -> str:
     return "".join(ch for ch in s.lower().strip() if ch.isalnum() or ch == " ")
+
+
+def _date_matches(requested: str, shown: str) -> bool:
+    """האם התאריך שמוצג בווידג'ט תואם למבוקש? השוואה גסה לפי מספר היום.
+    ponytail: היוריסטיקת ספרת-היום; אם אי אפשר לאמת → False (עדיף להזהיר מאשר
+    לסגור על תאריך שגוי). שדרוג: פרסור תאריכים מלא אם יתברר כלא מספיק."""
+    rd = re.findall(r"\d+", requested)
+    sd = re.findall(r"\d+", shown)
+    if not rd or not sd:
+        return False
+    return rd[0] in sd
 
 
 # מילות-מפתח שמסמנות דיל/רשימה/שובר ולא את דף ההזמנה האמיתי של המסעדה
@@ -144,8 +156,15 @@ async def book_table(
 
         # ── כמות, תאריך, ובדיקת זמינות אמיתית ──
         await session.act(input=f"בחר {party_size} סועדים")
+        date_ok = True
         if date:
             await session.act(input=f"בחר את התאריך: {date}")
+            sel = await _extract(
+                session,
+                "the reservation date currently selected or shown in the booking widget (as text)",
+                {"type": "object", "properties": {"selected_date": {"type": "string"}}},
+            )
+            date_ok = _date_matches(date, sel.get("selected_date") or "")
         avail = await _extract(
             session,
             "list all available booking time slots currently shown in the widget",
@@ -175,14 +194,25 @@ async def book_table(
                 "time": {"type": "string"}, "party_size": {"type": "string"},
             }},
         )
+        actual_date = (screen.get("date") or "").strip() or (date or "היום")
+        date_mismatch = bool(date) and not date_ok
         details = {
-            "restaurant": on_page or restaurant, "date": date or "היום",
-            "time": chosen_time, "party_size": party_size, "near_time": near, "screen": screen,
+            "restaurant": on_page or restaurant, "date": actual_date,
+            "requested_date": date or "", "time": chosen_time, "party_size": party_size,
+            "near_time": near, "date_mismatch": date_mismatch, "screen": screen,
         }
 
-        # ── שער אישור לפני צעד בלתי-הפיך ──
+        # ── שער אישור לפני צעד בלתי-הפיך: מדווחים מה *באמת* נבחר ומסמנים פערים ──
         if dry_run:
-            await notify(f"כמעט סגור — {details['restaurant']}, {details['date']} {chosen_time}, {party_size} סועדים. מאשר?")
+            warn = ""
+            if date_mismatch:
+                warn += f" — שים לב, ביקשת {date} אבל יצא לי על {actual_date}, תאשר רק אם מתאים"
+            if near:
+                warn += f" — {time} לא היה פנוי, תפסתי {chosen_time}"
+            await notify(
+                f"כמעט סגור — {details['restaurant']}, {actual_date} {chosen_time}, "
+                f"{party_size} סועדים. מאשר?{warn}"
+            )
             return ActionResult(
                 success=True,
                 summary="הגעתי למסך האישור (DRY_RUN — לא ביצעתי הזמנה אמיתית).",
