@@ -13,7 +13,7 @@ import urllib.parse
 
 import httpx
 
-from app.automation.ontopo import _match_restaurant
+from app.automation.ontopo import _is_listing, _match_restaurant
 
 DDG = "https://html.duckduckgo.com/html/"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
@@ -53,6 +53,11 @@ async def resolve_ontopo_url(name: str, city: str = "") -> dict:
     candidates = await search_ontopo(name, city)
     if not candidates:
         return {"status": "none", "url": None, "candidates": []}
+
+    # סינון דילים/שוברים/חבילות לפני הדיסאמביגואציה — אלה מבלבלים את הלקוח.
+    # אם הסינון מרוקן הכל, נשארים עם הסט המקורי (fallback).
+    filtered = [c for c in candidates if not _is_listing(c["title"])]
+    candidates = filtered or candidates
 
     titles = [c["title"] for c in candidates]
     status, chosen_title, good = _match_restaurant(name, titles)

@@ -23,6 +23,16 @@ def test_match_many():
     assert good == ["הדסון לילינבלום", "הדסון בורגר"]
 
 
+def test_match_one_prefers_real_page_over_deal():
+    # דף ההזמנה האמיתי מול דיל/טעימות — לא לשאול את הלקוח, לבחור את דף ההזמנה.
+    status, chosen, good = _match_restaurant(
+        "טאיזו", ["טאיזו - Ontopo", "ארוחת טעימות זוגית מבית טאיזו תל אביב"]
+    )
+    assert status == "one"
+    assert chosen == "טאיזו - Ontopo"
+    assert good == ["טאיזו - Ontopo"]
+
+
 def test_match_none():
     status, chosen, good = _match_restaurant("טאיזו", ["קפה אחר", "מסעדה אחרת"])
     assert status == "none"
@@ -43,6 +53,7 @@ def test_page_no_match():
 if __name__ == "__main__":
     test_match_one()
     test_match_many()
+    test_match_one_prefers_real_page_over_deal()
     test_match_none()
     test_page_matches()
     test_page_no_match()
