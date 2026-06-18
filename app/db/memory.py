@@ -1,0 +1,180 @@
+"""זיכרון בין שיחות — async API מעל Supabase REST (PostgREST) דרך httpx.
+
+עיצוב מאושר:
+- name + email מוצפנים at-rest עם Fernet(ENCRYPTION_KEY) — מצפינים בכתיבה, מפענחים בקריאה.
+- GATING: בלי supabase_url או supabase_service_key הכל no-op — get_profile/recent_bookings
+  מחזירים None/[] ו-upsert/log לא עושים כלום. הפייפליין מתנהג בדיוק כמו היום בלי מפתחות.
+- אף פונקציה לא זורקת על קונפיג חסר או כשל רשת — תופסים, מתעדים, ומחזירים ברירת-מחדל בטוחה.
+"""
+
+import logging
+
+import httpx
+from cryptography.fernet import Fernet, InvalidToken
+
+from app.config import settings
+
+log = logging.getLogger("gever")
+
+_TIMEOUT = 10.0
+
+
+def _enabled() -> bool:
+    """הזיכרון פעיל רק כששתי הקונפיגורציות קיימות."""
+    return bool(settings.supabase_url and settings.supabase_service_key)
+
+
+def _rest_url(path: str) -> str:
+    return f"{settings.supabase_url.rstrip('/')}/rest/v1/{path}"
+
+
+def _headers(extra: dict | None = None) -> dict:
+    key = settings.supabase_service_key
+    headers = {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+def _fernet() -> Fernet | None:
+    """Fernet מ-ENCRYPTION_KEY, או None אם המפתח חסר/לא תקין (אז לא מצפינים)."""
+    if not settings.encryption_key:
+        return None
+    try:
+        return Fernet(settings.encryption_key.encode())
+    except (ValueError, TypeError) as exc:
+        log.warning("memory: invalid ENCRYPTION_KEY, storing PII as-is: %s", exc)
+        return None
+
+
+def _encrypt(value: str | None) -> str | None:
+    if value is None:
+        return None
+    f = _fernet()
+    if f is None:
+        return value
+    return f.encrypt(value.encode()).decode()
+
+
+def _decrypt(value: str | None) -> str | None:
+    if value is None:
+        return None
+    f = _fernet()
+    if f is None:
+        return value
+    try:
+        return f.decrypt(value.encode()).decode()
+    except (InvalidToken, ValueError, TypeError):
+        # ערך לא-מוצפן (legacy) או מפתח שונה — מחזירים כמו שהוא במקום להפיל.
+        return value
+
+
+async def get_profile(phone: str) -> dict | None:
+    """פרופיל המשתמש לפי phone, עם name/email מפוענחים. None אם אין/כבוי/כשל."""
+    if not _enabled():
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(
+                _rest_url("users"),
+                headers=_headers(),
+                params={"phone": f"eq.{phone}", "select": "*", "limit": "1"},
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        if not rows:
+            return None
+        row = rows[0]
+        row["name"] = _decrypt(row.get("name"))
+        row["email"] = _decrypt(row.get("email"))
+        return row
+    except Exception as exc:  # noqa: BLE001 — לעולם לא מפילים את הפייפליין על קריאת זיכרון
+        log.warning("memory.get_profile failed for %s: %s", phone, exc)
+        return None
+
+
+async def upsert_profile(
+    phone: str,
+    name: str | None = None,
+    email: str | None = None,
+    prefs: dict | None = None,
+) -> None:
+    """יוצר/מעדכן פרופיל. שדות None לא נדרסים. name/email נשמרים מוצפנים."""
+    if not _enabled():
+        return
+    payload: dict = {"phone": phone, "updated_at": "now()"}
+    if name is not None:
+        payload["name"] = _encrypt(name)
+    if email is not None:
+        payload["email"] = _encrypt(email)
+    if prefs is not None:
+        payload["prefs"] = prefs
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                _rest_url("users"),
+                headers=_headers({"Prefer": "resolution=merge-duplicates"}),
+                params={"on_conflict": "phone"},
+                json=payload,
+            )
+            resp.raise_for_status()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("memory.upsert_profile failed for %s: %s", phone, exc)
+
+
+async def log_booking(
+    phone: str,
+    restaurant: str,
+    date: str,
+    time: str,
+    party_size: int,
+    status: str,
+) -> None:
+    """רושם הזמנה בהיסטוריה. no-op כשהזיכרון כבוי; לא מפיל על כשל."""
+    if not _enabled():
+        return
+    payload = {
+        "phone": phone,
+        "restaurant": restaurant,
+        "date": date,
+        "time": time,
+        "party_size": party_size,
+        "status": status,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                _rest_url("bookings"),
+                headers=_headers(),
+                json=payload,
+            )
+            resp.raise_for_status()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("memory.log_booking failed for %s: %s", phone, exc)
+
+
+async def recent_bookings(phone: str, limit: int = 3) -> list:
+    """ההזמנות האחרונות (חדש→ישן) לצורך recap קל. [] אם אין/כבוי/כשל."""
+    if not _enabled():
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(
+                _rest_url("bookings"),
+                headers=_headers(),
+                params={
+                    "phone": f"eq.{phone}",
+                    "select": "*",
+                    "order": "created_at.desc",
+                    "limit": str(limit),
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("memory.recent_bookings failed for %s: %s", phone, exc)
+        return []

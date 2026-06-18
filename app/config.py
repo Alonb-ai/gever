@@ -22,8 +22,12 @@ class Settings(BaseSettings):
     whatsapp_verify_token: str = "gever_verify_2026"  # אנחנו בוחרים; חייב להתאים לדאשבורד של Meta
     whatsapp_api_version: str = "v21.0"
 
-    # ponytail: שדות שלב-2 (Supabase/Lemon Squeezy/encryption) הוסרו — אף מסלול לא קורא להם.
-    # להחזיר כשהזרוע מתחילה (זרוע 4 — Supabase, זרוע 6 — Lemon Squeezy). extra="ignore" → .env לא נשבר.
+    # Supabase — זיכרון בין שיחות (זרוע 4). ריק → memory layer הוא no-op מלא.
+    supabase_url: str = ""
+    supabase_service_key: str = ""
+    encryption_key: str = ""  # Fernet — הצפנת name/email at-rest
+
+    # ponytail: שדות Lemon Squeezy (זרוע 6) עדיין מוסרים — אף מסלול לא קורא להם.
 
 
 settings = Settings()

@@ -21,8 +21,11 @@ dependencies = [
     "pydantic-settings>=2.6.0",
     "google-genai>=1.0.0",        # unified Google GenAI SDK (Gemini)
 
-    # ponytail: supabase/twilio/python-multipart/cryptography removed — no consumers.
-    # Re-add when their arm starts: supabase (זרוע 4), cryptography/Fernet (PII at rest).
+    # Stage 4 — cross-conversation memory (Supabase + PII at rest)
+    "supabase>=2.9.0",
+    "cryptography>=43.0.0",      # Fernet — encrypt name/email at rest
+
+    # ponytail: twilio/python-multipart removed — no consumers. Re-add when their arm starts.
 ]
 
 [project.optional-dependencies]

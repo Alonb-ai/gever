@@ -9,6 +9,7 @@
 import asyncio
 import json
 import logging
+import time
 
 from google import genai
 from google.genai import types
@@ -16,6 +17,7 @@ from google.genai import types
 from app.automation.ontopo import book_table
 from app.automation.resolve import resolve_ontopo_url
 from app.config import settings
+from app.db import memory
 from app.llm.intent import SYSTEM_PROMPT, gender_line
 from app.whatsapp.client import send_text
 
@@ -23,6 +25,7 @@ _EXTRACT = (
     "\n\n--- מנגנון פנימי (אל תחשוף ואל תזכיר אותו) ---\n"
     "בכל תור החזר JSON: 'reply' = מה שאתה אומר למשתמש, בדמות. "
     "מלא restaurant/date/time/party_size כשהם ידועים מהשיחה. "
+    "אם המשתמש מסר את שמו או המייל שלו, מלא name/email (אל תמציא — רק אם נאמרו). "
     "'ready'=true רק כשיש לך את כל הארבעה והמשתמש אישר לסגור."
 )
 _SCHEMA = {
@@ -34,6 +37,8 @@ _SCHEMA = {
         "date": {"type": "string"},
         "time": {"type": "string"},
         "party_size": {"type": "integer"},
+        "name": {"type": "string"},
+        "email": {"type": "string"},
     },
     "required": ["reply", "ready"],
 }
@@ -42,11 +47,18 @@ log = logging.getLogger("gever")
 
 _client: genai.Client | None = None
 _chats: dict = {}  # phone -> chat session
-_pending: set = set()  # ponytail: hold strong refs — create_task() tasks get GC'd mid-flight otherwise
+_last_seen: dict = {}  # phone -> time.time() של התור האחרון (פתיחת "דף חדש" אחרי שקט)
+_reset_next: set = set()  # phones שיקבלו שיחה טרייה בתור הבא (אחרי שהזמנה נסגרה)
+_pending: set = (
+    set()
+)  # ponytail: hold strong refs — create_task() tasks get GC'd mid-flight otherwise
 # אמת-קרקע על תוצאת ההזמנה האמיתית, phone -> {"state": ..., "info": ...}.
 # state: "working" | "done" | "failed" | "none" | "ambiguous". מוזרק ל-converse כדי
 # שמודל השיחה לא ימציא הצלחה/כישלון. נכתב רק ב-run_booking (המקור היחיד לאמת).
 _booking: dict = {}
+
+# פער שאחריו פותחים "דף חדש": שיחה טרייה במקום לגרור את ההיסטוריה הישנה.
+SESSION_GAP_S = 3 * 60 * 60  # ~3 שעות
 
 
 def _spawn(coro) -> None:
@@ -56,20 +68,70 @@ def _spawn(coro) -> None:
     task.add_done_callback(_pending.discard)
 
 
-def _chat_for(phone: str):
+def _profile_block(profile: dict | None) -> str:
+    """בלוק PROFILE להזרקה ל-seed כשיש פרופיל — שם + העדפות. ריק אם אין פרופיל."""
+    if not profile:
+        return ""
+    lines = ["\n\n--- פרופיל המשתמש (אתה כבר מכיר אותו, אל תבקש שוב שם/מייל) ---"]
+    if profile.get("name"):
+        lines.append(f"שם: {profile['name']}")
+    prefs = profile.get("prefs") or {}
+    if prefs.get("party_size"):
+        lines.append(f"כמות סועדים ברירת מחדל: {prefs['party_size']}")
+    if prefs.get("dietary"):
+        lines.append(f"מגבלות אוכל: {prefs['dietary']}")
+    if prefs.get("areas"):
+        lines.append(f"אזורים מועדפים: {prefs['areas']}")
+    return "\n".join(lines)
+
+
+def _recap_block(bookings: list) -> str:
+    """recap קצר מההזמנות האחרונות. ריק אם אין — לא גוררים תמלול מלא, רק תזכורת."""
+    if not bookings:
+        return ""
+    lines = ["\n\n--- הזמנות אחרונות (רקע, אל תזכיר אלא אם רלוונטי) ---"]
+    for b in bookings:
+        parts = [b.get("restaurant") or "?"]
+        if b.get("date"):
+            parts.append(b["date"])
+        if b.get("party_size"):
+            parts.append(f"{b['party_size']} סועדים")
+        lines.append("· " + " — ".join(str(p) for p in parts))
+    return "\n".join(lines)
+
+
+async def _seed_instruction(phone: str) -> str:
+    """ה-system_instruction לשיחה טרייה: בסיס + פרופיל + recap (אם יש זיכרון).
+    בלי מפתחות get_profile/recent_bookings מחזירים None/[] → בדיוק כמו היום."""
+    base = SYSTEM_PROMPT + "\n\n" + gender_line(None)
+    profile = await memory.get_profile(phone)
+    bookings = await memory.recent_bookings(phone)
+    return base + _profile_block(profile) + _recap_block(bookings) + _EXTRACT
+
+
+async def _chat_for(phone: str):
+    """מחזיר את השיחה של phone, ופותח "דף חדש" כשצריך: מגע ראשון, פער >~3 שעות,
+    או אחרי שהזמנה נסגרה (_reset_next). שיחה טרייה נזרעת עם הפרופיל וה-recap."""
     global _client
     if _client is None:
         _client = genai.Client(api_key=settings.gemini_api_key)
-    if phone not in _chats:
+
+    now = time.time()
+    last = _last_seen.get(phone)
+    stale = last is not None and (now - last) > SESSION_GAP_S
+    fresh = phone not in _chats or stale or phone in _reset_next
+    if fresh:
+        _reset_next.discard(phone)
         _chats[phone] = _client.chats.create(
             model=settings.gemini_model,
             config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT + "\n\n" + gender_line(None) + _EXTRACT,
+                system_instruction=await _seed_instruction(phone),
                 temperature=0.7,
                 response_mime_type="application/json",
                 response_schema=_SCHEMA,
             ),
         )
+    _last_seen[phone] = now
     return _chats[phone]
 
 
@@ -93,10 +155,7 @@ def _truth_note(phone: str) -> str:
     if state == "done":
         return f"[אמת-למערכת בלבד: ההזמנה אושרה ({info}).]\n\n"
     if state == "none":
-        return (
-            f"[אמת-למערכת בלבד: לא מצאתי מסעדה בשם '{info}'. "
-            "אל תמציא שסגרת — בקש שם אחר.]\n\n"
-        )
+        return f"[אמת-למערכת בלבד: לא מצאתי מסעדה בשם '{info}'. אל תמציא שסגרת — בקש שם אחר.]\n\n"
     if state == "ambiguous":
         return (
             f"[אמת-למערכת בלבד: יש כמה מסעדות תואמות ({info}), עוד לא בחרנו. "
@@ -107,7 +166,7 @@ def _truth_note(phone: str) -> str:
 
 async def converse(phone: str, text: str) -> dict:
     """תור שיחה אחד. הקריאה ל-Gemini חוסמת — מריצים ב-thread כדי לא לחסום."""
-    chat = _chat_for(phone)
+    chat = await _chat_for(phone)
     msg = _truth_note(phone) + text
     resp = await asyncio.to_thread(chat.send_message, msg)
     return json.loads(resp.text)
@@ -153,6 +212,22 @@ async def run_booking(phone: str, fields: dict) -> None:
         )
         if res.success:
             _booking[phone] = {"state": "done", "info": res.summary}
+            # זיכרון בין שיחות: שומר שם/מייל (אם נמסרו) ורושם את ההזמנה. no-op בלי מפתחות.
+            await memory.upsert_profile(
+                phone,
+                name=(fields.get("name") or None),
+                email=(fields.get("email") or None),
+            )
+            await memory.log_booking(
+                phone,
+                restaurant=name,
+                date=fields.get("date") or "",
+                time=fields.get("time") or "20:00",
+                party_size=fields.get("party_size") or 2,
+                status="confirmed",
+            )
+            # המשימה נסגרה → "דף חדש" בתור הבא, עם הפרופיל וה-recap המעודכנים.
+            _reset_next.add(phone)
         else:
             _booking[phone] = {"state": "failed", "info": res.summary}
     except asyncio.TimeoutError:
