@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>גבר — שלח הודעה אחת. גבר סוגר את השאר.</title>
+<meta name="description" content="הודעת וואטסאפ אחת, וגבר נכנס לאתרים וסוגר לך את המשימה — מסעדה, ביטוח, כרטיסים. לא עוד צ'אטבוט שמפטפט. מישהו שבאמת סוגר.">
+<meta property="og:title" content="גבר — שלח הודעה אחת. גבר סוגר את השאר.">
+<meta property="og:description" content="לא עוד צ'אטבוט שמפטפט, ולא נודניק שדוחף אותך לעשות לבד. גבר נכנס לאתרים וסוגר במקומך.">
+<meta property="og:locale" content="he_IL">
+<meta property="og:type" content="website">
+<!-- TODO: החלף את WHATSAPP_NUMBER בכל מקום במספר הבינלאומי בלי + ובלי רווחים, למשל 9725XXXXXXXX -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&family=Heebo:wght@400;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --orange:#FF6B35;
+    --orange-dark:#E2531F;
+    --teal:#1CA3A3;
+    --teal-dark:#147878;
+    --cream:#FAF3E8;
+    --cream-2:#F3E8D6;
+    --ink:#222222;
+    --ink-soft:#4a4a46;
+    --wa:#25D366;
+    --wa-dark:#1da851;
+    --white:#ffffff;
+    --shadow:0 10px 30px rgba(34,34,34,.08);
+    --shadow-lg:0 18px 50px rgba(34,34,34,.14);
+    --radius:18px;
+    --radius-sm:12px;
+    --maxw:1120px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:'Assistant',system-ui,-apple-system,sans-serif;
+    background:var(--cream);
+    color:var(--ink);
+    line-height:1.65;
+    font-size:18px;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  h1,h2,h3,.heebo{font-family:'Heebo','Assistant',sans-serif;font-weight:800;line-height:1.12}
+  a{color:inherit;text-decoration:none}
+  img{max-width:100%;display:block}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px}
+  .section{padding:78px 0}
+  .eyebrow{
+    display:inline-block;font-weight:700;letter-spacing:.04em;
+    color:var(--teal-dark);background:rgba(28,163,163,.12);
+    padding:6px 14px;border-radius:999px;font-size:14px;margin-bottom:18px;
+  }
+  .sec-title{font-size:clamp(28px,4.4vw,42px);margin-bottom:14px}
+  .sec-sub{font-size:19px;color:var(--ink-soft);max-width:640px}
+  .center{text-align:center}
+  .center .sec-sub{margin-inline:auto}
+
+  /* Buttons */
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:9px;
+    font-family:'Heebo',sans-serif;font-weight:800;font-size:19px;
+    padding:16px 30px;border-radius:14px;border:none;cursor:pointer;
+    transition:transform .15s ease,box-shadow .15s ease,background .15s ease;
+    text-align:center;line-height:1.1;
+  }
+  .btn:hover{transform:translateY(-2px)}
+  .btn:active{transform:translateY(0)}
+  .btn-primary{background:var(--orange);color:#fff;box-shadow:0 8px 22px rgba(255,107,53,.32)}
+  .btn-primary:hover{background:var(--orange-dark)}
+  .btn-wa{background:var(--wa);color:#fff;box-shadow:0 8px 22px rgba(37,211,102,.3)}
+  .btn-wa:hover{background:var(--wa-dark)}
+  .btn-ghost{background:transparent;color:var(--ink);border:2px solid rgba(34,34,34,.18)}
+  .btn-ghost:hover{border-color:var(--orange);color:var(--orange-dark);background:#fff}
+  .btn-big{font-size:21px;padding:19px 38px}
+  .micro{font-size:15px;color:var(--ink-soft);margin-top:14px}
+
+  /* Nav */
+  header.nav{
+    position:sticky;top:0;z-index:60;
+    background:rgba(250,243,232,.9);backdrop-filter:blur(10px);
+    border-bottom:1px solid rgba(34,34,34,.07);
+  }
+  .nav-inner{display:flex;align-items:center;justify-content:space-between;height:68px}
+  .logo{font-family:'Heebo';font-weight:900;font-size:27px;color:var(--ink);display:flex;align-items:center;gap:8px}
+  .logo .dot{color:var(--orange)}
+  .nav-links{display:flex;align-items:center;gap:26px;font-weight:600}
+  .nav-links a.lnk{color:var(--ink-soft);transition:color .15s}
+  .nav-links a.lnk:hover{color:var(--orange-dark)}
+  .nav-cta{padding:11px 20px;font-size:16px}
+  @media(max-width:760px){.nav-links a.lnk{display:none}}
+
+  /* Hero */
+  .hero{position:relative;padding:72px 0 60px}
+  .hero::before{
+    content:"";position:absolute;inset:0;z-index:0;
+    background:
+      radial-gradient(circle at 82% 8%,rgba(255,107,53,.14),transparent 42%),
+      radial-gradient(circle at 8% 92%,rgba(28,163,163,.13),transparent 45%);
+    pointer-events:none;
+  }
+  .hero-grid{position:relative;z-index:1;display:grid;grid-template-columns:1.05fr .95fr;gap:54px;align-items:center}
+  .badge-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:22px}
+  .pill{
+    display:inline-flex;align-items:center;gap:7px;font-weight:700;font-size:14px;
+    background:#fff;border:1px solid rgba(34,34,34,.09);padding:7px 14px;border-radius:999px;
+    color:var(--ink-soft);box-shadow:0 2px 8px rgba(34,34,34,.04);
+  }
+  h1.hero-title{font-size:clamp(38px,6vw,62px);font-weight:900;letter-spacing:-.01em}
+  h1.hero-title .hl{color:var(--orange)}
+  .hero-sub{font-size:clamp(18px,2.4vw,22px);color:var(--ink-soft);margin:22px 0 8px;max-width:540px}
+
+  .rotor{
+    margin:26px 0 30px;background:#fff;border:1px solid rgba(34,34,34,.08);
+    border-radius:var(--radius);padding:20px 22px;box-shadow:var(--shadow);
+    display:flex;align-items:center;gap:16px;min-height:88px;
+  }
+  .rotor-label{font-weight:700;color:var(--ink-soft);font-size:15px;white-space:nowrap}
+  .rotor-stage{flex:1;position:relative;min-height:46px;overflow:hidden}
+  .rotor-item{
+    position:absolute;inset:0;display:flex;align-items:center;
+    font-family:'Heebo';font-weight:800;font-size:clamp(20px,3vw,27px);color:var(--orange-dark);
+    opacity:0;transform:translateY(14px);transition:opacity .5s ease,transform .5s ease;
+  }
+  .rotor-item.is-in{opacity:1;transform:translateY(0)}
+  .rotor-item.is-out{opacity:0;transform:translateY(-14px)}
+  .rotor-tick{
+    flex:none;width:46px;height:46px;border-radius:12px;background:rgba(37,211,102,.14);
+    display:flex;align-items:center;justify-content:center;font-size:24px;
+  }
+
+  .cta-row{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+
+  /* Hero phone */
+  .phone-col{position:relative;display:flex;justify-content:center}
+  .phone{
+    width:300px;max-width:88vw;background:#0c0c0c;border-radius:38px;padding:13px;
+    box-shadow:var(--shadow-lg);position:relative;
+  }
+  .phone-notch{position:absolute;top:13px;left:50%;transform:translateX(-50%);width:120px;height:22px;background:#0c0c0c;border-radius:0 0 14px 14px;z-index:3}
+  .phone-screen{background:#0b1418;border-radius:28px;overflow:hidden}
+  .wa-top{background:#075E54;color:#fff;padding:30px 14px 12px;display:flex;align-items:center;gap:10px}
+  .wa-av{width:38px;height:38px;border-radius:50%;background:var(--orange);display:flex;align-items:center;justify-content:center;font-family:'Heebo';font-weight:900;font-size:18px}
+  .wa-name{font-family:'Heebo';font-weight:800;font-size:16px;line-height:1.1}
+  .wa-status{font-size:12px;color:#cfeee6}
+  .wa-body{
+    padding:16px 12px 18px;min-height:330px;
+    background-color:#0b141a;
+    background-image:radial-gradient(rgba(255,255,255,.025) 1px,transparent 1px);
+    background-size:18px 18px;
+    display:flex;flex-direction:column;gap:9px;
+  }
+  .bub{max-width:82%;padding:9px 12px;border-radius:12px;font-size:14.5px;line-height:1.5;position:relative;word-wrap:break-word}
+  .bub.me{align-self:flex-start;background:#202c33;color:#e9edef;border-top-right-radius:3px}
+  .bub.g{align-self:flex-end;background:#005c4b;color:#e9f7ef;border-top-left-radius:3px}
+  .bub .t{display:block;font-size:10.5px;color:rgba(255,255,255,.5);text-align:left;margin-top:3px}
+  .typing .dots{display:inline-flex;gap:4px}
+  .typing .dots i{width:6px;height:6px;border-radius:50%;background:#9fb3ad;display:inline-block;animation:blink 1.2s infinite}
+  .typing .dots i:nth-child(2){animation-delay:.2s}
+  .typing .dots i:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,60%,100%{opacity:.3}30%{opacity:1}}
+
+  /* Trust bar */
+  .trustbar{background:var(--ink);color:#fff;padding:18px 0}
+  .trustbar .wrap{display:flex;align-items:center;justify-content:center;gap:14px;text-align:center;flex-wrap:wrap}
+  .trustbar p{font-size:17px;color:#f1e9da}
+  .trustbar strong{color:var(--orange)}
+
+  /* Versus block */
+  .versus{background:linear-gradient(180deg,var(--cream),var(--cream-2))}
+  .vs-grid{display:grid;grid-template-columns:1fr auto 1fr;gap:22px;align-items:stretch;margin-top:34px}
+  .vs-card{background:#fff;border-radius:var(--radius);padding:26px 24px;box-shadow:var(--shadow);border:1px solid rgba(34,34,34,.06)}
+  .vs-card h3{font-size:21px;margin-bottom:14px}
+  .vs-card.bad h3{color:var(--ink-soft)}
+  .vs-card.good{border:2px solid var(--orange);position:relative}
+  .vs-card.good h3{color:var(--orange-dark)}
+  .vs-tag{position:absolute;top:-14px;inset-inline-start:24px;background:var(--orange);color:#fff;font-family:'Heebo';font-weight:800;font-size:13px;padding:5px 13px;border-radius:999px}
+  .vs-list{list-style:none;display:flex;flex-direction:column;gap:12px}
+  .vs-list li{display:flex;gap:10px;font-size:16.5px;color:var(--ink-soft)}
+  .vs-list .ic{flex:none;font-weight:800}
+  .vs-card.bad .ic{color:#c2402a}
+  .vs-card.good .vs-list li{color:var(--ink)}
+  .vs-card.good .ic{color:var(--wa-dark)}
+  .vs-mid{display:flex;align-items:center;justify-content:center;font-family:'Heebo';font-weight:900;font-size:24px;color:var(--ink-soft)}
+  @media(max-width:840px){.vs-grid{grid-template-columns:1fr}.vs-mid{padding:6px 0}}
+
+  /* Steps */
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:42px}
+  .step{background:#fff;border-radius:var(--radius);padding:30px 26px;box-shadow:var(--shadow);position:relative;border:1px solid rgba(34,34,34,.05)}
+  .step .num{
+    width:48px;height:48px;border-radius:14px;background:rgba(255,107,53,.12);color:var(--orange-dark);
+    display:flex;align-items:center;justify-content:center;font-family:'Heebo';font-weight:900;font-size:22px;margin-bottom:18px;
+  }
+  .step .emoji{font-size:24px;margin-inline-start:4px}
+  .step h3{font-size:21px;margin-bottom:10px}
+  .step p{font-size:16.5px;color:var(--ink-soft)}
+  .step-foot{margin-top:30px;font-family:'Heebo';font-weight:800;font-size:20px;color:var(--ink)}
+
+  /* Actions */
+  .actions{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:42px}
+  .act{background:#fff;border-radius:var(--radius);padding:28px 24px;box-shadow:var(--shadow);border:1px solid rgba(34,34,34,.05);transition:transform .18s ease,box-shadow .18s ease}
+  .act:hover{transform:translateY(-4px);box-shadow:var(--shadow-lg)}
+  .act .ico{font-size:38px;margin-bottom:14px}
+  .act h3{font-size:22px;margin-bottom:10px}
+  .act p{font-size:16px;color:var(--ink-soft);margin-bottom:16px}
+  .act .ex{
+    background:var(--cream);border-inline-start:4px solid var(--teal);
+    padding:11px 14px;border-radius:0 var(--radius-sm) var(--radius-sm) 0;
+    font-size:15px;color:var(--ink);font-style:italic;
+  }
+  .act .ex b{font-style:normal;color:var(--teal-dark);font-weight:700}
+  .actions-foot{margin-top:28px;font-family:'Heebo';font-weight:800;font-size:19px;color:var(--ink)}
+
+  /* Feed (social proof) */
+  .feed{background:var(--ink);color:#fff}
+  .feed .eyebrow{background:rgba(255,107,53,.18);color:#ffd0bd}
+  .feed .sec-title{color:#fff}
+  .feed .sec-sub{color:#d8cdba}
+  .feed-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:38px}
+  .fcard{background:#2c2c29;border-radius:var(--radius);padding:20px;border:1px solid rgba(255,255,255,.06)}
+  .fcard .fhead{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .fcard .fav{width:34px;height:34px;border-radius:50%;background:var(--teal);display:flex;align-items:center;justify-content:center;font-family:'Heebo';font-weight:800;font-size:14px}
+  .fcard .fmeta{font-size:13px;color:#b7ad9e}
+  .fbub{background:#005c4b;color:#e9f7ef;border-radius:12px;border-top-left-radius:3px;padding:10px 12px;font-size:14.5px;line-height:1.5}
+  .fcard .ftag{display:inline-flex;align-items:center;gap:6px;margin-top:14px;font-size:13px;font-weight:700;color:var(--wa);background:rgba(37,211,102,.12);padding:5px 11px;border-radius:999px}
+  .feed-note{margin-top:26px;font-size:14px;color:#9c9384;text-align:center}
+  .blur-ph{filter:blur(4px);user-select:none}
+
+  /* Pricing */
+  .price-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:42px;align-items:stretch}
+  .plan{background:#fff;border-radius:var(--radius);padding:32px 26px;box-shadow:var(--shadow);border:1px solid rgba(34,34,34,.06);display:flex;flex-direction:column}
+  .plan.feat{border:2px solid var(--orange);box-shadow:var(--shadow-lg);position:relative}
+  .plan-tag{position:absolute;top:-15px;left:50%;transform:translateX(-50%);background:var(--orange);color:#fff;font-family:'Heebo';font-weight:800;font-size:13px;padding:6px 16px;border-radius:999px;white-space:nowrap}
+  .plan h3{font-size:23px;margin-bottom:6px}
+  .plan .pamount{font-family:'Heebo';font-weight:900;font-size:44px;color:var(--ink);line-height:1;margin:8px 0 4px}
+  .plan .pamount span{font-size:19px;font-weight:700;color:var(--ink-soft)}
+  .plan .pfeat{list-style:none;display:flex;flex-direction:column;gap:12px;margin:22px 0 26px;flex:1}
+  .plan .pfeat li{display:flex;gap:9px;font-size:16px;color:var(--ink-soft)}
+  .plan .pfeat .ic{color:var(--wa-dark);font-weight:800;flex:none}
+  .plan .btn{width:100%}
+  .price-foot{margin-top:26px;text-align:center;font-size:16px;color:var(--ink-soft)}
+
+  /* FAQ */
+  .faq-wrap{max-width:780px;margin:38px auto 0}
+  .faq{background:#fff;border-radius:var(--radius-sm);box-shadow:var(--shadow);border:1px solid rgba(34,34,34,.05);margin-bottom:14px;overflow:hidden}
+  .faq-q{
+    width:100%;text-align:right;background:none;border:none;cursor:pointer;
+    padding:20px 22px;font-family:'Heebo';font-weight:800;font-size:19px;color:var(--ink);
+    display:flex;justify-content:space-between;align-items:center;gap:14px;
+  }
+  .faq-q .chev{flex:none;font-size:22px;color:var(--orange);transition:transform .25s ease}
+  .faq.open .faq-q .chev{transform:rotate(45deg)}
+  .faq-a{max-height:0;overflow:hidden;transition:max-height .3s ease}
+  .faq-a-inner{padding:0 22px 20px;font-size:16.5px;color:var(--ink-soft)}
+
+  /* Final CTA */
+  .final{background:linear-gradient(135deg,var(--orange),#ff8a5c);color:#fff;text-align:center}
+  .final h2{font-size:clamp(30px,5vw,46px);color:#fff;margin-bottom:14px}
+  .final p{font-size:20px;color:#fff;opacity:.95;max-width:620px;margin:0 auto 30px}
+  .final .cta-row{justify-content:center}
+  .final .btn-primary{background:#fff;color:var(--orange-dark);box-shadow:0 10px 26px rgba(0,0,0,.16)}
+  .final .btn-primary:hover{background:#fff;color:var(--orange)}
+  .final .btn-wa{background:var(--ink);box-shadow:0 10px 26px rgba(0,0,0,.2)}
+  .final .btn-wa:hover{background:#000}
+  .final .micro{color:#fff;opacity:.92}
+
+  /* Footer */
+  footer{background:var(--ink);color:#cfc6b6;padding:48px 0 30px}
+  .foot-top{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;flex-wrap:wrap;margin-bottom:28px}
+  .foot-brand{font-family:'Heebo';font-weight:900;font-size:24px;color:#fff}
+  .foot-tag{font-size:16px;color:#b7ad9e;margin-top:8px;max-width:320px}
+  .foot-links{display:flex;gap:24px;flex-wrap:wrap;font-weight:600}
+  .foot-links a:hover{color:var(--orange)}
+  .foot-bottom{border-top:1px solid rgba(255,255,255,.08);padding-top:20px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;font-size:14px;color:#8f8676}
+
+  @media(max-width:900px){
+    .hero-grid{grid-template-columns:1fr;gap:40px}
+    .hero-sub{max-width:none}
+    .phone-col{order:-1}
+    .steps,.actions,.price-grid,.feed-grid{grid-template-columns:1fr}
+    .plan.feat{order:-1}
+  }
+  @media(max-width:600px){
+    body{font-size:17px}
+    .section{padding:58px 0}
+    .btn{width:100%}
+    .cta-row{flex-direction:column;align-items:stretch}
+    .rotor{flex-direction:column;align-items:flex-start;gap:10px}
+    .foot-top{flex-direction:column}
+  }
+  .skip{position:absolute;inset-inline-start:-9999px;top:0;background:#fff;color:var(--ink);padding:10px 16px;z-index:100;border-radius:0 0 10px 0}
+  .skip:focus{inset-inline-start:0}
+  :focus-visible{outline:3px solid var(--teal);outline-offset:2px;border-radius:6px}
+</style>
+</head>
+<body>
+<a href="#main" class="skip">דלג לתוכן</a>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a href="#" class="logo" aria-label="גבר — לדף הבית">גבר<span class="dot">.</span></a>
+    <nav class="nav-links" aria-label="ניווט ראשי">
+      <a class="lnk" href="#how">איך זה עובד</a>
+      <a class="lnk" href="#actions">מה אני סוגר</a>
+      <a class="lnk" href="#pricing">תמחור</a>
+      <a class="lnk" href="#faq">שאלות</a>
+      <a class="btn btn-primary nav-cta" href="#waitlist">תפוס מקום בוייטליסט</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-text">
+        <div class="badge-row">
+          <span class="pill">🤙 לא בוט שמפטפט</span>
+          <span class="pill">✅ מישהו שבאמת סוגר</span>
+        </div>
+        <h1 class="hero-title">שלח הודעה אחת.<br><span class="hl">גבר סוגר</span> את השאר.</h1>
+        <p class="hero-sub">שיחת וואטסאפ אחת ואני נכנס לאתרים, ממלא את הטפסים וסוגר לך את המשימה — בזמן שאתה ממשיך בחיים. בלי טפסים, בלי המתנה למוקד, בלי כאב ראש.</p>
+
+        <div class="rotor" aria-hidden="true">
+          <span class="rotor-label">המשימה שאתה דוחה:</span>
+          <div class="rotor-stage" id="rotor"></div>
+          <div class="rotor-tick">✅</div>
+        </div>
+
+        <div class="cta-row">
+          <a class="btn btn-primary btn-big" href="#waitlist">תפוס לי מקום בוייטליסט ←</a>
+          <!-- TODO: החלף WHATSAPP_NUMBER במספר אמיתי -->
+          <a class="btn btn-wa" href="https://wa.me/WHATSAPP_NUMBER?text=היי%20גבר%2C%20אני%20רוצה%20לנסות%20אותך" target="_blank" rel="noopener">או פשוט תכתוב לי בוואטסאפ 🤙</a>
+        </div>
+        <p class="micro">חינם להתחלה. בלי כרטיס אשראי. אתה כותב, אני רץ.</p>
+      </div>
+
+      <div class="phone-col">
+        <div class="phone" role="img" aria-label="צ'אט וואטסאפ לדוגמה שבו גבר מזמין שולחן במסעדה ומאשר שסגר">
+          <span class="phone-notch"></span>
+          <div class="phone-screen">
+            <div class="wa-top">
+              <span class="wa-av">ג</span>
+              <div>
+                <div class="wa-name">גבר</div>
+                <div class="wa-status">מקליד...</div>
+              </div>
+            </div>
+            <div class="wa-body">
+              <div class="bub me">גבר אחי, שולחן ל-3 הערב בדרום ת"א, משהו טוב לבשר 🍖<span class="t">21:14</span></div>
+              <div class="bub g">עליהו. 21:00 או יש לך שעה מועדפת?<span class="t">21:14</span></div>
+              <div class="bub me">21:00 מושלם<span class="t">21:15</span></div>
+              <div class="bub g typing">בודק 3 מקומות עכשיו <span class="dots"><i></i><i></i><i></i></span> 🔄<span class="t">21:15</span></div>
+              <div class="bub g">✅ סגרתי לך ב"מלגו ומלגה", 21:00, שולחן ל-3 על שמך. תיהנה, מגיע לך.<span class="t">21:16</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TRUST BAR -->
+  <div class="trustbar">
+    <div class="wrap">
+      <p>אנשים כבר זורקים עליי את המשימות שהם הכי <strong>שונאים</strong>. עכשיו תורך.</p>
+    </div>
+  </div>
+  <!-- TODO: כשיהיו נתוני אמת — להחליף ל-"1,200+ משימות נסגרו החודש". בלי להמציא מספר. -->
+
+  <!-- VERSUS / POSITIONING -->
+  <section class="section versus">
+    <div class="wrap">
+      <div class="center">
+        <span class="eyebrow">למה גבר שונה</span>
+        <h2 class="sec-title">לא עוד צ'אטבוט. לא עוד נודניק.</h2>
+        <p class="sec-sub">רוב הבוטים רק מפטפטים. אחרים רק דוחפים אותך לעשות לבד. גבר נכנס לאתר ובאמת סוגר את המשימה במקומך.</p>
+      </div>
+      <div class="vs-grid">
+        <div class="vs-card bad">
+          <h3>בוטים אחרים</h3>
+          <ul class="vs-list">
+            <li><span class="ic">✕</span> מפטפטים, נותנים לינקים, ומשאירים אותך לבד מול האתר</li>
+            <li><span class="ic">✕</span> "הקש 1 לשירות" — תפריט לחיצות במקום בן אדם</li>
+            <li><span class="ic">✕</span> רק <em>מזכירים</em> לך לעשות — הנדנוד הוא המוצר</li>
+            <li><span class="ic">✕</span> בסוף אתה עדיין ממלא את הטופס בעצמך</li>
+          </ul>
+        </div>
+        <div class="vs-mid">VS</div>
+        <div class="vs-card good">
+          <span class="vs-tag">זה גבר</span>
+          <h3>גבר באמת סוגר</h3>
+          <ul class="vs-list">
+            <li><span class="ic">✓</span> נכנס לאתרים, ממלא טפסים ומשלים את הפעולה במקומך</li>
+            <li><span class="ic">✓</span> מדבר איתך כמו חבר, בעברית רגילה — לא תפריט</li>
+            <li><span class="ic">✓</span> לא מנדנד שתעשה — <strong>עושה</strong> בשבילך</li>
+            <li><span class="ic">✓</span> אתה מקבל הודעה "✅ סגור" וזהו. המשימה ירדה מהראש</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="section" id="how">
+    <div class="wrap">
+      <div class="center">
+        <span class="eyebrow">איך זה עובד</span>
+        <h2 class="sec-title">שלושה צעדים. זהו. אין צעד רביעי.</h2>
+      </div>
+      <div class="steps">
+        <article class="step">
+          <div class="num">1</div>
+          <h3>אתה כותב <span class="emoji" aria-hidden="true">💬</span></h3>
+          <p>פותח וואטסאפ ואומר לי במילים שלך מה אתה צריך. "תזמין שולחן ל-4 בשישי בערב" / "תחדש לי ביטוח רכב" / "תפוס 2 כרטיסים להופעה". בעברית רגילה, כאילו אתה מדבר עם חבר.</p>
+        </article>
+        <article class="step">
+          <div class="num">2</div>
+          <h3>גבר רץ לסגור <span class="emoji" aria-hidden="true">🔄</span></h3>
+          <p>אני נכנס לאתרים, ממלא את הטפסים, משווה אופציות ובוחר את ההגיוני. אם חסר לי פרט קטן — אני שואל אותך משפט אחד ולא מטריד יותר מזה. אתה בינתיים חי את החיים.</p>
+        </article>
+        <article class="step">
+          <div class="num">3</div>
+          <h3>קיבלת אישור <span class="emoji" aria-hidden="true">✅</span></h3>
+          <p>שולח לך הודעה: "סגור. שולחן ל-4 בשישי 20:00, על שמך." או "חידשתי ביטוח, מצאתי לך מחיר יותר טוב, הנה הפוליסה." משימה ירדה מהראש. ביי-ביי.</p>
+        </article>
+      </div>
+      <p class="center step-foot">זה הכל. אתה לא מתעסק עם אף אתר. אני כן.</p>
+    </div>
+  </section>
+
+  <!-- ACTIONS -->
+  <section class="section versus" id="actions">
+    <div class="wrap">
+      <div class="center">
+        <span class="eyebrow">מה אני סוגר</span>
+        <h2 class="sec-title">מה אני סוגר לך כבר עכשיו</h2>
+      </div>
+      <div class="actions">
+        <article class="act">
+          <div class="ico" aria-hidden="true">🍽️</div>
+          <h3>מסעדות</h3>
+          <p>שולחן לשישי בערב? יום הולדת של בן/בת הזוג ואתה לא רוצה לפשל? תגיד לי כמה אנשים, מתי ובאיזה אזור — אני מוצא מקום פנוי, מזמין על שמך ומאשר. גם אם זה מקום שקשה להשיג בו מקום, אני אנסה עד הסוף.</p>
+          <p class="ex"><b>דוגמה:</b> "גבר, שולחן ל-2 רומנטי בנמל תל אביב לשבת ב-21:00"</p>
+        </article>
+        <article class="act">
+          <div class="ico" aria-hidden="true">🛡️</div>
+          <h3>ביטוח</h3>
+          <p>חידוש ביטוח רכב / דירה / נסיעות בלי לבזבז שעה במוקד. אני משווה הצעות, בודק שלא דופקים אותך במחיר, וסוגר את הזול וההגיוני. שולח לך את הפוליסה לוואטסאפ.</p>
+          <p class="ex"><b>דוגמה:</b> "תחדש לי ביטוח חובה לרכב, מספר רישוי 12-345-67"</p>
+        </article>
+        <article class="act">
+          <div class="ico" aria-hidden="true">🎫</div>
+          <h3>כרטיסים</h3>
+          <p>הופעות, הצגות, משחקים, כנסים. ברגע שהמכירה נפתחת אני שם — ממלא פרטים מהר לפני שזה נגמר וחוטף לך מקומות טובים. אתה רק אומר לאיזה אירוע וכמה כרטיסים.</p>
+          <p class="ex"><b>דוגמה:</b> "2 כרטיסים לסטטיק ובן אל, אזור טוב, עד 600 שקל לכרטיס"</p>
+        </article>
+      </div>
+      <p class="center actions-foot">זו רק ההתחלה. כל משימה דיגיטלית מעצבנת שאתה שונא — בדרך אליי. 🔄</p>
+    </div>
+  </section>
+
+  <!-- FEED / SOCIAL PROOF -->
+  <section class="section feed" id="feed">
+    <div class="wrap">
+      <div class="center">
+        <span class="eyebrow">הוכחה</span>
+        <h2 class="sec-title">מה גבר סגר השבוע</h2>
+        <p class="sec-sub" style="margin-inline:auto">לא טסטמוניאלז, לא כוכבים מומצאים — צילומי משימות אמיתיות שנסגרו (מטושטשות לפרטיות). זה לא קסם. זה פשוט מישהו שעושה את זה במקומך.</p>
+      </div>
+      <div class="feed-grid">
+        <article class="fcard">
+          <div class="fhead">
+            <span class="fav">🍽️</span>
+            <div>
+              <div style="font-family:'Heebo';font-weight:800;font-size:15px;color:#fff">משימת מסעדה</div>
+              <div class="fmeta blur-ph">נסגר ב‑••• · אזור •••</div>
+            </div>
+          </div>
+          <div class="fbub">✅ סגרתי שולחן ל-•• ב••••••, על שמך. נהנה ומדווח 🤙</div>
+          <span class="ftag">✅ נסגר</span>
+        </article>
+        <article class="fcard">
+          <div class="fhead">
+            <span class="fav">🛡️</span>
+            <div>
+              <div style="font-family:'Heebo';font-weight:800;font-size:15px;color:#fff">משימת ביטוח</div>
+              <div class="fmeta blur-ph">נסגר ב‑••• · חיסכון •••</div>
+            </div>
+          </div>
+          <div class="fbub">✅ חידשתי לך ביטוח, חסכתי •••• שקל מול ההצעה הקודמת. הפוליסה אצלך.</div>
+          <span class="ftag">✅ נסגר</span>
+        </article>
+        <article class="fcard">
+          <div class="fhead">
+            <span class="fav">🎫</span>
+            <div>
+              <div style="font-family:'Heebo';font-weight:800;font-size:15px;color:#fff">משימת כרטיסים</div>
+              <div class="fmeta blur-ph">נסגר ב‑••• · •• כרטיסים</div>
+            </div>
+          </div>
+          <div class="fbub">✅ חטפתי •• כרטיסים ל••••••, אזור טוב, בתוך התקציב. נתראה שם.</div>
+          <span class="ftag">✅ נסגר</span>
+        </article>
+      </div>
+      <p class="feed-note">תצוגת קונספט — placeholder. כל המשימות והמספרים יוחלפו בנתוני אמת ברגע שיש מדידה. בלי להמציא.</p>
+    </div>
+  </section>
+
+  <!-- PRICING -->
+  <section class="section" id="pricing">
+    <div class="wrap">
+      <div class="center">
+        <span class="eyebrow">תמחור</span>
+        <h2 class="sec-title">בחר מסלול. תתחיל חינם, תשדרג כשתתאהב.</h2>
+      </div>
+      <div class="price-grid">
+        <div class="plan">
+          <h3>חינם</h3>
+          <div class="pamount">₪0</div>
+          <ul class="pfeat">
+            <li><span class="ic">✓</span> 5 משימות, על הבית</li>
+            <li><span class="ic">✓</span> כל הפעולות נתמכות (מסעדה / ביטוח / כרטיסים)</li>
+            <li><span class="ic">✓</span> בלי כרטיס אשראי</li>
+          </ul>
+          <a class="btn btn-ghost" href="#waitlist">תתחיל חינם 🤙</a>
+        </div>
+        <div class="plan feat">
+          <span class="plan-tag">הכי פופולרי</span>
+          <h3>בייסיק</h3>
+          <div class="pamount">₪29 <span>/ חודש</span></div>
+          <ul class="pfeat">
+            <li><span class="ic">✓</span> עד 30 משימות בחודש</li>
+            <li><span class="ic">✓</span> עדיפות בתור</li>
+            <li><span class="ic">✓</span> היסטוריית משימות בוואטסאפ</li>
+          </ul>
+          <a class="btn btn-primary" href="#waitlist">קח בייסיק ✅</a>
+        </div>
+        <div class="plan">
+          <h3>פרו</h3>
+          <div class="pamount">₪79 <span>/ חודש</span></div>
+          <ul class="pfeat">
+            <li><span class="ic">✓</span> משימות <strong>ללא הגבלה</strong></li>
+            <li><span class="ic">✓</span> תגובה הכי מהירה (אני קופץ ראשון על המשימות שלך)</li>
+            <li><span class="ic">✓</span> בקשות מורכבות ורצף משימות</li>
+          </ul>
+          <a class="btn btn-ghost" href="#waitlist">עבור לפרו 🤙</a>
+        </div>
+      </div>
+      <p class="price-foot">מבטל מתי שבא לך, בלי דרמה. שדרוג ושנמוך בלחיצה.</p>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="section versus" id="faq">
+    <div class="wrap">
+      <div class="center">
+        <span class="eyebrow">שאלות</span>
+        <h2 class="sec-title">שאלות שאתה בטח שואל</h2>
+      </div>
+      <div class="faq-wrap">
+        <div class="faq">
+          <button class="faq-q" aria-expanded="false">זה בוט או בן אדם?<span class="chev" aria-hidden="true">+</span></button>
+          <div class="faq-a"><div class="faq-a-inner">זה גבר. סוכן חכם שמדבר איתך כמו חבר וסוגר משימות כמו מקצוען. לא תפריט לחיצות, לא "הקש 1". אתה כותב במילים שלך, אני מבין ועושה. ושקוף לגמרי: מאחורי גבר עומדת אוטומציה חכמה — לא מעמיד פני בן אדם, פשוט עובד בשבילך כמו חבר שאיכפת לו.</div></div>
+        </div>
+        <div class="faq">
+          <button class="faq-q" aria-expanded="false">זה בטוח? אתם נוגעים בכרטיס האשראי שלי?<span class="chev" aria-hidden="true">+</span></button>
+          <div class="faq-a"><div class="faq-a-inner">אני מטפל בפרטים שלך בזהירות וברצינות. כשצריך תשלום בפועל אתה מאשר — לא קורה כלום מאחורי הגב שלך. אתה תמיד בשליטה.</div></div>
+        </div>
+        <div class="faq">
+          <button class="faq-q" aria-expanded="false">מה אם הוא טועה או מזמין לא נכון?<span class="chev" aria-hidden="true">+</span></button>
+          <div class="faq-a"><div class="faq-a-inner">לפני שאני סוגר משהו עם משמעות (תשלום, הזמנה) אני מוודא איתך. ואם בכל זאת קרתה פדיחה — אני מתקן. אתה לא לבד בזה.</div></div>
+        </div>
+        <div class="faq">
+          <button class="faq-q" aria-expanded="false">כמה זמן זה לוקח?<span class="chev" aria-hidden="true">+</span></button>
+          <div class="faq-a"><div class="faq-a-inner">רוב המשימות נסגרות תוך דקות. דברים שתלויים בצד שלישי (מוקד, פתיחת מכירה) — אני על זה ברגע שאפשר ומעדכן אותך.</div></div>
+        </div>
+        <div class="faq">
+          <button class="faq-q" aria-expanded="false">מה אם הבקשה שלי לא מסעדה / ביטוח / כרטיסים?<span class="chev" aria-hidden="true">+</span></button>
+          <div class="faq-a"><div class="faq-a-inner">תכתוב בכל זאת. אם אני יכול לעזור — אעזור. אם עוד לא, ארשום את זה ואחזור אליך כשנפתח את זה. אנחנו מוסיפים פעולות כל הזמן 🔄</div></div>
+        </div>
+        <div class="faq">
+          <button class="faq-q" aria-expanded="false">כמה זה עולה?<span class="chev" aria-hidden="true">+</span></button>
+          <div class="faq-a"><div class="faq-a-inner">מתחיל חינם — 5 משימות בלי כרטיס אשראי. אהבת? בייסיק ב-29 שקל לחודש (30 משימות) או פרו ב-79 (ללא הגבלה).</div></div>
+        </div>
+        <div class="faq">
+          <button class="faq-q" aria-expanded="false">איך מתחילים?<span class="chev" aria-hidden="true">+</span></button>
+          <div class="faq-a"><div class="faq-a-inner">שתי דקות: נרשם לוייטליסט או שולח לי הודעה ראשונה בוואטסאפ. זהו.</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FINAL CTA -->
+  <section class="section final" id="waitlist">
+    <div class="wrap">
+      <h2>מספיק לדחות. תזרוק עליי משימה אחת ותראה. ✅</h2>
+      <p>הצטרף לוייטליסט עכשיו — הראשונים נכנסים ראשונים ומקבלים הטבת השקה. או פשוט תתחיל לדבר איתי בוואטסאפ כבר עכשיו.</p>
+      <div class="cta-row">
+        <!-- TODO: חבר את כפתור הוייטליסט לטופס/CRM -->
+        <a class="btn btn-primary btn-big" href="#waitlist">אני בפנים — תוסיף אותי לוייטליסט ←</a>
+        <!-- TODO: החלף WHATSAPP_NUMBER במספר אמיתי -->
+        <a class="btn btn-wa btn-big" href="https://wa.me/WHATSAPP_NUMBER?text=היי%20גבר%2C%20אני%20רוצה%20לנסות%20אותך" target="_blank" rel="noopener">דבר עם גבר בוואטסאפ 🤙</a>
+      </div>
+      <p class="micro">חינם להתחלה. בלי התחייבות. הכי גרוע שיקרה — חסכת לעצמך כאב ראש.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-top">
+      <div>
+        <div class="foot-brand">גבר<span style="color:var(--orange)">.</span></div>
+        <p class="foot-tag">שלח הודעה, סע לחיים שלך. 🤙</p>
+      </div>
+      <nav class="foot-links" aria-label="ניווט פוטר">
+        <a href="#how">איך זה עובד</a>
+        <a href="#pricing">תמחור</a>
+        <a href="#faq">שאלות נפוצות</a>
+        <!-- TODO: החלף WHATSAPP_NUMBER במספר אמיתי -->
+        <a href="https://wa.me/WHATSAPP_NUMBER?text=היי%20גבר" target="_blank" rel="noopener">דבר איתנו בוואטסאפ</a>
+      </nav>
+    </div>
+    <div class="foot-bottom">
+      <span>© גבר · כל הזכויות שמורות</span>
+      <span><a href="#">תנאי שימוש</a> · <a href="#">מדיניות פרטיות</a></span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  // Hero excuse rotator
+  var items=[
+    'תזמין שרברב',
+    'תחדש דרכון',
+    'תזמין שולחן לשישי',
+    'תחדש ביטוח רכב',
+    'תחטוף כרטיסים להופעה',
+    'תזמין משלוח לבית'
+  ];
+  var stage=document.getElementById('rotor');
+  if(stage){
+    var nodes=items.map(function(txt){
+      var el=document.createElement('div');
+      el.className='rotor-item';
+      el.textContent=txt;
+      stage.appendChild(el);
+      return el;
+    });
+    var i=0;
+    nodes[0].classList.add('is-in');
+    var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if(!reduce){
+      setInterval(function(){
+        var cur=nodes[i];
+        cur.classList.remove('is-in');
+        cur.classList.add('is-out');
+        i=(i+1)%nodes.length;
+        var nxt=nodes[i];
+        nxt.classList.remove('is-out');
+        nxt.classList.add('is-in');
+      },2400);
+    }
+  }
+
+  // FAQ accordion
+  var faqs=document.querySelectorAll('.faq');
+  faqs.forEach(function(faq){
+    var btn=faq.querySelector('.faq-q');
+    var ans=faq.querySelector('.faq-a');
+    btn.addEventListener('click',function(){
+      var isOpen=faq.classList.contains('open');
+      faqs.forEach(function(f){
+        f.classList.remove('open');
+        f.querySelector('.faq-q').setAttribute('aria-expanded','false');
+        f.querySelector('.faq-a').style.maxHeight=null;
+      });
+      if(!isOpen){
+        faq.classList.add('open');
+        btn.setAttribute('aria-expanded','true');
+        ans.style.maxHeight=ans.scrollHeight+'px';
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>
