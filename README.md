@@ -16,13 +16,13 @@ Browserbase + Stagehand (ביצוע באתר) → אישור חוזר ב‑Whats
 
 | שלב | מה בונים | סטטוס |
 |-----|----------|-------|
-| **0 — PoC** | Stagehand + Browserbase מול Ontopo. שער go/no-go. | 🎯 עכשיו |
-| **1 — תשתית** | FastAPI + WhatsApp webhook, Supabase, Gemini Flash | ⬜ |
-| **2 — E2E** | Ontopo action מחווט, פרופיל מוצפן, Stripe | ⬜ |
+| **0 — PoC** | Stagehand + Browserbase מול Ontopo. שער go/no-go. | ✅ בוצע |
+| **1 — תשתית** | FastAPI + WhatsApp webhook, Supabase, Gemini Flash | 🎯 עכשיו |
+| **2 — E2E** | Ontopo action מחווט, פרופיל מוצפן, Lemon Squeezy | ⬜ |
 | **3 — הרחבה** | Leaan / Eventim / 10bis + בטא 10‑20 משתמשים | ⬜ |
 
-**שכבת WhatsApp:** דרך **Twilio Sandbox** — אפס אישורי Meta, מתחילים מיד
-כשמגיעים לשלב 1. אין צורך ב‑onboarding מקביל עכשיו; ה‑PoC לא נוגע ב‑WhatsApp.
+**שכבת WhatsApp:** דרך **Meta Cloud API** — מספר בדיקה + webhook ישירות מול
+ה‑Graph API, בלי Twilio. מתחילים מיד כשמגיעים לשלב 1.
 
 **שיווק והפצה:** ראה [`docs/MARKETING.md`](docs/MARKETING.md) — ערוצים (IG/X,
 ממומן, IRL), סרטון דמו ב‑Remotion, דף נחיתה, לוגו.
@@ -33,7 +33,7 @@ Browserbase + Stagehand (ביצוע באתר) → אישור חוזר ב‑Whats
 - מודלים: **שיחה מול המשתמש** = `gemini-2.5-flash` (עברית מדוברת חזקה, זול;
   `gemini-2.5-flash-lite` כאופציה להוזלה). **מנוע הדפדפן (Stagehand)** =
   `claude-sonnet-4-6`. נמנעים ממודלים סיניים לשיחה — עברית חלשה שוברת את הפרסונה.
-- WhatsApp דרך **Twilio** (Sandbox מבטל המתנה לאישורי Meta). תשלום דרך
+- WhatsApp דרך **Meta Cloud API**. תשלום דרך
   **Lemon Squeezy** (Merchant of Record — checkout מתארח, לא נוגעים בכרטיסים).
 
 ---
@@ -41,14 +41,13 @@ Browserbase + Stagehand (ביצוע באתר) → אישור חוזר ב‑Whats
 ## מבנה הפרויקט
 
 ```
-poc/ontopo_poc.py        שלב 0 — סקריפט ה-PoC העצמאי
+poc/book_ontopo.py       שלב 0 — סקריפט ה-PoC העצמאי
 app/
   main.py                FastAPI + WhatsApp webhook
   config.py              הגדרות מ-.env
   llm/intent.py          Gemini Flash — הבנה ושיחה
   automation/ontopo.py   Stagehand — ביצוע הזמנה
-  whatsapp/client.py     שליחת הודעות (Twilio)
-  db/supabase_client.py  + schema.sql
+  whatsapp/client.py     שליחת הודעות (Meta Graph API)
   models/schemas.py      סכמות משותפות
 tests/
 ```
@@ -59,7 +58,7 @@ tests/
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .                 # או: uv pip install stagehand python-dotenv
 cp .env.example .env             # מלא BROWSERBASE_API_KEY + MODEL_API_KEY
-python poc/ontopo_poc.py
+python poc/book_ontopo.py "Taizu" "מחר 20:00"
 ```
 
 מה שצריך כדי להריץ את ה‑PoC:
@@ -77,4 +76,4 @@ uvicorn app.main:app --reload
 ## סטאק
 
 Python 3.11+ · FastAPI · [Stagehand](https://docs.stagehand.dev/v3/sdk/python) +
-Browserbase · Gemini Flash · Supabase · WhatsApp via Twilio · Lemon Squeezy
+Browserbase · Gemini Flash · Supabase · WhatsApp via Meta Cloud API · Lemon Squeezy

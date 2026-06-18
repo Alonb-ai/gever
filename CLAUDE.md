@@ -27,9 +27,11 @@ Full spec: [`גבר_MVP_Spec.docx`](גבר_MVP_Spec.docx). Roadmap & status: [`R
 
 ## Current focus
 
-**Stage 0 — the PoC** (`poc/ontopo_poc.py`): prove Stagehand + Browserbase can
-drive Ontopo end-to-end. This is a **go/no-go gate**. Do not build Stages 1–3
-ahead of a green PoC — that violates rules 2 and 4 above.
+**Stage 0 — the PoC is green** (`poc/book_ontopo.py`): proven end-to-end in
+DRY_RUN on Hudson + Taizu, and the WhatsApp loop is LIVE on Meta Cloud API.
+**Current focus = Stage 1 → 2:** a real booking beyond DRY_RUN, plus
+stabilization — swap the 24h temp token for a permanent Meta System User token,
+and move off the temporary tunnel to a Coolify deploy.
 
 ## Commands
 
@@ -40,7 +42,7 @@ pip install -e ".[dev]"          # or: uv pip install -e ".[dev]"
 cp .env.example .env             # then fill the keys
 
 # stage 0 — the PoC (runs in DRY_RUN, won't create a real booking)
-python poc/ontopo_poc.py
+python poc/book_ontopo.py
 
 # server (stage 1+)
 uvicorn app.main:app --reload    # GET /health -> {"status":"ok"}
@@ -64,16 +66,15 @@ pytest
 ## Stack & structure
 
 Python 3.11+ · FastAPI · Stagehand + Browserbase · Gemini · Supabase ·
-WhatsApp via Twilio · Lemon Squeezy.
+WhatsApp via Meta Cloud API · Lemon Squeezy.
 
 ```
-poc/ontopo_poc.py    stage 0 PoC — standalone, the only file that reads os.getenv directly
-app/main.py          FastAPI + Twilio inbound webhook
+poc/book_ontopo.py   stage 0 PoC — standalone, the only file that reads os.getenv directly
+app/main.py          FastAPI + Meta WhatsApp webhook
 app/config.py        settings (pydantic-settings, reads .env) — the single source for config
 app/llm/intent.py    Gemini intent + the גבר system prompt
 app/automation/      Stagehand actions (ontopo.py)
-app/whatsapp/        Twilio client (send replies)
-app/db/              Supabase client + schema.sql
+app/whatsapp/        Meta Graph API client (send replies)
 app/models/          shared pydantic schemas
 ```
 
@@ -95,7 +96,7 @@ app/models/          shared pydantic schemas
 - **Never commit `.env`** or secrets (gitignored). `.env.example` holds the keys, empty.
 - **Never store raw credit cards** — Lemon Squeezy hosts checkout. Encrypt PII at
   rest (Fernet, `ENCRYPTION_KEY`).
-- Validate inbound webhook signatures (`X-Twilio-Signature`) before trusting a payload.
+- Validate inbound webhook signatures (`X-Hub-Signature-256`) before trusting a payload.
 
 ## Git
 
