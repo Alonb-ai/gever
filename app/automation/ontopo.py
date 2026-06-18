@@ -16,6 +16,7 @@ from typing import Awaitable, Callable
 
 from stagehand import AsyncStagehand
 
+from app.automation import engine
 from app.models.schemas import ActionResult
 
 StatusFn = Callable[[str], Awaitable[None]]
@@ -131,14 +132,19 @@ async def book_table(
     try:
         await notify("רגע 🔄")
         await session.navigate(url=page_url)
+        await engine.settle()
 
         # ── אימות: שזה דף ההזמנה של המסעדה הנכונה ──
         page = await _extract(
             session,
             "the restaurant name on this page and whether a reservation/booking widget is visible",
-            {"type": "object", "properties": {
-                "restaurant": {"type": "string"}, "has_booking_form": {"type": "boolean"},
-            }},
+            {
+                "type": "object",
+                "properties": {
+                    "restaurant": {"type": "string"},
+                    "has_booking_form": {"type": "boolean"},
+                },
+            },
         )
         on_page = page.get("restaurant") or ""
         if not page.get("has_booking_form"):
@@ -147,30 +153,62 @@ async def book_table(
                 summary=f"לא הצלחתי לפתוח את דף ההזמנה של '{restaurant}'.",
                 details={"stage": "page", "page": page},
             )
-        if restaurant and _norm(restaurant) not in _norm(on_page) and _norm(on_page) not in _norm(restaurant):
+        if (
+            restaurant
+            and _norm(restaurant) not in _norm(on_page)
+            and _norm(on_page) not in _norm(restaurant)
+        ):
             return ActionResult(
                 success=False,
                 summary=f"הדף לא תואם ל'{restaurant}' (נפתח '{on_page}').",
                 details={"stage": "verify", "on_page": on_page},
             )
 
-        # ── כמות, תאריך, ובדיקת זמינות אמיתית ──
-        await session.act(input=f"בחר {party_size} סועדים")
+        # ── כמות + תאריך: צעדי הווידג'ט הבעייתיים — act_verified (אמת + retry + observe→act) ──
+        trace: list = []
+        await engine.act_verified(
+            session,
+            action=f"בחר {party_size} סועדים",
+            read_instruction="the number of diners / party size currently selected in the booking widget",
+            read_schema={"type": "object", "properties": {"party_size": {"type": "string"}}},
+            ok=lambda st: str(party_size) in (st.get("party_size") or ""),
+            observe_for="the control to choose the number of diners / party size",
+            trace=trace,
+        )
         date_ok = True
         if date:
-            await session.act(input=f"בחר את התאריך: {date}")
-            sel = await _extract(
+            date_ok, _ = await engine.act_verified(
                 session,
-                "the reservation date currently selected or shown in the booking widget (as text)",
-                {"type": "object", "properties": {"selected_date": {"type": "string"}}},
+                action=f"בחר את התאריך {date} בלוח",
+                read_instruction="the reservation date currently selected/shown in the booking widget (as text)",
+                read_schema={"type": "object", "properties": {"selected_date": {"type": "string"}}},
+                ok=lambda st: _date_matches(date, st.get("selected_date") or ""),
+                observe_for="the date button, then the matching calendar day cell, in the reservation widget",
+                trace=trace,
             )
-            date_ok = _date_matches(date, sel.get("selected_date") or "")
+        # זמינות אמיתית — ואם ריק נותנים ל-UI להתייצב ומנסים שוב פעם אחת (לא תקיעה על קריאה מוקדמת)
         avail = await _extract(
             session,
             "list all available booking time slots currently shown in the widget",
-            {"type": "object", "properties": {"available_times": {"type": "array", "items": {"type": "string"}}}},
+            {
+                "type": "object",
+                "properties": {"available_times": {"type": "array", "items": {"type": "string"}}},
+            },
         )
         times = avail.get("available_times") or []
+        if not times:
+            await engine.settle()
+            avail = await _extract(
+                session,
+                "list all available booking time slots currently shown in the widget",
+                {
+                    "type": "object",
+                    "properties": {
+                        "available_times": {"type": "array", "items": {"type": "string"}}
+                    },
+                },
+            )
+            times = avail.get("available_times") or []
         if not times:
             return ActionResult(
                 success=False,
@@ -181,6 +219,7 @@ async def book_table(
         chosen_time = time if time in times else times[0]
         near = chosen_time != time
         await session.act(input=f"בחר את השעה {chosen_time}")
+        await engine.settle()
         if name:
             await session.act(input=f"מלא את שם המזמין: {name}")
         if phone:
@@ -189,17 +228,29 @@ async def book_table(
         screen = await _extract(
             session,
             "the booking summary shown before final confirmation (restaurant, date, time, party size)",
-            {"type": "object", "properties": {
-                "restaurant": {"type": "string"}, "date": {"type": "string"},
-                "time": {"type": "string"}, "party_size": {"type": "string"},
-            }},
+            {
+                "type": "object",
+                "properties": {
+                    "restaurant": {"type": "string"},
+                    "date": {"type": "string"},
+                    "time": {"type": "string"},
+                    "party_size": {"type": "string"},
+                },
+            },
         )
         actual_date = (screen.get("date") or "").strip() or (date or "היום")
         date_mismatch = bool(date) and not date_ok
         details = {
-            "restaurant": on_page or restaurant, "date": actual_date,
-            "requested_date": date or "", "time": chosen_time, "party_size": party_size,
-            "near_time": near, "date_mismatch": date_mismatch, "screen": screen,
+            "restaurant": on_page or restaurant,
+            "date": actual_date,
+            "requested_date": date or "",
+            "time": chosen_time,
+            "party_size": party_size,
+            "near_time": near,
+            "date_mismatch": date_mismatch,
+            "screen": screen,
+            "session_id": getattr(session, "id", None),
+            "trace": trace,
         }
 
         # ── שער אישור לפני צעד בלתי-הפיך: מדווחים מה *באמת* נבחר ומסמנים פערים ──
@@ -226,7 +277,9 @@ async def book_table(
             {"type": "object", "properties": {"confirmation": {"type": "string"}}},
         )
         details["confirmation"] = proof.get("confirmation")
-        await notify(f"סגור ✅ {details['restaurant']}, {details['date']} {chosen_time}, {party_size} סועדים.")
+        await notify(
+            f"סגור ✅ {details['restaurant']}, {details['date']} {chosen_time}, {party_size} סועדים."
+        )
         return ActionResult(success=True, summary="ההזמנה בוצעה.", details=details)
 
     except Exception as e:  # captcha / חסימה / שגיאת אתר → כישלון כן
