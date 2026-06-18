@@ -59,15 +59,14 @@ async def observe_first(session, instruction: str) -> dict | None:
         return None
 
 
+_ACTION_KEYS = ("description", "selector", "method", "arguments", "backend_node_id")
+
+
 def _clean_candidate(c: dict) -> dict:
-    """מנקה מועמד observe ל-ActionParam תקין ל-act(): רק description+selector
-    (חובה) + method/arguments אם יש. משמיטים backend_node_id=None ששובר validation."""
-    out = {"description": c.get("description") or "", "selector": c.get("selector") or ""}
-    if c.get("method"):
-        out["method"] = c["method"]
-    if c.get("arguments"):
-        out["arguments"] = c["arguments"]
-    return out
+    """מועמד observe → ActionParam ל-act(): כל מפתחות הפעולה הלא-None, *כולל*
+    backend_node_id האמיתי (העוגן הדטרמיניסטי). משמיטים None בלבד — backend_node_id=null
+    הוא מה ששובר את ה-validation בשרת, לא עצם קיום השדה (אומת מול ה-SDK)."""
+    return {k: c[k] for k in _ACTION_KEYS if c.get(k) is not None}
 
 
 async def _attempt(session, action: str, observe_for: str | None, escalate: bool) -> str:
