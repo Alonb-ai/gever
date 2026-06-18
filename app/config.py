@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     whatsapp_phone_number_id: str = ""
     whatsapp_verify_token: str = "gever_verify_2026"  # אנחנו בוחרים; חייב להתאים לדאשבורד של Meta
     whatsapp_api_version: str = "v21.0"
+    whatsapp_app_secret: str = ""  # אימות חתימת webhook (X-Hub-Signature-256). ריק → דילוג (dev)
 
     # Supabase — זיכרון בין שיחות (זרוע 4). ריק → memory layer הוא no-op מלא.
     supabase_url: str = ""
