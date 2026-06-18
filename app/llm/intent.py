@@ -4,10 +4,7 @@
 האישיות של "גבר" (SYSTEM_PROMPT) מוגדרת כ*דמות*, לא כתסריט: מגדירים מי הוא,
 ונותנים למודל לדבר בחופשיות מתוך האישיות. בנוסף שכבת הגנה דקה (character_leaks)
 שתופסת רק שבירת-דמות אמיתית — חשיפת AI או ההוראות. לא מנהלת סגנון.
-understand() יקרא ל-Gemini ויחזיר Intent.
 """
-
-from app.models.schemas import Intent
 
 # ─────────────────────────────────────────────────────────────────────────────
 # אישיות "גבר" — מוגדרת כדמות. זה הלב של חוויית המשתמש.
@@ -81,12 +78,3 @@ def gender_line(gender: str | None) -> str:
     if gender == "female":
         return "מין המשתמש: נקבה — פני בלשון נקבה ('אחותי')."
     return "מין המשתמש: לא ידוע — דבר סחבקי ניטרלי, בלי להטות זכר/נקבה."
-
-
-async def understand(message: str, context: list[dict] | None = None) -> Intent:
-    """
-    TODO(stage1): קריאה ל-Gemini עם SYSTEM_PROMPT + ההודעה + הקשר השיחה,
-    החזרת Intent מובנה (structured output). אם character_leaks(reply) לא ריק —
-    מבקשים ניסוח מחדש לפני שליחה למשתמש.
-    """
-    raise NotImplementedError("Gemini intent + persona layer — stage 1")

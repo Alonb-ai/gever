@@ -22,15 +22,8 @@ class Settings(BaseSettings):
     whatsapp_verify_token: str = "gever_verify_2026"  # אנחנו בוחרים; חייב להתאים לדאשבורד של Meta
     whatsapp_api_version: str = "v21.0"
 
-    # Supabase
-    supabase_url: str = ""
-    supabase_service_key: str = ""
-
-    # אבטחה ותשלומים (Lemon Squeezy)
-    encryption_key: str = ""
-    lemonsqueezy_api_key: str = ""
-    lemonsqueezy_store_id: str = ""
-    lemonsqueezy_webhook_secret: str = ""
+    # ponytail: שדות שלב-2 (Supabase/Lemon Squeezy/encryption) הוסרו — אף מסלול לא קורא להם.
+    # להחזיר כשהזרוע מתחילה (זרוע 4 — Supabase, זרוע 6 — Lemon Squeezy). extra="ignore" → .env לא נשבר.
 
 
 settings = Settings()
