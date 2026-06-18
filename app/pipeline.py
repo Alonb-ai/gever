@@ -14,6 +14,7 @@ import time
 from google import genai
 from google.genai import types
 
+from app.automation import engine
 from app.automation.ontopo import book_table
 from app.automation.resolve import resolve_ontopo_url
 from app.config import settings
@@ -230,14 +231,23 @@ async def run_booking(phone: str, fields: dict) -> None:
             _reset_next.add(phone)
         else:
             _booking[phone] = {"state": "failed", "info": res.summary}
+            d = res.details or {}
+            await send_text(
+                phone,
+                res.summary + engine.error_detail(d.get("error"), session_id=d.get("session_id")),
+            )
     except asyncio.TimeoutError:
         log.warning("booking timed out (%ss) for %s", BOOKING_TIMEOUT_S, phone)
         _booking[phone] = {"state": "failed", "info": "נתקע (timeout)"}
-        await send_text(phone, "אחי זה נתקע לי, לקח יותר מדי. ננסה שוב?")
-    except Exception:
+        await send_text(
+            phone,
+            "אחי זה נתקע לי, לקח יותר מדי. ננסה שוב?"
+            + engine.error_detail(f"timeout אחרי {BOOKING_TIMEOUT_S}s"),
+        )
+    except Exception as e:
         log.exception("booking failed for %s", phone)
         _booking[phone] = {"state": "failed", "info": "חריגה באמצע"}
-        await send_text(phone, "נתקעתי באמצע, לא הצלחתי לסגור. ננסה שוב?")
+        await send_text(phone, "נתקעתי באמצע, לא הצלחתי לסגור. ננסה שוב?" + engine.error_detail(e))
 
 
 async def handle_inbound(phone: str, text: str) -> None:

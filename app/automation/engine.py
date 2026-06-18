@@ -14,6 +14,8 @@ import asyncio
 import logging
 from typing import Any, Callable
 
+from app.config import settings
+
 log = logging.getLogger("gever")
 
 SETTLE_S = 1.2  # ponytail: השהיה קבועה אחרי פעולה כדי שה-UI יתייצב לפני קריאה.
@@ -22,6 +24,17 @@ SETTLE_S = 1.2  # ponytail: השהיה קבועה אחרי פעולה כדי ש�
 
 async def settle(secs: float = SETTLE_S) -> None:
     await asyncio.sleep(secs)
+
+
+def error_detail(exc, *, session_id: str | None = None) -> str:
+    """סיומת לפירוט שגיאה בהודעת WhatsApp: סוג+טקסט השגיאה (+session לreplay של
+    Browserbase). ריק כש-DEBUG_ERRORS כבוי (פרודקשן) או כשאין שגיאה — אז ההודעה
+    נשארת בדמות בלבד. ponytail: דגל dev/prod אמיתי, לא קונפיג סתם."""
+    if not settings.debug_errors or not exc:
+        return ""
+    head = f"{type(exc).__name__}: {exc}" if isinstance(exc, BaseException) else str(exc)
+    tail = f" · session {session_id}" if session_id else ""
+    return f"\n\nשגיאה טכנית: {head}{tail}"
 
 
 async def extract(session, instruction: str, schema: dict) -> dict:
@@ -181,6 +194,15 @@ def demo() -> None:
     # אף פעם לא מצליח → נכשל אחרי tries, בלי לתקוע
     ok, s, tr = run(succeed_on=0, tries=3)
     assert not ok and s.acts == 3 and len(tr) == 3, (ok, s.acts, len(tr))
+
+    # error_detail: ריק בלי שגיאה/כבוי; מפרט כשדלוק
+    from app.config import settings as _s
+
+    assert error_detail(None) == ""
+    assert "ValueError" in error_detail(ValueError("x"), session_id="s1")
+    _s.debug_errors = False
+    assert error_detail(ValueError("x")) == ""
+    _s.debug_errors = True
 
     print("engine.demo OK")
 

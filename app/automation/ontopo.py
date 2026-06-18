@@ -282,12 +282,11 @@ async def book_table(
         )
         return ActionResult(success=True, summary="ההזמנה בוצעה.", details=details)
 
-    except Exception as e:  # captcha / חסימה / שגיאת אתר → כישלון כן
-        await notify("נתקלתי בבעיה, לא הצלחתי לסגור.")
+    except Exception as e:  # captcha / חסימה / שגיאת אתר → כישלון כן (ההודעה נשלחת ב-run_booking)
         return ActionResult(
             success=False,
             summary="משהו נתקע באתר, לא סגרתי. ננסה שוב?",
-            details={"stage": "error", "error": str(e)},
+            details={"stage": "error", "error": str(e), "session_id": getattr(session, "id", None)},
         )
     finally:
         await session.end()

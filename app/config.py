@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     supabase_service_key: str = ""
     encryption_key: str = ""  # Fernet — הצפנת name/email at-rest
 
+    # שגיאות: True (dev/MVP) → הודעת כשל ב-WhatsApp כוללת פירוט השגיאה + session.
+    # False (פרודקשן) → הודעה בדמות בלבד, בלי לדלוף טכני ללקוח אמיתי.
+    debug_errors: bool = True
+
     # ponytail: שדות Lemon Squeezy (זרוע 6) עדיין מוסרים — אף מסלול לא קורא להם.
 
 
