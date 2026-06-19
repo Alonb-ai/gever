@@ -57,10 +57,10 @@ pytest
 ## Models (decided — change only via `.env` / Coolify env, never hardcode)
 
 - **Conversation (user-facing):** `gemini-3.5-flash` — strong colloquial Hebrew.
-- **Browser driver (Stagehand):** `google/gemini-3.5-flash`. Per Stagehand's own
-  eval (act/observe/extract) Gemini 3 Flash beats Claude Sonnet 4.6 at ~½ the cost.
-  Claude Fable 5 scores higher but is blocked for us, and Anthropic is too expensive
-  — so we stay on Gemini 3 Flash.
+- **Browser driver (Stagehand):** `google/gemini-3-flash-preview` — the only Gemini 3
+  Flash on Stagehand's act/observe/extract eval (73.8%, beats Sonnet 4.6) AND it won our
+  live Ontopo A/B on date selection (2/3 vs 0/3 for gemini-3.5-flash). Claude Fable 5
+  scores higher but is blocked for us; Anthropic is too expensive.
 - Set via `MODEL_NAME` / `GEMINI_MODEL` in `.env` and Coolify env; defaults in `app/config.py`.
 
 ## Stack & structure

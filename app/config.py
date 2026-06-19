@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     browserbase_api_key: str = ""
     browserbase_project_id: str = ""
     model_api_key: str = ""
-    model_name: str = "google/gemini-3.5-flash"
+    model_name: str = "google/gemini-3-flash-preview"
 
     # Gemini (שיחה)
     gemini_api_key: str = ""

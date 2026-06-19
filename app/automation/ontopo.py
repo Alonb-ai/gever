@@ -126,7 +126,7 @@ async def book_table(
         model_api_key=os.getenv("MODEL_API_KEY"),
     )
     session = await client.sessions.start(
-        model_name=os.getenv("MODEL_NAME", "google/gemini-3.5-flash"),
+        model_name=os.getenv("MODEL_NAME", "google/gemini-3-flash-preview"),
         system_prompt="אתה מבצע פעולות באתר Ontopo בעברית, בזהירות ובדייקנות. עקוב אחר ההוראות בדיוק.",
         self_heal=True,  # SDK מתקן פעולה כשה-DOM משתנה תוך כדי — שכבה מתחת ל-act_verified
         dom_settle_timeout_ms=3000,  # המתנה אמיתית להתייצבות DOM בכל act/observe/extract
