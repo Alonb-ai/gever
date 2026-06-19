@@ -1,6 +1,8 @@
 # CLAUDE.md — גבר / Gever
 
-WhatsApp personal assistant in Hebrew that closes real-world tasks on the web.
+WhatsApp personal assistant in Hebrew that saves you time by doing the annoying
+digital work for you — filling forms, submitting requests, and booking places —
+so you don't have to. Not a chatbot that talks, but someone who actually gets it done.
 **Flow:** WhatsApp message → Gemini (intent + clarify) → Stagehand + Browserbase
 (execute on the site) → confirmation reply.
 
