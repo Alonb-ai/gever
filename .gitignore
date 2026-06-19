@@ -24,3 +24,6 @@ venv/
 
 # Keep the spec, ignore temp extractions
 /tmp/
+
+# Supabase CLI local link state (ref, pooler url) — never commit
+supabase/.temp/
