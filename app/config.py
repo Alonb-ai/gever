@@ -10,11 +10,11 @@ class Settings(BaseSettings):
     browserbase_api_key: str = ""
     browserbase_project_id: str = ""
     model_api_key: str = ""
-    model_name: str = "anthropic/claude-sonnet-4-6"
+    model_name: str = "google/gemini-3.5-flash"
 
     # Gemini (שיחה)
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.5-flash"
 
     # WhatsApp via Meta Cloud API
     whatsapp_access_token: str = ""

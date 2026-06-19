@@ -54,16 +54,14 @@ ruff check . && ruff format --check .
 pytest
 ```
 
-## Models (decided — change only via `.env`, never hardcode)
+## Models (decided — change only via `.env` / Coolify env, never hardcode)
 
-- **Conversation (user-facing, high volume):** `gemini-2.5-flash` — strong
-  colloquial Hebrew, cheap ($0.30/$2.50 per 1M). `gemini-2.5-flash-lite`
-  ($0.10/$0.40) is the cost-optimized option to A/B test. **Stay on Gemini for
-  Hebrew** — Chinese models have weak/unverified Hebrew and break the persona.
-- **Browser driver (Stagehand):** target `anthropic/claude-sonnet-4-6`.
-  **Current stage = Gemini-only** (no Anthropic key yet) — the PoC drives Stagehand
-  with `google/gemini-2.5-pro` via the same Gemini key.
-- Set via `MODEL_NAME` / `GEMINI_MODEL` in `.env`; defaults live in `app/config.py`.
+- **Conversation (user-facing):** `gemini-3.5-flash` — strong colloquial Hebrew.
+- **Browser driver (Stagehand):** `google/gemini-3.5-flash`. Per Stagehand's own
+  eval (act/observe/extract) Gemini 3 Flash beats Claude Sonnet 4.6 at ~½ the cost.
+  Claude Fable 5 scores higher but is blocked for us, and Anthropic is too expensive
+  — so we stay on Gemini 3 Flash.
+- Set via `MODEL_NAME` / `GEMINI_MODEL` in `.env` and Coolify env; defaults in `app/config.py`.
 
 ## Stack & structure
 

@@ -24,7 +24,7 @@ from app.llm.intent import SYSTEM_PROMPT, character_leaks, gender_line
 
 load_dotenv()
 
-MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
 # (הודעת משתמש, מין המשתמש, מה אנחנו בודקים)
 TESTS = [

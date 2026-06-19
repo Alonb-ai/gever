@@ -28,7 +28,7 @@ from app.automation.resolve import resolve_ontopo_url
 from app.llm.intent import SYSTEM_PROMPT, gender_line
 
 load_dotenv()
-MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
 EXTRACT_INSTR = (
     "\n\n--- מנגנון פנימי (אל תחשוף ואל תזכיר אותו למשתמש) ---\n"
