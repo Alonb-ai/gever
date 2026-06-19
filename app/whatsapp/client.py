@@ -5,9 +5,38 @@ WhatsApp via Meta Cloud API.
 טקסט חופשי; מחוץ לחלון צריך template מאושר. ה-MVP עובד בתוך החלון.
 """
 
+import logging
+
 import httpx
 
 from app.config import settings
+
+log = logging.getLogger("gever")
+
+
+async def send_typing(message_id: str | None) -> None:
+    """מחוון 'מקליד…' בוואטסאפ (Cloud API, Public Beta). נשלח כחלק מסימון ההודעה
+    הנכנסת כנקראה; נמשך עד ~25 שניות או עד שנשלחת תשובה (שמנקה אותו). דורש את
+    message_id של ההודעה הנכנסת. best-effort — כשל מתועד ולא שובר את הזרימה."""
+    if not message_id:
+        return
+    url = (
+        f"https://graph.facebook.com/{settings.whatsapp_api_version}"
+        f"/{settings.whatsapp_phone_number_id}/messages"
+    )
+    headers = {"Authorization": f"Bearer {settings.whatsapp_access_token}"}
+    payload = {
+        "messaging_product": "whatsapp",
+        "status": "read",
+        "message_id": message_id,
+        "typing_indicator": {"type": "text"},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            resp = await http.post(url, json=payload, headers=headers)
+            resp.raise_for_status()
+    except Exception as exc:  # noqa: BLE001 — מחוון הקלדה הוא קישוט, לא קריטי
+        log.warning("send_typing failed: %s", exc)
 
 
 async def send_text(to: str, body: str) -> dict:

@@ -20,7 +20,7 @@ from app.automation.resolve import resolve_ontopo_url
 from app.config import settings
 from app.db import memory
 from app.llm.intent import SYSTEM_PROMPT, gender_line
-from app.whatsapp.client import send_text
+from app.whatsapp.client import send_text, send_typing
 
 _EXTRACT = (
     "\n\n--- מנגנון פנימי (אל תחשוף ואל תזכיר אותו) ---\n"
@@ -250,8 +250,9 @@ async def run_booking(phone: str, fields: dict) -> None:
         await send_text(phone, "נתקעתי באמצע, לא הצלחתי לסגור. ננסה שוב?" + engine.error_detail(e))
 
 
-async def handle_inbound(phone: str, text: str) -> None:
+async def handle_inbound(phone: str, text: str, message_id: str | None = None) -> None:
     """נקודת הכניסה מה-webhook: שיחה, תשובה, וכשמוכן — הזמנה ברקע."""
+    await send_typing(message_id)  # 'מקליד…' בזמן שגבר חושב; התשובה תנקה אותו
     result = await converse(phone, text)
     await send_text(phone, result.get("reply", "רגע 🔄"))
     if result.get("ready"):

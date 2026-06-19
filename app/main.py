@@ -40,7 +40,10 @@ async def health() -> dict:
 async def verify(request: Request) -> Response:
     """אימות ה-webhook מול Meta — מחזירים את hub.challenge אם ה-token תואם."""
     p = request.query_params
-    if p.get("hub.mode") == "subscribe" and p.get("hub.verify_token") == settings.whatsapp_verify_token:
+    if (
+        p.get("hub.mode") == "subscribe"
+        and p.get("hub.verify_token") == settings.whatsapp_verify_token
+    ):
         return Response(content=p.get("hub.challenge", ""), media_type="text/plain")
     return Response(status_code=403)
 
@@ -58,7 +61,7 @@ async def receive(request: Request) -> Response:
             for change in entry.get("changes", []):
                 for msg in change.get("value", {}).get("messages", []):
                     if msg.get("type") == "text":
-                        await handle_inbound(msg["from"], msg["text"]["body"])
+                        await handle_inbound(msg["from"], msg["text"]["body"], msg.get("id"))
     except Exception:
         log.exception("webhook handling failed")
     return Response(status_code=200)
