@@ -123,6 +123,20 @@ async def act_verified(
             )
         if good:
             return True, state
+    # ── ה-rung העמוק ביותר: הסולם הדטרמיניסטי התרוקן → מוסרים את הצעד התקוע ל-agent ──
+    # additive, ניסיון אחד. gate על execute כדי שה-FakeSession של demo() (בלי execute)
+    # לא ייפול. הסוכן מקבל רק את הצעד הזה, אף פעם לא את צעד האישור (בטיחות מבנית).
+    if hasattr(session, "execute"):
+        from app.automation.agent import run_agent_step
+
+        return await run_agent_step(
+            session,
+            action,
+            ok,
+            read_instruction=read_instruction,
+            read_schema=read_schema,
+            trace=trace,
+        )
     return False, state
 
 

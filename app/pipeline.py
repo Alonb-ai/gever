@@ -27,13 +27,16 @@ _EXTRACT = (
     "בכל תור החזר JSON: 'reply' = מה שאתה אומר למשתמש, בדמות. "
     "מלא restaurant/date/time/party_size כשהם ידועים מהשיחה. "
     "אם המשתמש מסר את שמו או המייל שלו, מלא name/email (אל תמציא — רק אם נאמרו). "
-    "'ready'=true רק כשיש לך את כל הארבעה והמשתמש אישר לסגור."
+    "'ready'=true רק כשיש לך את כל הארבעה והמשתמש אישר לסגור. "
+    "שדה 'task_type': 'restaurant' אם זו הזמנת מסעדה, אחרת 'other'. "
+    "ברירת מחדל restaurant אם לא ברור עדיין."
 )
 _SCHEMA = {
     "type": "object",
     "properties": {
         "reply": {"type": "string"},
         "ready": {"type": "boolean"},
+        "task_type": {"type": "string", "enum": ["restaurant", "other"]},
         "restaurant": {"type": "string"},
         "date": {"type": "string"},
         "time": {"type": "string"},
@@ -186,6 +189,11 @@ async def run_booking(phone: str, fields: dict) -> None:
         await send_text(phone, msg)
 
     name = (fields.get("restaurant") or "").strip()
+    task_type = fields.get("task_type") or "restaurant"
+    if task_type != "restaurant":
+        _booking[phone] = {"state": "failed", "info": "לא נתמך עדיין"}
+        await send_text(phone, "זה לא משהו שאני סוגר אוטומטית עדיין, אבל אני פה.")
+        return
     _booking[phone] = {"state": "working", "info": ""}
     try:
         found = await resolve_ontopo_url(name)
