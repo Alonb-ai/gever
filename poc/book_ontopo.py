@@ -59,7 +59,7 @@ async def main() -> None:
         print("trace (per-step verify):")
         for t in trace:
             print(
-                f"  · {t['action']}  [ניסיון {t['attempt']}/{t['how']}]  ok={t['ok']}  → {t.get('state')}"
+                f"  · {t['action']}  [{t.get('attempt', '-')}/{t['how']}]  ok={t['ok']}  → {t.get('state')}"
             )
     print("details:", details)
 
