@@ -50,7 +50,9 @@ _SCHEMA = {
 log = logging.getLogger("gever")
 
 _client: genai.Client | None = None
-_chats: dict = {}  # phone -> chat session
+# phone -> רשימת תורות [{"role","text"}]. זיכרון השיחה: נשמר בתהליך *וגם* מותמד ל-Supabase
+# (prefs._chat), כדי שהשיחה תשרוד restart/redeploy. בלי מפתחות Supabase = בתהליך בלבד, כמו פעם.
+_turns: dict = {}
 _last_seen: dict = {}  # phone -> time.time() של התור האחרון (פתיחת "דף חדש" אחרי שקט)
 _reset_next: set = set()  # phones שיקבלו שיחה טרייה בתור הבא (אחרי שהזמנה נסגרה)
 _pending: set = (
@@ -63,6 +65,9 @@ _booking: dict = {}
 
 # פער שאחריו פותחים "דף חדש": שיחה טרייה במקום לגרור את ההיסטוריה הישנה.
 SESSION_GAP_S = 3 * 60 * 60  # ~3 שעות
+
+# כמה תורות לשמור בזיכרון השיחה (10 חילופים). שיחת הזמנה כמעט אף פעם לא ארוכה מזה.
+CHAT_TURNS = 20
 
 
 def _spawn(coro) -> None:
@@ -104,39 +109,53 @@ def _recap_block(bookings: list) -> str:
     return "\n".join(lines)
 
 
-async def _seed_instruction(phone: str) -> str:
-    """ה-system_instruction לשיחה טרייה: בסיס + פרופיל + recap (אם יש זיכרון).
-    בלי מפתחות get_profile/recent_bookings מחזירים None/[] → בדיוק כמו היום."""
+def _seed_from(profile: dict | None, bookings: list) -> str:
+    """ה-system_instruction לשיחה: בסיס + פרופיל + recap. הנתונים נטענים פעם אחת
+    ב-_chat_for (משמשים גם לתורות השמורות) ומועברים לכאן — בלי טעינה כפולה.
+    בלי מפתחות profile=None/bookings=[] → בדיוק כמו היום."""
     base = SYSTEM_PROMPT + "\n\n" + gender_line(None)
-    profile = await memory.get_profile(phone)
-    bookings = await memory.recent_bookings(phone)
     return base + _profile_block(profile) + _recap_block(bookings) + _EXTRACT
 
 
-async def _chat_for(phone: str):
-    """מחזיר את השיחה של phone, ופותח "דף חדש" כשצריך: מגע ראשון, פער >~3 שעות,
-    או אחרי שהזמנה נסגרה (_reset_next). שיחה טרייה נזרעת עם הפרופיל וה-recap."""
+async def _chat_for(phone: str) -> tuple:
+    """בונה את שיחת ה-Gemini לתור הזה מתוך history שמור, ומחזיר (chat, turns, prefs).
+    פותח "דף חדש" (history ריק) במגע ראשון, פער >~3 שעות, או אחרי שהזמנה נסגרה.
+    התורות נטענות מהזיכרון-בתהליך (_turns); אם ריק (למשל אחרי restart) — מ-Supabase."""
     global _client
     if _client is None:
         _client = genai.Client(api_key=settings.gemini_api_key)
 
+    # ponytail: טעינה אחת per-turn לזרע *ולתורות השמורות*. ~read אחד/תור ל-Supabase —
+    # זניח למשתמש יחיד; אם זה אי-פעם צוואר בקבוק, cache את הזרע per-session.
+    profile = await memory.get_profile(phone)
+    bookings = await memory.recent_bookings(phone)
+
     now = time.time()
     last = _last_seen.get(phone)
     stale = last is not None and (now - last) > SESSION_GAP_S
-    fresh = phone not in _chats or stale or phone in _reset_next
-    if fresh:
-        _reset_next.discard(phone)
-        _chats[phone] = _client.chats.create(
-            model=settings.gemini_model,
-            config=types.GenerateContentConfig(
-                system_instruction=await _seed_instruction(phone),
-                temperature=0.7,
-                response_mime_type="application/json",
-                response_schema=_SCHEMA,
-            ),
-        )
+    fresh = stale or phone in _reset_next
+    _reset_next.discard(phone)
     _last_seen[phone] = now
-    return _chats[phone]
+
+    prefs = (profile or {}).get("prefs") or {}
+    if fresh:
+        turns: list = []
+    else:
+        turns = _turns.get(phone)
+        if turns is None:  # זיכרון-בתהליך ריק (restart/worker חדש) — שחזור מ-Supabase
+            turns = (prefs.get("_chat") or {}).get("turns") or []
+
+    chat = _client.chats.create(
+        model=settings.gemini_model,
+        config=types.GenerateContentConfig(
+            system_instruction=_seed_from(profile, bookings),
+            temperature=0.7,
+            response_mime_type="application/json",
+            response_schema=_SCHEMA,
+        ),
+        history=[types.Content(role=t["role"], parts=[types.Part(text=t["text"])]) for t in turns],
+    )
+    return chat, turns, prefs
 
 
 def _truth_note(phone: str) -> str:
@@ -178,11 +197,21 @@ def _truth_note(phone: str) -> str:
 
 
 async def converse(phone: str, text: str) -> dict:
-    """תור שיחה אחד. הקריאה ל-Gemini חוסמת — מריצים ב-thread כדי לא לחסום."""
-    chat = await _chat_for(phone)
+    """תור שיחה אחד. הקריאה ל-Gemini חוסמת — מריצים ב-thread כדי לא לחסום.
+    שומר את התור (טקסט המשתמש + ה-reply בדמות, בלי ה-truth_note) ל-_turns ול-Supabase,
+    כדי שהשיחה תשרוד restart/redeploy ולא "תשכח" על מה דיברנו."""
+    chat, turns, prefs = await _chat_for(phone)
     msg = _truth_note(phone) + text
     resp = await asyncio.to_thread(chat.send_message, msg)
-    return json.loads(resp.text)
+    result = json.loads(resp.text)
+    turns = [
+        *turns,
+        {"role": "user", "text": text},
+        {"role": "model", "text": result.get("reply", "")},
+    ][-CHAT_TURNS:]
+    _turns[phone] = turns
+    await memory.upsert_profile(phone, prefs={**prefs, "_chat": {"turns": turns}})
+    return result
 
 
 BOOKING_TIMEOUT_S = 240  # ponytail: תקרה קשיחה — צעד Stagehand תקוע נכשל בקול, לא בדממה אינסופית
