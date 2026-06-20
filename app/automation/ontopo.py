@@ -181,13 +181,29 @@ async def book_table(
         if date:
             date_ok, _ = await engine.act_verified(
                 session,
-                action=f"בחר את התאריך {date} בלוח",
+                action=f"פתח את בורר התאריך ובחר את היום {date}; גלול בתוך הלוח/הרשימה אם היום הזה עדיין לא נראה",
                 read_instruction="the reservation date currently selected/shown in the booking widget (as text)",
                 read_schema={"type": "object", "properties": {"selected_date": {"type": "string"}}},
                 ok=lambda st: _date_matches(date, st.get("selected_date") or ""),
-                observe_for="the date button, then the matching calendar day cell, in the reservation widget",
+                observe_for="the date button, then scroll the calendar/list until the requested day is visible and pick it",
                 trace=trace,
             )
+        # בורר השעה הוא רשימה גלילה (תצפית מההקלטה): גוללים עד השעה המבוקשת ואז בוחרים,
+        # אחרת המודל בוחר רק מה שנראה ולא את מה שביקשו.
+        if time:
+            await engine.act_verified(
+                session,
+                action=f"פתח את בורר השעה 'בחרו שעה' וגלול ברשימה עד שמופיעה השעה {time}, ואז בחר אותה",
+                read_instruction="the reservation time currently selected/shown in the booking widget (as text)",
+                read_schema={"type": "object", "properties": {"selected_time": {"type": "string"}}},
+                ok=lambda st: time in (st.get("selected_time") or ""),
+                observe_for="the time picker list; scroll it until the requested time is visible, then that time option",
+                trace=trace,
+            )
+        # האתר *לא* מציג זמינות עד שלוחצים 'מצאו לי שולחן' (תצפית מההקלטה + recon) — חובה ללחוץ.
+        await session.act(input="לחץ על הכפתור 'מצאו לי שולחן'")
+        await engine.settle()
+
         # זמינות אמיתית — ואם ריק נותנים ל-UI להתייצב ומנסים שוב פעם אחת (לא תקיעה על קריאה מוקדמת)
         avail = await _extract(
             session,
@@ -229,7 +245,8 @@ async def book_table(
 
         screen = await _extract(
             session,
-            "the booking summary shown before final confirmation (restaurant, date, time, party size)",
+            "the booking summary and contact fields before final confirmation "
+            "(restaurant, date, time, party size, and the phone number filled in the form)",
             {
                 "type": "object",
                 "properties": {
@@ -237,6 +254,7 @@ async def book_table(
                     "date": {"type": "string"},
                     "time": {"type": "string"},
                     "party_size": {"type": "string"},
+                    "phone": {"type": "string"},
                 },
             },
         )
