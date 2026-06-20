@@ -161,6 +161,12 @@ def _truth_note(phone: str) -> str:
             f"[אמת-למערכת בלבד: ההזמנה כבר אושרה ({info}). אל תזמין שוב ואל תבקש "
             "פרטים מחדש — רק תאשר ללקוח בקצרה שזה סגור.]\n\n"
         )
+    if state == "pending":
+        return (
+            f"[אמת-למערכת בלבד: הגעת עם הלקוח למסך האישור ({info}) אבל זה מצב בדיקה "
+            "ועדיין לא ביצעת הזמנה אמיתית. אל תגיד שסגרת או ששמור ואל תזמין שוב. אם "
+            "הוא מאשר — תהיה כן, תגיד שהכל מוכן אבל עוד לא סגרת בפועל.]\n\n"
+        )
     if state == "none":
         return f"[אמת-למערכת בלבד: לא מצאתי מסעדה בשם '{info}'. אל תמציא שסגרת — בקש שם אחר.]\n\n"
     if state == "ambiguous":
@@ -228,24 +234,15 @@ async def run_booking(phone: str, fields: dict) -> None:
             timeout=BOOKING_TIMEOUT_S,
         )
         if res.success:
-            _booking[phone] = {"state": "done", "info": res.summary}
-            # זיכרון בין שיחות: שומר שם/מייל (אם נמסרו) ורושם את ההזמנה. no-op בלי מפתחות.
+            # DRY_RUN: הגענו למסך האישור — זו *לא* הזמנה אמיתית. לכן לא "done", לא
+            # log_booking, ולא לזייף "סגור" (חוק הברזל). שומרים רק פרופיל (שם/מייל)
+            # לזיכרון. הסגירה האמיתית (confirm→commit) + שימוש בטלפון = זרוע C.
+            _booking[phone] = {"state": "pending", "info": res.summary}
             await memory.upsert_profile(
                 phone,
                 name=(fields.get("name") or None),
                 email=(fields.get("email") or None),
             )
-            await memory.log_booking(
-                phone,
-                restaurant=name,
-                date=fields.get("date") or "",
-                time=fields.get("time") or "20:00",
-                party_size=fields.get("party_size") or 2,
-                status="confirmed",
-            )
-            # ponytail: לא מאפסים את השיחה כאן — איפוס אחרי שער ה-DRY_RUN איבד הקשר
-            # וגרם להזמנה ריקה כש"מאשר" נכנס לשיחה טרייה. נחזיר per-completion אמיתי
-            # כשתיבנה זרימת confirm→commit (זרוע C).
         else:
             _booking[phone] = {"state": "failed", "info": res.summary}
             d = res.details or {}
