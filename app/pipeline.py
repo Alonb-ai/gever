@@ -30,7 +30,9 @@ _EXTRACT = (
     "אם מסר עובדה קבועה על עצמו ששווה לזכור — מצב זוגי, עיר מגורים, מסעדה מועדפת, "
     "מגבלות אוכל, או אזורים שהוא אוהב — מלא תחת 'profile' (רק מה שנאמר במפורש, אל "
     "תנחש ואל תכתוב מצב רגעי או פרט חד-פעמי של ההזמנה). אם אין — השאר 'profile' ריק. "
-    "'ready'=true רק כשיש לך את כל הארבעה והמשתמש אישר לסגור. "
+    "'ready'=true רק כשיש לך את כל הארבעה והמשתמש אישר לסגור (התחלת הזמנה). "
+    "'confirm'=true רק כשכבר הגעתם למסך האישור (יש הזמנה ממתינה) והמשתמש מאשר "
+    "במפורש לסגור אותה סופית — לא להתחלה של הזמנה חדשה. "
     "שדה 'task_type': 'restaurant' אם זו הזמנת מסעדה, אחרת 'other'. "
     "ברירת מחדל restaurant אם לא ברור עדיין."
 )
@@ -39,6 +41,7 @@ _SCHEMA = {
     "properties": {
         "reply": {"type": "string"},
         "ready": {"type": "boolean"},
+        "confirm": {"type": "boolean"},
         "task_type": {"type": "string", "enum": ["restaurant", "other"]},
         "restaurant": {"type": "string"},
         "date": {"type": "string"},
@@ -72,9 +75,12 @@ _pending: set = (
     set()
 )  # ponytail: hold strong refs — create_task() tasks get GC'd mid-flight otherwise
 # אמת-קרקע על תוצאת ההזמנה האמיתית, phone -> {"state": ..., "info": ...}.
-# state: "working" | "done" | "failed" | "none" | "ambiguous". מוזרק ל-converse כדי
-# שמודל השיחה לא ימציא הצלחה/כישלון. נכתב רק ב-run_booking (המקור היחיד לאמת).
+# state: "working" | "done" | "failed" | "none" | "ambiguous" | "pending". מוזרק ל-converse
+# כדי שמודל השיחה לא ימציא הצלחה/כישלון. נכתב רק ב-run_booking/run_commit (המקור לאמת).
 _booking: dict = {}
+# הזמנה שהגיעה למסך האישור ומחכה ל"מאשר" — פרמטרי ה-playbook לשחזור בסגירה האמיתית.
+# (res.details לא נשמר אחרי run_booking, לכן שומרים כאן את מה ש-book_table צריך.)
+_pending_commit: dict = {}
 
 # פער שאחריו פותחים "דף חדש": שיחה טרייה במקום לגרור את ההיסטוריה הישנה.
 SESSION_GAP_S = 3 * 60 * 60  # ~3 שעות
@@ -202,10 +208,16 @@ def _truth_note(phone: str) -> str:
             "פרטים מחדש — רק תאשר ללקוח בקצרה שזה סגור.]\n\n"
         )
     if state == "pending":
+        if settings.dry_run:
+            return (
+                f"[אמת-למערכת בלבד: הגעת עם הלקוח למסך האישור ({info}) אבל זה מצב בדיקה "
+                "ועדיין לא ביצעת הזמנה אמיתית. אל תגיד שסגרת או ששמור ואל תזמין שוב. אם "
+                "הוא מאשר — תהיה כן, תגיד שהכל מוכן אבל עוד לא סגרת בפועל.]\n\n"
+            )
         return (
-            f"[אמת-למערכת בלבד: הגעת עם הלקוח למסך האישור ({info}) אבל זה מצב בדיקה "
-            "ועדיין לא ביצעת הזמנה אמיתית. אל תגיד שסגרת או ששמור ואל תזמין שוב. אם "
-            "הוא מאשר — תהיה כן, תגיד שהכל מוכן אבל עוד לא סגרת בפועל.]\n\n"
+            f"[אמת-למערכת בלבד: הגעת עם הלקוח למסך האישור ({info}) — הכל מוכן וצריך רק את "
+            "אישורו לסגירה סופית. עדיין לא סגרת בפועל, אל תגיד שסגרת ואל תזמין שוב. אם הוא "
+            "מאשר במפורש — זה הסימן לסגור; תאשר לו רק כשבאמת ייסגר.]\n\n"
         )
     if state == "none":
         return f"[אמת-למערכת בלבד: לא מצאתי מסעדה בשם '{info}'. אל תמציא שסגרת — בקש שם אחר.]\n\n"
@@ -301,6 +313,20 @@ async def run_booking(phone: str, fields: dict) -> None:
                 name=(fields.get("name") or None),
                 email=(fields.get("email") or None),
             )
+            # שומרים את פרמטרי ההזמנה לסגירה האמיתית (confirm→commit). שם המזמין:
+            # מהשיחה, ואם אין — מהפרופיל; אם עדיין ריק, run_commit ישאל לפני שסוגר.
+            booker = (fields.get("name") or "").strip()
+            if not booker:
+                booker = ((await memory.get_profile(phone)) or {}).get("name") or ""
+            d = res.details or {}
+            _pending_commit[phone] = {
+                "restaurant": name,  # name = שם המסעדה (ראה למעלה); page_url = ה-URL שנפתר
+                "page_url": found["url"],
+                "date": fields.get("date") or "",
+                "time": d.get("time") or fields.get("time") or "20:00",  # השעה שאושרה בפועל
+                "party_size": fields.get("party_size") or 2,
+                "name": booker,
+            }
         else:
             _booking[phone] = {"state": "failed", "info": res.summary}
             d = res.details or {}
@@ -322,10 +348,78 @@ async def run_booking(phone: str, fields: dict) -> None:
         await send_text(phone, "נתקעתי באמצע, לא הצלחתי לסגור. ננסה שוב?" + engine.error_detail(e))
 
 
+async def run_commit(phone: str) -> None:
+    """הסגירה האמיתית אחרי 'מאשר': מריץ מחדש את ה-playbook עם dry_run=False, סוגר,
+    ורושם. book_table עצמו שולח את 'סגור ✅' (כולל מספר אישור) — לא משכפלים פה.
+    עטוף ב-timeout/except כמו run_booking: תקיעה/חריגה → הודעת כישלון כנה."""
+
+    async def notify(msg: str) -> None:
+        await send_text(phone, msg)
+
+    job = _pending_commit.get(phone)
+    if not job:
+        return
+    if not job.get("name"):  # חוק ברזל: לא סוגרים בלי שם מזמין
+        await send_text(phone, "רגע על איזה שם לסגור")
+        return
+    _booking[phone] = {"state": "working", "info": ""}
+    try:
+        res = await asyncio.wait_for(
+            book_table(
+                restaurant=job["restaurant"],
+                page_url=job["page_url"],
+                date=job["date"],
+                time=job["time"],
+                party_size=job["party_size"],
+                name=job["name"],
+                phone=phone,  # הטלפון של הוואטסאפ = טלפון ההזמנה
+                dry_run=False,  # ← הסגירה האמיתית
+                notify=notify,
+            ),
+            timeout=BOOKING_TIMEOUT_S,
+        )
+        if res.success:
+            d = res.details or {}
+            _booking[phone] = {"state": "done", "info": d.get("confirmation") or ""}
+            await memory.log_booking(
+                phone,
+                d.get("restaurant") or job["restaurant"],
+                d.get("date") or job["date"],
+                d.get("time") or job["time"],
+                job["party_size"],
+                status="confirmed",
+            )
+            _reset_next.add(phone)  # ההזמנה נסגרה — ההודעה הבאה פותחת דף חדש
+        else:
+            _booking[phone] = {"state": "failed", "info": res.summary}
+            d = res.details or {}
+            await send_text(
+                phone,
+                res.summary + engine.error_detail(d.get("error"), session_id=d.get("session_id")),
+            )
+    except asyncio.TimeoutError:
+        log.warning("commit timed out (%ss) for %s", BOOKING_TIMEOUT_S, phone)
+        _booking[phone] = {"state": "failed", "info": "נתקע (timeout)"}
+        await send_text(
+            phone,
+            "אחי זה נתקע לי באישור, ננסה שוב?"
+            + engine.error_detail(f"timeout אחרי {BOOKING_TIMEOUT_S}s"),
+        )
+    except Exception as e:
+        log.exception("commit failed for %s", phone)
+        _booking[phone] = {"state": "failed", "info": "חריגה באישור"}
+        await send_text(phone, "נתקעתי באישור, לא סגרתי. ננסה שוב?" + engine.error_detail(e))
+    finally:
+        _pending_commit.pop(phone, None)
+
+
 async def handle_inbound(phone: str, text: str, message_id: str | None = None) -> None:
-    """נקודת הכניסה מה-webhook: שיחה, תשובה, וכשמוכן — הזמנה ברקע."""
+    """נקודת הכניסה מה-webhook: שיחה, תשובה, וכשמוכן — הזמנה/סגירה ברקע."""
     await send_typing(message_id)  # 'מקליד…' בזמן שגבר חושב; התשובה תנקה אותו
     result = await converse(phone, text)
     await send_text(phone, result.get("reply", "רגע 🔄"))
-    if result.get("ready"):
+    if phone in _pending_commit and result.get("confirm") and not settings.dry_run:
+        _spawn(run_commit(phone))  # 'מאשר' על הזמנה ממתינה → סגירה אמיתית
+    elif result.get("ready"):
+        _pending_commit.pop(phone, None)  # התחלת/שינוי הזמנה — נוטשים gate ישן
         _spawn(run_booking(phone, result))

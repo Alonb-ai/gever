@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # False (פרודקשן) → הודעה בדמות בלבד, בלי לדלוף טכני ללקוח אמיתי.
     debug_errors: bool = True
 
+    # הזמנה אמיתית כבויה כברירת מחדל: "מאשר" מגיע למסך האישור ועוצר (לא סוגר בפועל).
+    # ponytail: דגל יחיד; הופכים ל-False ב-.env/Coolify רק להזמנה אמיתית, עם פיקוח.
+    dry_run: bool = True
+
     # ponytail: שדות Lemon Squeezy (זרוע 6) עדיין מוסרים — אף מסלול לא קורא להם.
 
 

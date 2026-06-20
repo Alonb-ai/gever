@@ -278,9 +278,11 @@ async def book_table(
             "the confirmation details or confirmation number shown after the booking succeeded",
             {"type": "object", "properties": {"confirmation": {"type": "string"}}},
         )
-        details["confirmation"] = proof.get("confirmation")
+        conf = proof.get("confirmation")
+        details["confirmation"] = conf
         await notify(
             f"סגור ✅ {details['restaurant']}, {details['date']} {chosen_time}, {party_size} סועדים."
+            + (f"\nמספר אישור {conf}" if conf else "")
         )
         return ActionResult(success=True, summary="ההזמנה בוצעה.", details=details)
 
