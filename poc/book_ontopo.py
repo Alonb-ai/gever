@@ -5,6 +5,7 @@
     .venv/bin/python poc/book_ontopo.py                      # ברירת מחדל
     .venv/bin/python poc/book_ontopo.py "הדסון" "20:00"      # שם + שעה
     .venv/bin/python poc/book_ontopo.py "הדסון" "20:00" "25" # + תאריך (יום בחודש)
+    .venv/bin/python poc/book_ontopo.py "הדסון" "20:00" "" "0542773331"  # + טלפון לקוח
 """
 
 import asyncio
@@ -29,6 +30,7 @@ async def main() -> None:
     restaurant = sys.argv[1] if len(sys.argv) > 1 else "טאיזו"
     time = sys.argv[2] if len(sys.argv) > 2 else "20:00"
     date = sys.argv[3] if len(sys.argv) > 3 else ""
+    phone = sys.argv[4] if len(sys.argv) > 4 else ""  # טלפון הלקוח (לבדיקת הזנה + פורמט)
 
     print(f"→ מחפש את '{restaurant}' ב-Ontopo...", flush=True)
     found = await resolve_ontopo_url(restaurant)
@@ -45,6 +47,7 @@ async def main() -> None:
         time=time,
         party_size=2,
         name="אלון",
+        phone=phone,
         dry_run=True,
         notify=notify,
     )
