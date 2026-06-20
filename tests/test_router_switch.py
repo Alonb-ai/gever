@@ -57,3 +57,14 @@ async def test_absent_task_type_defaults_to_restaurant(_patch_io):
     sent, called = _patch_io
     await pipeline.run_booking("p3", {"restaurant": "טאיזו"})
     assert called["resolve"] is True
+
+
+@pytest.mark.asyncio
+async def test_empty_restaurant_asks_not_books(_patch_io):
+    """מסעדה ריקה (קצה אחרי ready=True בלי שם) → לא resolve/book, שואל לאיזו מסעדה."""
+    sent, called = _patch_io
+    await pipeline.run_booking("p4", {"task_type": "restaurant", "restaurant": ""})
+    assert called["resolve"] is False
+    assert called["book"] is False
+    assert sent and "מסעדה" in sent[0]
+    assert "p4" not in pipeline._booking  # נוקה, בלי state מטעה

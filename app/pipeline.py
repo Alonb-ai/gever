@@ -194,6 +194,11 @@ async def run_booking(phone: str, fields: dict) -> None:
         _booking[phone] = {"state": "failed", "info": "לא נתמך עדיין"}
         await send_text(phone, "זה לא משהו שאני סוגר אוטומטית עדיין, אבל אני פה.")
         return
+    if not name:
+        # הגנה: המודל ירה ready=True בלי שם מסעדה (קצה) — לא יורים הזמנה ריקה
+        _booking.pop(phone, None)
+        await send_text(phone, "רגע לאיזו מסעדה אנחנו סוגרים")
+        return
     _booking[phone] = {"state": "working", "info": ""}
     try:
         found = await resolve_ontopo_url(name)
@@ -235,8 +240,9 @@ async def run_booking(phone: str, fields: dict) -> None:
                 party_size=fields.get("party_size") or 2,
                 status="confirmed",
             )
-            # המשימה נסגרה → "דף חדש" בתור הבא, עם הפרופיל וה-recap המעודכנים.
-            _reset_next.add(phone)
+            # ponytail: לא מאפסים את השיחה כאן — איפוס אחרי שער ה-DRY_RUN איבד הקשר
+            # וגרם להזמנה ריקה כש"מאשר" נכנס לשיחה טרייה. נחזיר per-completion אמיתי
+            # כשתיבנה זרימת confirm→commit (זרוע C).
         else:
             _booking[phone] = {"state": "failed", "info": res.summary}
             d = res.details or {}
