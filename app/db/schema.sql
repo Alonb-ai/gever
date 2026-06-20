@@ -7,7 +7,7 @@ create table if not exists users (
     phone       text primary key,           -- WhatsApp number, e.g. "972501234567"
     name        text,                        -- Fernet-encrypted at rest
     email       text,                        -- Fernet-encrypted at rest
-    prefs       jsonb not null default '{}', -- {party_size, dietary, areas, _chat} — defaults+תמלול גבר reuses
+    prefs       jsonb not null default '{}', -- {party_size, dietary, areas, relationship, city, fav_restaurant, _chat} — defaults+תמלול גבר reuses
     created_at  timestamptz not null default now(),
     updated_at  timestamptz not null default now()
 );

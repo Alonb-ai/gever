@@ -27,6 +27,9 @@ _EXTRACT = (
     "בכל תור החזר JSON: 'reply' = מה שאתה אומר למשתמש, בדמות. "
     "מלא restaurant/date/time/party_size כשהם ידועים מהשיחה. "
     "אם המשתמש מסר את שמו או המייל שלו, מלא name/email (אל תמציא — רק אם נאמרו). "
+    "אם מסר עובדה קבועה על עצמו ששווה לזכור — מצב זוגי, עיר מגורים, מסעדה מועדפת, "
+    "מגבלות אוכל, או אזורים שהוא אוהב — מלא תחת 'profile' (רק מה שנאמר במפורש, אל "
+    "תנחש ואל תכתוב מצב רגעי או פרט חד-פעמי של ההזמנה). אם אין — השאר 'profile' ריק. "
     "'ready'=true רק כשיש לך את כל הארבעה והמשתמש אישר לסגור. "
     "שדה 'task_type': 'restaurant' אם זו הזמנת מסעדה, אחרת 'other'. "
     "ברירת מחדל restaurant אם לא ברור עדיין."
@@ -43,6 +46,16 @@ _SCHEMA = {
         "party_size": {"type": "integer"},
         "name": {"type": "string"},
         "email": {"type": "string"},
+        "profile": {
+            "type": "object",
+            "properties": {
+                "relationship": {"type": "string"},
+                "city": {"type": "string"},
+                "fav_restaurant": {"type": "string"},
+                "dietary": {"type": "string"},
+                "areas": {"type": "string"},
+            },
+        },
     },
     "required": ["reply", "ready"],
 }
@@ -84,6 +97,8 @@ def _profile_block(profile: dict | None) -> str:
     lines = ["\n\n--- פרופיל המשתמש (אתה כבר מכיר אותו, אל תבקש שוב שם/מייל) ---"]
     if profile.get("name"):
         lines.append(f"שם: {profile['name']}")
+    if profile.get("email"):
+        lines.append(f"מייל: {profile['email']}")
     prefs = profile.get("prefs") or {}
     if prefs.get("party_size"):
         lines.append(f"כמות סועדים ברירת מחדל: {prefs['party_size']}")
@@ -91,6 +106,12 @@ def _profile_block(profile: dict | None) -> str:
         lines.append(f"מגבלות אוכל: {prefs['dietary']}")
     if prefs.get("areas"):
         lines.append(f"אזורים מועדפים: {prefs['areas']}")
+    if prefs.get("relationship"):
+        lines.append(f"מצב זוגי: {prefs['relationship']}")
+    if prefs.get("city"):
+        lines.append(f"עיר מגורים: {prefs['city']}")
+    if prefs.get("fav_restaurant"):
+        lines.append(f"מסעדה מועדפת: {prefs['fav_restaurant']}")
     return "\n".join(lines)
 
 
@@ -210,7 +231,15 @@ async def converse(phone: str, text: str) -> dict:
         {"role": "model", "text": result.get("reply", "")},
     ][-CHAT_TURNS:]
     _turns[phone] = turns
-    await memory.upsert_profile(phone, prefs={**prefs, "_chat": {"turns": turns}})
+    # ponytail: ממזגים את ה-prefs ב-Python (כבר בידינו מ-_chat_for) ל-upsert אחד —
+    # עובדות פרופיל + _chat יחד. בלי race למשתמש יחיד; בלי read-merge ב-upsert_profile.
+    facts = {k: v for k, v in (result.get("profile") or {}).items() if v not in (None, "", 0)}
+    await memory.upsert_profile(
+        phone,
+        name=(result.get("name") or None),
+        email=(result.get("email") or None),
+        prefs={**prefs, **facts, "_chat": {"turns": turns}},
+    )
     return result
 
 
