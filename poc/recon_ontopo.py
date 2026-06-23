@@ -1,5 +1,6 @@
-"""recon: נוהג בזרימת ההזמנה של Ontopo עד שלב פרטי הקשר (בלי לאשר) ומתעד אותו —
-האם יש שדה שם/טלפון, האם דורש התחברות/OTP, ומה כפתור ההמשך. לאבחון באג הטלפון.
+"""recon: נוהג בזרימת ההזמנה של Ontopo עד *רגע לפני* האישור הסופי (לא מאשר!) ומתעד —
+אישור התנאים → 'המשך' → שלב פרטי הקשר: שם/מייל/טלפון בלבד או גם אשראי? יש כפתור
+אישור סופי? לאבחון האם אפשר לסגור בלי כרטיס (המסעדה מתקשרת לכרטיס בנפרד).
 
 הרצה (מהריפו הראשי, בשביל .env):
     .venv/bin/python <worktree>/poc/recon_ontopo.py "הדסון לילינבלום" "26" "21:30"
@@ -20,16 +21,17 @@ from app.automation.resolve import resolve_ontopo_url
 
 load_dotenv()
 
-CONTACT_SCHEMA = {
+STEP_SCHEMA = {
     "type": "object",
     "properties": {
+        "step_title": {"type": "string"},
         "name_input_present": {"type": "boolean"},
+        "email_input_present": {"type": "boolean"},
         "phone_input_present": {"type": "boolean"},
-        "phone_field_value": {"type": "string"},
-        "login_or_signin_required": {"type": "boolean"},
-        "otp_or_code_field_present": {"type": "boolean"},
-        "primary_button_label": {"type": "string"},
-        "step_text": {"type": "string"},
+        "credit_card_fields_present": {"type": "boolean"},
+        "credit_card_required_now": {"type": "boolean"},
+        "final_confirm_button_label": {"type": "string"},
+        "notes": {"type": "string"},
     },
 }
 
@@ -57,30 +59,70 @@ async def main() -> None:
         await session.navigate(url=found["url"])
         await engine.settle(2)
         await session.act(input="בחר 2 סועדים")
-        await session.act(
-            input=f"פתח את בורר התאריך ובחר את היום {date}; גלול בלוח אם צריך"
-        )
-        await session.act(
-            input=f"פתח את בורר השעה וגלול עד {time} ואז בחר אותה"
-        )
+        await session.act(input=f"פתח את בורר התאריך ובחר את היום {date}; גלול בלוח אם צריך")
+        await session.act(input=f"פתח את בורר השעה וגלול עד {time} ואז בחר אותה")
         await session.act(input="לחץ על הכפתור 'מצאו לי שולחן'")
         await engine.settle(2)
-
-        # נבחר את ה-slot הראשון הזמין כדי להגיע לשלב פרטי הקשר
         await session.act(input="בחר את אחת השעות הזמינות שמופיעות בתוצאות")
         await engine.settle(2)
 
-        print("\n=== שלב פרטי הקשר (אחרי בחירת slot) ===", flush=True)
-        info = await engine.extract(
+        # מסך הסיכום ('פרטי הזמנה' + 'חשוב לדעת'): גוללים בקופסת התנאים ומסמנים את כולן,
+        # מאמתים שהכפתור 'המשך' נפתח (אחרת הוא חסום), ורק אז לוחצים.
+        cond = {"properties": {"checkboxes_total": {"type": "integer"},
+                               "checkboxes_checked": {"type": "integer"},
+                               "continue_enabled": {"type": "boolean"}}, "type": "object"}
+        for i in range(3):
+            await session.act(input="גלול עד הסוף בתוך קופסת 'חשוב לדעת' כדי לחשוף את כל התנאים")
+            await session.act(input="סמן (לחץ) כל תיבת סימון של תנאי שעדיין לא מסומנת בקופסת 'חשוב לדעת'")
+            st = await engine.extract(
+                session,
+                "In the 'חשוב לדעת' terms box: how many checkboxes exist, how many are "
+                "currently checked, and is the 'המשך' continue button enabled (not greyed out)?",
+                cond,
+            )
+            print(f"  conditions try {i + 1}: {json.dumps(st, ensure_ascii=False)}", flush=True)
+            if st.get("continue_enabled"):
+                break
+            await engine.settle(1)
+
+        await session.act(input="לחץ על הכפתור 'המשך'")
+        await engine.settle(2)
+
+        print("\n=== אחרי 'המשך' — שלב פרטי הקשר ===", flush=True)
+        before = await engine.extract(
             session,
-            "We are at the step after choosing a time slot. Describe it: is there a "
-            "NAME text input and a PHONE/מספר טלפון text input to fill? Does it require "
-            "signing in / login / 'התחברות' or a verification CODE/OTP/'קוד אימות'? "
-            "What is the label of the main button to proceed? Give the value currently "
-            "shown in the phone field if any.",
-            CONTACT_SCHEMA,
+            "Describe this step. Is there a NAME input, an EMAIL input, a PHONE input? "
+            "Are there CREDIT CARD fields (card number/expiry/cvv) and is a card required "
+            "to continue right now? What is the label of the main button to finalize the booking?",
+            STEP_SCHEMA,
         )
-        print(json.dumps(info, ensure_ascii=False, indent=2), flush=True)
+        print(json.dumps(before, ensure_ascii=False, indent=2), flush=True)
+
+        # ממלאים פרטי קשר (אם יש שדות) ובודקים שוב — בלי ללחוץ אישור סופי
+        await session.act(input="מלא את שם המזמין: אלון")
+        await session.act(input="מלא אימייל: abazak@gmail.com")
+        await session.act(input="מלא טלפון: 0542773331")
+        await engine.settle(1)
+
+        print("\n=== אחרי מילוי שם/מייל/טלפון (לפני אישור סופי, לא לוחצים!) ===", flush=True)
+        after = await engine.extract(
+            session,
+            "After filling name/email/phone: is the booking ready to be confirmed with just "
+            "these details, or is a credit card still required before confirming? What does "
+            "the final confirm button say, and what phone number is shown in the phone field now?",
+            {
+                "type": "object",
+                "properties": {
+                    "ready_to_confirm_without_card": {"type": "boolean"},
+                    "credit_card_still_required": {"type": "boolean"},
+                    "final_confirm_button_label": {"type": "string"},
+                    "phone_field_value": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+            },
+        )
+        print(json.dumps(after, ensure_ascii=False, indent=2), flush=True)
+        print("\n(לא נלחץ אישור סופי — recon בלבד)", flush=True)
     finally:
         await session.end()
 
