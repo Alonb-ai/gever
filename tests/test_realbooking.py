@@ -45,7 +45,7 @@ def test_run_commit_books_for_real_and_logs(monkeypatch):
         log_calls.append({"status": status, "restaurant": restaurant, "party_size": party_size})
 
     monkeypatch.setattr(pipeline, "send_text", fake_send_text)
-    monkeypatch.setattr(pipeline, "book_table", fake_book)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
     monkeypatch.setattr(memory, "log_booking", fake_log)
 
     pipeline._pending_commit["p1"] = {
@@ -80,7 +80,7 @@ def test_run_commit_without_name_asks_no_book(monkeypatch):
         raise AssertionError("book_table לא אמור להיקרא בלי שם")
 
     monkeypatch.setattr(pipeline, "send_text", fake_send_text)
-    monkeypatch.setattr(pipeline, "book_table", fake_book)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
 
     pipeline._pending_commit["p2"] = {"restaurant": "הדסון", "page_url": "http://x", "name": ""}
     asyncio.run(pipeline.run_commit("p2"))
@@ -115,7 +115,7 @@ def test_run_booking_populates_gate(monkeypatch):
 
     monkeypatch.setattr(pipeline, "send_text", fake_send_text)
     monkeypatch.setattr(pipeline, "resolve_ontopo_url", fake_resolve)
-    monkeypatch.setattr(pipeline, "book_table", fake_book)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
     monkeypatch.setattr(memory, "upsert_profile", fake_upsert)
     monkeypatch.setattr(memory, "get_profile", fake_get_profile)
 

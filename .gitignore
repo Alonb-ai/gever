@@ -3,8 +3,10 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.venv-bu/
 venv/
 .python-version
+bu_recordings/
 
 # Env & secrets
 .env

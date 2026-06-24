@@ -15,7 +15,7 @@ from google import genai
 from google.genai import types
 
 from app.automation import engine
-from app.automation.ontopo import book_table
+from app.automation.browser_book import book_table_bu
 from app.automation.resolve import resolve_ontopo_url
 from app.config import settings
 from app.db import memory
@@ -255,7 +255,13 @@ async def converse(phone: str, text: str) -> dict:
     return result
 
 
-BOOKING_TIMEOUT_S = 240  # ponytail: תקרה קשיחה — צעד Stagehand תקוע נכשל בקול, לא בדממה אינסופית
+BOOKING_TIMEOUT_S = 240  # ponytail: תקרה קשיחה — צעד תקוע נכשל בקול, לא בדממה אינסופית
+
+
+def _il_phone(p: str) -> str:
+    """מספר וואטסאפ (972XXXXXXXXX) → פורמט ישראלי מקומי (0XXXXXXXXX) שהטופס מצפה לו."""
+    p = (p or "").lstrip("+")
+    return "0" + p[3:] if p.startswith("972") else p
 
 
 async def run_booking(phone: str, fields: dict) -> None:
@@ -291,17 +297,21 @@ async def run_booking(phone: str, fields: dict) -> None:
             await send_text(phone, f"יש כמה כאלה — לאיזה? {opts}")
             return
 
-        res = await asyncio.wait_for(
-            book_table(
-                restaurant=name,
-                page_url=found["url"],
-                date=fields.get("date") or "",
-                time=fields.get("time") or "20:00",
-                party_size=fields.get("party_size") or 2,
-                dry_run=True,
-                notify=notify,
-            ),
-            timeout=BOOKING_TIMEOUT_S,
+        # פרטי קשר: מהשיחה, ואם אין — מהפרופיל. הטלפון = הוואטסאפ בפורמט ישראלי (0...).
+        prof = await memory.get_profile(phone)
+        booker = (fields.get("name") or (prof or {}).get("name") or "").strip()
+        email = (fields.get("email") or (prof or {}).get("email") or "").strip()
+        await notify("רגע אני על זה 🔄")  # browser-use איטי ובלי streaming — מודיעים שאנחנו על זה
+        res = await book_table_bu(
+            restaurant=name,
+            page_url=found["url"],
+            date=fields.get("date") or "",
+            time=fields.get("time") or "20:00",
+            party_size=fields.get("party_size") or 2,
+            name=booker,
+            email=email,
+            phone=_il_phone(phone),
+            dry_run=True,
         )
         if res.success:
             # DRY_RUN: הגענו למסך האישור — זו *לא* הזמנה אמיתית. לכן לא "done", לא
@@ -313,11 +323,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                 name=(fields.get("name") or None),
                 email=(fields.get("email") or None),
             )
-            # שומרים את פרמטרי ההזמנה לסגירה האמיתית (confirm→commit). שם המזמין:
-            # מהשיחה, ואם אין — מהפרופיל; אם עדיין ריק, run_commit ישאל לפני שסוגר.
-            booker = (fields.get("name") or "").strip()
-            if not booker:
-                booker = ((await memory.get_profile(phone)) or {}).get("name") or ""
+            # שומרים את פרמטרי ההזמנה לסגירה האמיתית (confirm→commit). booker כבר נפתר למעלה.
             d = res.details or {}
             _pending_commit[phone] = {
                 "restaurant": name,  # name = שם המסעדה (ראה למעלה); page_url = ה-URL שנפתר
@@ -364,19 +370,16 @@ async def run_commit(phone: str) -> None:
         return
     _booking[phone] = {"state": "working", "info": ""}
     try:
-        res = await asyncio.wait_for(
-            book_table(
-                restaurant=job["restaurant"],
-                page_url=job["page_url"],
-                date=job["date"],
-                time=job["time"],
-                party_size=job["party_size"],
-                name=job["name"],
-                phone=phone,  # הטלפון של הוואטסאפ = טלפון ההזמנה
-                dry_run=False,  # ← הסגירה האמיתית
-                notify=notify,
-            ),
-            timeout=BOOKING_TIMEOUT_S,
+        await notify("רגע סוגר לך 🔄")  # browser-use איטי ובלי streaming
+        res = await book_table_bu(
+            restaurant=job["restaurant"],
+            page_url=job["page_url"],
+            date=job["date"],
+            time=job["time"],
+            party_size=job["party_size"],
+            name=job["name"],
+            phone=_il_phone(phone),
+            dry_run=False,  # סגירה אמיתית (כיום ה-runner עדיין עוצר בכרטיס; commit מלא = עתידי)
         )
         if res.success:
             d = res.details or {}

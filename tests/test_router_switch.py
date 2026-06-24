@@ -30,7 +30,7 @@ def _patch_io(monkeypatch):
 
     monkeypatch.setattr(pipeline, "send_text", fake_send_text)
     monkeypatch.setattr(pipeline, "resolve_ontopo_url", fake_resolve)
-    monkeypatch.setattr(pipeline, "book_table", fake_book)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
     pipeline._booking.clear()
     return sent, called
 

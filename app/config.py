@@ -6,11 +6,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Browserbase + Stagehand
+    # Browserbase — תשתית דפדפן (stealth/captcha/proxy) למצב bu_browser=browserbase
     browserbase_api_key: str = ""
     browserbase_project_id: str = ""
     model_api_key: str = ""
-    model_name: str = "google/gemini-3-flash-preview"
+    model_name: str = "google/gemini-3-flash-preview"  # ה-driver של ה-agent (browser-use)
+
+    # browser-use — שכבת הניווט האוטונומית, רצה ב-venv נפרד כ-subprocess
+    # (browser-use מצמיד google-genai==1.65, מתנגש עם ה-app על 2.8 → בידוד).
+    bu_venv_path: str = ".venv-bu/bin/python"
+    bu_browser: str = "local"  # local (Chrome מקומי, חינם) | browserbase (stealth/captcha)
+    bu_headless: bool = True
+    bu_chrome_path: str = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    bu_record_dir: str = "bu_recordings"  # וידאו+GIF+הנמקת-agent לכל ריצה
 
     # Gemini (שיחה)
     gemini_api_key: str = ""
