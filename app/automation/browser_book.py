@@ -18,13 +18,20 @@ BU_TIMEOUT_S = 300  # ponytail: תקרה קשיחה — agent תקוע נכשל 
 
 
 async def _run_subprocess(job: dict) -> None:
-    """מריץ את bu_runner ב-.venv-bu ומזרים את ה-job ב-stdin. מופרד כדי שיהיה ניתן ל-mock."""
+    """מריץ את bu_runner ב-.venv-bu ומזרים את ה-job ב-stdin. מופרד כדי שיהיה ניתן ל-mock.
+    מעבירים את מפתח ה-Gemini ב-env: pydantic-settings קורא .env לאובייקט, *לא* ל-os.environ,
+    אז ה-subprocess לא יראה אותו אחרת."""
+    env = {**os.environ}
+    if settings.gemini_api_key:
+        env["GEMINI_API_KEY"] = settings.gemini_api_key
+        env["GOOGLE_API_KEY"] = settings.gemini_api_key
     proc = await asyncio.create_subprocess_exec(
         settings.bu_venv_path,
         _RUNNER,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
     try:
         await asyncio.wait_for(proc.communicate(json.dumps(job).encode()), timeout=BU_TIMEOUT_S)
