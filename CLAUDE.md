@@ -29,8 +29,8 @@ Full spec: [`גבר_MVP_Spec.docx`](גבר_MVP_Spec.docx). Roadmap & status: [`R
 
 ## Current focus
 
-**Stage 0 — the PoC is green** (`poc/book_ontopo.py`): proven end-to-end in
-DRY_RUN on Hudson + Taizu, and the WhatsApp loop is LIVE on Meta Cloud API.
+**Stage 0 — the PoC is green** (`poc/spike_browseruse.py`): the browser-use spike
+drives Ontopo autonomously to the credit step, and the WhatsApp loop is LIVE on Meta Cloud API.
 **Current focus = Stage 1 → 2:** a real booking beyond DRY_RUN, plus
 stabilization — swap the 24h temp token for a permanent Meta System User token,
 and move off the temporary tunnel to a Coolify deploy.
@@ -43,8 +43,8 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"          # or: uv pip install -e ".[dev]"
 cp .env.example .env             # then fill the keys
 
-# stage 0 — the PoC (runs in DRY_RUN, won't create a real booking)
-python poc/book_ontopo.py
+# stage 0 — the PoC (browser-use spike, stops before the credit step)
+python poc/spike_browseruse.py
 
 # server (stage 1+)
 uvicorn app.main:app --reload    # GET /health -> {"status":"ok"}
@@ -69,7 +69,7 @@ Python 3.11+ · FastAPI · Stagehand + Browserbase · Gemini · Supabase ·
 WhatsApp via Meta Cloud API · Lemon Squeezy.
 
 ```
-poc/book_ontopo.py   stage 0 PoC — standalone, the only file that reads os.getenv directly
+poc/spike_browseruse.py   stage 0 PoC — standalone browser-use spike, the only file that reads os.getenv directly
 app/main.py          FastAPI + Meta WhatsApp webhook
 app/config.py        settings (pydantic-settings, reads .env) — the single source for config
 app/llm/intent.py    Gemini intent + the גבר system prompt

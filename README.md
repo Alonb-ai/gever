@@ -48,7 +48,7 @@ Browserbase + Stagehand (ביצוע באתר) → אישור חוזר ב‑Whats
 ## מבנה הפרויקט
 
 ```
-poc/book_ontopo.py       שלב 0 — סקריפט ה-PoC העצמאי
+poc/spike_browseruse.py  שלב 0 — ספייק ה-PoC העצמאי (browser-use)
 app/
   main.py                FastAPI + WhatsApp webhook
   config.py              הגדרות מ-.env
@@ -65,7 +65,7 @@ tests/
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .                 # או: uv pip install stagehand python-dotenv
 cp .env.example .env             # מלא BROWSERBASE_API_KEY + MODEL_API_KEY
-python poc/book_ontopo.py "Taizu" "מחר 20:00"
+python poc/spike_browseruse.py
 ```
 
 מה שצריך כדי להריץ את ה‑PoC:

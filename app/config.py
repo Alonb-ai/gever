@@ -9,7 +9,6 @@ class Settings(BaseSettings):
     # Browserbase — תשתית דפדפן (stealth/captcha/proxy) למצב bu_browser=browserbase
     browserbase_api_key: str = ""
     browserbase_project_id: str = ""
-    model_api_key: str = ""
     model_name: str = "google/gemini-3-flash-preview"  # ה-driver של ה-agent (browser-use)
 
     # browser-use — שכבת הניווט האוטונומית, רצה ב-venv נפרד כ-subprocess

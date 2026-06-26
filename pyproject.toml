@@ -10,7 +10,6 @@ requires-python = ">=3.11"
 
 dependencies = [
     # Stage 0 — PoC (browser automation)
-    "stagehand>=3.21.0",
     "python-dotenv>=1.0.0",
 
     # Stage 1 — server + conversation
@@ -22,7 +21,6 @@ dependencies = [
     "google-genai>=1.0.0",        # unified Google GenAI SDK (Gemini)
 
     # Stage 4 — cross-conversation memory (Supabase + PII at rest)
-    "supabase>=2.9.0",
     "cryptography>=43.0.0",      # Fernet — encrypt name/email at rest
 
     # ponytail: twilio/python-multipart removed — no consumers. Re-add when their arm starts.
