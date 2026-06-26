@@ -41,7 +41,9 @@ async def search_ontopo(name: str, city: str = "") -> list[dict]:
         if not m or m.group(1) in seen:
             continue
         seen.add(m.group(1))
-        out.append({"title": _clean(raw_title), "url": f"https://ontopo.com/he/il/page/{m.group(1)}"})
+        out.append(
+            {"title": _clean(raw_title), "url": f"https://ontopo.com/he/il/page/{m.group(1)}"}
+        )
     return out
 
 
@@ -65,6 +67,10 @@ async def resolve_ontopo_url(name: str, city: str = "") -> dict:
         url = next(c["url"] for c in candidates if c["title"] == chosen_title)
         return {"status": "one", "url": url, "candidates": candidates}
     if status == "many":
-        return {"status": "many", "url": None, "candidates": [c for c in candidates if c["title"] in good]}
-    # אף כותרת לא תאמה חזק → ברירת מחדל: התוצאה הראשונה (הכי רלוונטית)
-    return {"status": "one", "url": candidates[0]["url"], "candidates": candidates}
+        return {
+            "status": "many",
+            "url": None,
+            "candidates": [c for c in candidates if c["title"] in good],
+        }
+    # אף כותרת לא תאמה חזק → לעולם לא לבחור לבד. לשאול את הלקוח (many) או none אם אין כלום.
+    return {"status": "many" if candidates else "none", "url": None, "candidates": candidates}

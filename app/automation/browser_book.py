@@ -112,6 +112,8 @@ async def book_table_bu(
             "card_required": r.get("card_required"),
             "booked": r.get("booked"),
             "confirmation": r.get("confirmation"),
+            "summary_reached": r.get("summary_reached"),
+            "missing": r.get("missing"),
             "restaurant": restaurant,
             "record_dir": record_dir,
         },

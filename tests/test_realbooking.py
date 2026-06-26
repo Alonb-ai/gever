@@ -230,6 +230,86 @@ def test_route_ready_starts_booking_and_drops_gate(monkeypatch):
     assert "pX" not in pipeline._pending_commit
 
 
+def test_route_double_fire_guard_blocks_second_booking(monkeypatch):
+    """באג 4: הזמנה כבר רצה (state=working) — ready=true שני (למשל '?' של הלקוח) לא יורה שוב."""
+    _reset()
+    spawned = []
+
+    async def fake_converse(phone, text):
+        return {"reply": "על זה", "ready": True}
+
+    async def fake_send_text(phone, msg):
+        pass
+
+    async def fake_send_typing(mid):
+        pass
+
+    def fake_spawn(coro):
+        spawned.append(coro.__qualname__)
+        coro.close()
+
+    monkeypatch.setattr(pipeline, "converse", fake_converse)
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "send_typing", fake_send_typing)
+    monkeypatch.setattr(pipeline, "_spawn", fake_spawn)
+    monkeypatch.setattr(pipeline.settings, "dry_run", False)
+
+    pipeline._booking["pY"] = {"state": "working", "info": ""}
+    asyncio.run(pipeline.handle_inbound("pY", "?"))
+    assert spawned == []  # הזמנה כבר בתהליך — לא יורים שנייה
+
+
+def test_run_booking_missing_field_asks_no_book(monkeypatch):
+    """באג 3: recon מחזיר MISSING:email → גבר מבקש מהלקוח, state=missing, אין סגירה/log."""
+    _reset()
+    sent, log_calls = [], []
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def fake_resolve(name):
+        return {"status": "one", "url": "http://hudson", "candidates": []}
+
+    async def fake_book(**kwargs):
+        return ActionResult(
+            success=False,
+            summary="חסר מייל",
+            details={"missing": "email"},
+        )
+
+    async def fake_upsert(phone, name=None, email=None, prefs=None):
+        pass
+
+    async def fake_get_profile(phone):
+        return None
+
+    async def fake_log(*a, **k):
+        log_calls.append(1)
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_ontopo_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "upsert_profile", fake_upsert)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+    monkeypatch.setattr(memory, "log_booking", fake_log)
+
+    fields = {
+        "task_type": "restaurant",
+        "restaurant": "הדסון",
+        "date": "מחר",
+        "time": "20:00",
+        "party_size": 4,
+        "name": "אלון",
+    }
+    asyncio.run(pipeline.run_booking("p4", fields))
+
+    assert pipeline._booking["p4"]["state"] == "missing"
+    assert pipeline._booking["p4"]["info"] == "email"
+    assert "p4" not in pipeline._pending_commit  # לא נפתח gate — אין הזמנה ממתינה
+    assert not log_calls  # לא נרשמה הזמנה
+    assert sent and "מייל" in sent[-1]  # גבר ביקש את הפרט החסר
+
+
 if __name__ == "__main__":
     import pytest
 

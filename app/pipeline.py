@@ -208,21 +208,30 @@ def _truth_note(phone: str) -> str:
             "פרטים מחדש — רק תאשר ללקוח בקצרה שזה סגור.]\n\n"
         )
     if state == "pending":
+        # last-verify: info = שם המסעדה שנפתרה. נוקבים בו ומבקשים "לסגור?" כדי שהלקוח
+        # יתפוס מסעדה שגויה (ביקש רוטשילד, נפתר רוסטיקו) לפני הסגירה.
         if settings.dry_run:
             return (
-                f"[אמת-למערכת בלבד: הגעת עם הלקוח למסך האישור ({info}) אבל זה מצב בדיקה "
-                "ועדיין לא ביצעת הזמנה אמיתית. אל תגיד שסגרת או ששמור ואל תזמין שוב. אם "
-                "הוא מאשר — תהיה כן, תגיד שהכל מוכן אבל עוד לא סגרת בפועל.]\n\n"
+                f"[אמת-למערכת בלבד: הגעת עם הלקוח למסך האישור של '{info}' אבל זה מצב בדיקה "
+                "ועדיין לא ביצעת הזמנה אמיתית. נקוב בשם המסעדה '" + info + "' במפורש ושאל "
+                "'לסגור?' כדי שיאשר שזו המסעדה הנכונה. אל תגיד שסגרת או ששמור ואל תזמין "
+                "שוב. אם הוא מאשר — תהיה כן, תגיד שהכל מוכן אבל עוד לא סגרת בפועל.]\n\n"
             )
         return (
-            f"[אמת-למערכת בלבד: הגעת עם הלקוח למסך האישור ({info}) — הכל מוכן וצריך רק את "
-            "אישורו לסגירה סופית. עדיין לא סגרת בפועל, אל תגיד שסגרת ואל תזמין שוב. אם הוא "
-            "מאשר במפורש — זה הסימן לסגור; תאשר לו רק כשבאמת ייסגר.]\n\n"
+            f"[אמת-למערכת בלבד: הגעת עם הלקוח למסך האישור של '{info}' — הכל מוכן וצריך רק "
+            "את אישורו לסגירה סופית. נקוב בשם המסעדה '" + info + "' במפורש ושאל 'לסגור?' "
+            "כדי שיאשר שזו המסעדה הנכונה. עדיין לא סגרת בפועל, אל תגיד שסגרת ואל תזמין "
+            "שוב. אם הוא מאשר במפורש — זה הסימן לסגור; תאשר לו רק כשבאמת ייסגר.]\n\n"
         )
     if state == "card":
         return (
             "[אמת-למערכת בלבד: המקום דורש כרטיס אשראי מראש ואינך סוגר אותו אוטומטית. כבר "
             "שלחת ללקוח לינק לסגור בעצמו. אל תמציא שסגרת ואל תנסה שוב — הצע לעזור במקום אחר.]\n\n"
+        )
+    if state == "missing":
+        return (
+            f"[אמת-למערכת בלבד: הטופס דורש שדה חובה שחסר לי ('{info}'). אל תמציא אותו ואל "
+            "תמציא שסגרת — בקש מהלקוח את הפרט הזה במפורש וחכה לתשובה.]\n\n"
         )
     if state == "none":
         return f"[אמת-למערכת בלבד: לא מצאתי מסעדה בשם '{info}'. אל תמציא שסגרת — בקש שם אחר.]\n\n"
@@ -322,7 +331,9 @@ async def run_booking(phone: str, fields: dict) -> None:
             # DRY_RUN: הגענו למסך האישור — זו *לא* הזמנה אמיתית. לכן לא "done", לא
             # log_booking, ולא לזייף "סגור" (חוק הברזל). שומרים רק פרופיל (שם/מייל)
             # לזיכרון. הסגירה האמיתית (confirm→commit) + שימוש בטלפון = זרוע C.
-            _booking[phone] = {"state": "pending", "info": res.summary}
+            # last-verify: ה-info נוקב בשם המסעדה שנפתרה (name), כדי שה-truth_note יורה
+            # לפרסונה לאשר עם הלקוח את שם המקום — וכך לתפוס מסעדה שגויה לפני סגירה.
+            _booking[phone] = {"state": "pending", "info": name}
             await memory.upsert_profile(
                 phone,
                 name=(fields.get("name") or None),
@@ -338,6 +349,15 @@ async def run_booking(phone: str, fields: dict) -> None:
                 "party_size": fields.get("party_size") or 2,
                 "name": booker,
             }
+        elif (res.details or {}).get("missing"):
+            # באג 3: שדה חובה בטופס היה ריק (ה-runner לא המציא, עצר ודיווח MISSING).
+            # מנגנון אחד כמו none/ambiguous: גבר מבקש מהלקוח את השדה וממתין — בלי
+            # pre-validation בצד שלנו (הטופס מחליט מה חובה).
+            field = res.details["missing"]
+            _booking[phone] = {"state": "missing", "info": field}
+            _human = {"email": "מייל", "name": "שם", "phone": "טלפון"}.get(field, field)
+            await send_text(phone, f"רגע, חסר לי {_human} כדי לסגור — תשלח לי אותו?")
+            return
         else:
             _booking[phone] = {"state": "failed", "info": res.summary}
             d = res.details or {}
@@ -444,8 +464,17 @@ async def handle_inbound(phone: str, text: str, message_id: str | None = None) -
     await send_typing(message_id)  # 'מקליד…' בזמן שגבר חושב; התשובה תנקה אותו
     result = await converse(phone, text)
     await send_text(phone, result.get("reply", "רגע 🔄"))
+    # באג 4/5: guard ל-double-fire — אם כבר רצה הזמנה לטלפון הזה ("?" של הלקוח גרם
+    # ל-ready=true שוב), לא יורים run_booking/run_commit שני שיתנגש בראשון (וגם לא
+    # notify כפול — ה-guard מסיר את הכניסה-החוזרת).
+    if _booking.get(phone, {}).get("state") == "working":
+        return
+    # קובעים state="working" *סינכרונית* לפני ה-spawn (לא בתוך ה-coroutine), כדי לסגור
+    # חלון מירוץ: שתי הודעות מהירות לא יעברו שתיהן את ה-guard למעלה. ה-coroutine ידרוס.
     if phone in _pending_commit and result.get("confirm") and not settings.dry_run:
+        _booking[phone] = {"state": "working", "info": ""}
         _spawn(run_commit(phone))  # 'מאשר' על הזמנה ממתינה → סגירה אמיתית
     elif result.get("ready"):
         _pending_commit.pop(phone, None)  # התחלת/שינוי הזמנה — נוטשים gate ישן
+        _booking[phone] = {"state": "working", "info": ""}
         _spawn(run_booking(phone, result))

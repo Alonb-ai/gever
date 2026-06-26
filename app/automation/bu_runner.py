@@ -8,7 +8,8 @@
 ה-logs הרועשים של browser-use ב-stdout/stderr).
 
 שני מצבים לפי job["dry_run"]:
-  dry_run=True  → recon: עוצרים בשלב הכרטיס (לא סוגרים). מאכלס את ה-gate.
+  dry_run=True  → recon: עוצרים ב*מסך הסיכום*, לפני האישור הסופי (לא סוגרים, גם אם
+                  אין כרטיס). מדווח SUMMARY_REACHED (+ CARD_REQUIRED אם נדרש כרטיס).
   dry_run=False → commit: סוגרים באמת — *אבל* אם נדרש כרטיס אשראי עוצרים שם תמיד
                   (PCI: לא מזינים כרטיס). מקום בלי-כרטיס נסגר; מדווח BOOKED <אישור>.
 """
@@ -24,6 +25,11 @@ def _build_task(job: dict) -> str:
 לך לכתובת {job["url"]} (אתר הזמנות מסעדה Ontopo, בעברית).
 המטרה: להזמין שולחן ל-{job["party_size"]} אנשים בתאריך {job["date"]} בשעה {job["time"]}.
 
+*** חוק ברזל — פרטי לקוח: השתמש *רק* בשם/אימייל/טלפון שניתנו בדיוק כאן למטה. אסור
+להמציא או לנחש שום ערך (שם, מייל, שם משפחה). אם שדה חובה בטופס ריק ואין לך אותו —
+אל תמלא אותו ואל תמציא; עצור מיד וסיים את הדיווח במילה MISSING ואחריה שם השדה
+(למשל MISSING:email או MISSING:name). ***
+
 עבור את כל שלבי הווידג'ט בעצמך:
 1. בחר {job["party_size"]} סועדים.
 2. פתח את בורר התאריך ובחר את התאריך {job["date"]} (גלול בלוח אם צריך).
@@ -31,17 +37,20 @@ def _build_task(job: dict) -> str:
 4. לחץ על הכפתור "מצאו לי שולחן".
 5. בחר אחת השעות הזמינות שמופיעות (הקרובה ביותר למבוקש).
 6. במסך הסיכום: סמן את כל תיבות הסימון של התנאים, ולחץ "המשך".
-7. מלא פרטי קשר: שם "{job.get("name") or "אלון"}", אימייל "{job.get("email") or ""}", טלפון "{job.get("phone") or ""}".
+7. מלא פרטי קשר: שם "{job.get("name") or ""}", אימייל "{job.get("email") or ""}", טלפון "{job.get("phone") or ""}".
 """
-    # dry_run=True → רק מגיעים עד הכרטיס (recon). commit (dry_run=False) → סוגרים באמת,
-    # אבל אם נדרש כרטיס אשראי עוצרים שם תמיד (PCI — לא מזינים כרטיס, לא סוגרים).
+    # dry_run=True → recon: עוצרים במסך הסיכום *לפני* האישור הסופי (לא סוגרים, גם בלי כרטיס).
+    # commit (dry_run=False) → סוגרים באמת, אבל אם נדרש כרטיס אשראי עוצרים שם (PCI).
     if job.get("dry_run", True):
-        tail = """8. המשך עד שאתה מגיע לשלב של פרטי כרטיס אשראי / תשלום.
+        tail = """8. המשך עד *מסך הסיכום / האישור הסופי* של ההזמנה — המסך שבו רואים את כל פרטי
+ההזמנה וכפתור הסיום ("סיום" / "אשר הזמנה" / "הזמן" / "שלם").
 
-*** חוק ברזל: עצור בשלב כרטיס האשראי. אל תזין שום פרטי כרטיס אשראי, ואל תלחץ על
-האישור הסופי / "שלם" / "אשר הזמנה". המטרה היא רק להגיע עד שם. ***
+*** חוק ברזל: עצור ב*מסך הסיכום*, *לפני* הכפתור הסופי. אל תלחץ לעולם על כפתור
+הסיום / "אשר הזמנה" / "הזמן" / "שלם", ואל תזין פרטי כרטיס אשראי — בין אם נדרש
+כרטיס ובין אם לא. המטרה היא רק להגיע עד מסך הסיכום, *בלי* לסגור. ***
 
-בסיום דווח: לאיזה שלב הגעת, והאם נדרש כרטיס אשראי כדי לסיים."""
+כשהגעת למסך הסיכום, סיים את הדיווח במילה SUMMARY_REACHED. אם המסך דורש פרטי כרטיס
+אשראי כדי לסיים — הוסף אחריה גם את המילה CARD_REQUIRED."""
     else:
         tail = """8. המשך עד מסך האישור הסופי של ההזמנה.
 
@@ -51,38 +60,51 @@ def _build_task(job: dict) -> str:
 
 אם לא נדרש כרטיס אשראי: לחץ על כפתור האישור הסופי לסגירת ההזמנה
 (למשל "אשר הזמנה" / "סיום" / "הזמן"). ודא שמופיע מסך/הודעת אישור שההזמנה נסגרה.
-רק כשההזמנה נסגרה בהצלחה — סיים את הדיווח במילה BOOKED ואחריה מספר האישור אם הופיע."""
+רק כשההזמנה נסגרה בהצלחה — סיים את הדיווח במילה BOOKED ואחריה מספר האישור אם הופיע.
+
+אם שדה חובה בטופס ריק ואין לך אותו — אל תמלא ואל תמציא; עצור וסיים במילה MISSING
+ואחריה שם השדה (למשל MISSING:email)."""
     return steps + tail
 
 
 def _parse_result(final: str, *, commit: bool) -> dict:
-    """דיווח ה-agent → תוצאת JSON. הנתיב הבטיחותי: בסגירה (commit) success=True רק אם
-    באמת נסגר (marker BOOKED) ולא נעצרנו בקיר כרטיס (CARD_REQUIRED). ב-recon אין סגירה."""
+    """דיווח ה-agent → תוצאת JSON. הנתיב הבטיחותי: כרטיס מזוהה *רק* לפי ה-marker המפורש
+    CARD_REQUIRED (לא לפי substring עברי שתופס גם שלילה). בסגירה (commit) success=True רק
+    אם באמת נסגר (BOOKED). ב-recon הצלחה = הגענו למסך הסיכום (SUMMARY_REACHED), בלי סגירה.
+    בכל מצב: MISSING:<field> = שדה חובה ריק → כישלון + השדה החסר ב-details."""
     final = (final or "").strip()
     low = final.lower()
+    # marker מפורש בלבד — שלילה עברית ("לא נדרש כרטיס") לא מדליקה אותו.
+    card = "card_required" in low
+    missing = ""
+    if "missing:" in low:
+        missing = final[low.find("missing:") + len("missing:") :].strip(" :–-\n").split()[0]
     if commit:
         # markers מה-task: BOOKED <אישור> = נסגר באמת, CARD_REQUIRED = קיר כרטיס (לא נסגר).
-        card = "card_required" in low
-        booked = ("booked" in low) and not card
+        booked = ("booked" in low) and not card and not missing
         confirmation = ""
         if booked:
             confirmation = final[low.find("booked") + len("booked") :].strip(" :–-\n")[:120]
         return {
-            "success": booked,  # נעצר בכרטיס/נתקע → לא הזמנה, לא נרשום
+            "success": booked,  # נעצר בכרטיס/נתקע/חסר שדה → לא הזמנה, לא נרשום
             "stage": final[:400],
             "card_required": card,
             "booked": booked,
             "confirmation": confirmation,
+            "missing": missing,
             "message": final,
         }
-    # recon (dry_run): הצלחה = הגענו עד הכרטיס ויש דיווח. אין סגירה אמיתית.
-    card = ("אשראי" in final) or ("card" in low) or ("כרטיס" in final)
+    # recon (dry_run): הצלחה = הגענו למסך הסיכום (SUMMARY_REACHED), בלי סגירה אמיתית.
+    # שדה חובה חסר (MISSING:<field>) גובר → כישלון, גבר ישאל את הלקוח.
+    summary_reached = "summary_reached" in low
     return {
-        "success": bool(final),
+        "success": summary_reached and not missing,
         "stage": final[:400],
         "card_required": card,
         "booked": False,
         "confirmation": "",
+        "summary_reached": summary_reached,
+        "missing": missing,
         "message": final,
     }
 

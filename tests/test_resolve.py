@@ -1,12 +1,14 @@
-"""בדיקות ל-_match_restaurant (דיסאמביגואציה) ול-_PAGE (חילוץ page id מ-URL)."""
+"""בדיקות ל-_match_restaurant (דיסאמביגואציה), ל-_PAGE (חילוץ page id) ול-resolve_ontopo_url."""
 
+import asyncio
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.automation import resolve  # noqa: E402
 from app.automation.ontopo import _match_restaurant  # noqa: E402
-from app.automation.resolve import _PAGE  # noqa: E402
+from app.automation.resolve import _PAGE, resolve_ontopo_url  # noqa: E402
 
 
 def test_match_one():
@@ -48,6 +50,31 @@ def test_page_matches():
 
 def test_page_no_match():
     assert _PAGE.search("https://example.com/he/il/page/123456") is None
+
+
+def test_resolve_no_strong_match_never_picks_arbitrary_one(monkeypatch):
+    # שאילתה בלי match חזק (כל המועמדים זרים) — לעולם לא 'one' שרירותי; שואלים את הלקוח.
+    async def fake_search(name, city=""):
+        return [
+            {"title": "רוסטיקו בזל", "url": "https://ontopo.com/he/il/page/1"},
+            {"title": "קפה אחר", "url": "https://ontopo.com/he/il/page/2"},
+        ]
+
+    monkeypatch.setattr(resolve, "search_ontopo", fake_search)
+    res = asyncio.run(resolve_ontopo_url("רוטשילד"))
+    assert res["status"] in ("many", "none")
+    assert res["status"] != "one"
+    assert res["url"] is None
+
+
+def test_resolve_no_candidates_is_none(monkeypatch):
+    async def fake_search(name, city=""):
+        return []
+
+    monkeypatch.setattr(resolve, "search_ontopo", fake_search)
+    res = asyncio.run(resolve_ontopo_url("רוטשילד"))
+    assert res["status"] == "none"
+    assert res["url"] is None
 
 
 if __name__ == "__main__":
