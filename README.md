@@ -78,6 +78,7 @@ python poc/spike_browseruse.py
 ```bash
 uvicorn app.main:app --reload
 # GET /health  →  {"status":"ok"}
+# חשיפה ל-WhatsApp (tunnel יציב, לא localhost.run): scripts/tunnel.sh — ראה docs/ops-tunnel.md
 ```
 
 ## סטאק

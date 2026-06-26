@@ -48,6 +48,7 @@ python poc/spike_browseruse.py
 
 # server (stage 1+)
 uvicorn app.main:app --reload    # GET /health -> {"status":"ok"}
+scripts/tunnel.sh                # expose to WhatsApp via the stable ngrok dev domain (NOT localhost.run) — see docs/ops-tunnel.md
 
 # quality gate before committing
 ruff check . && ruff format --check .

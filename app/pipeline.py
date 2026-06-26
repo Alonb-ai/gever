@@ -164,18 +164,32 @@ async def _chat_for(phone: str) -> tuple:
 
     now = time.time()
     last = _last_seen.get(phone)
-    stale = last is not None and (now - last) > SESSION_GAP_S
+    prefs = (profile or {}).get("prefs") or {}
+    chat_meta = prefs.get("_chat") or {}
+
+    if last is not None:
+        # מסלול חם בתהליך — כמו תמיד: gap >~3h מאז התור האחרון פותח דף חדש.
+        stale = (now - last) > SESSION_GAP_S
+    else:
+        # _last_seen ריק (cold/restart). שתי בדיקות שורדות-restart:
+        # (1) אם אין סשן הזמנה חי בתהליך (לא ב-_booking ולא ב-_pending_commit), כל
+        #     סשן קודם לא ניתן לשחזור (מאשר לא יכול לירות) — התורות הישנות רק יטעו.
+        # (2) gap אמיתי >~3h לפי ts המותמד ב-_chat. ts חסר (_chat ישן) = unknown →
+        #     בדיקה (1) מכריעה, בלי לקרוס.
+        no_live_session = phone not in _booking and phone not in _pending_commit
+        ts = chat_meta.get("ts")
+        stale_by_ts = ts is not None and (now - ts) > SESSION_GAP_S
+        stale = no_live_session or stale_by_ts
     fresh = stale or phone in _reset_next
     _reset_next.discard(phone)
     _last_seen[phone] = now
 
-    prefs = (profile or {}).get("prefs") or {}
     if fresh:
         turns: list = []
     else:
         turns = _turns.get(phone)
         if turns is None:  # זיכרון-בתהליך ריק (restart/worker חדש) — שחזור מ-Supabase
-            turns = (prefs.get("_chat") or {}).get("turns") or []
+            turns = chat_meta.get("turns") or []
 
     chat = _client.chats.create(
         model=settings.gemini_model,
@@ -198,6 +212,13 @@ def _truth_note(phone: str) -> str:
         return ""
     state, info = b["state"], b.get("info", "")
     if state == "working":
+        if info:
+            return (
+                f"[אמת-למערכת בלבד, אל תצטט: אתה כרגע באמצע הזמנה ל-'{info}' — היא עדיין "
+                "בתהליך ואין אישור. אתה לא יכול להתחיל הזמנה אחרת עד שזו נגמרת. אם הלקוח "
+                f"מבקש מסעדה אחרת — תגיד שאתה עוד על '{info}' ורגע מסיים, אל תטען שאתה מריץ "
+                "את החדשה. אל תכריז שסגרת — תעדכן כשסגור.]\n\n"
+            )
         return (
             "[אמת-למערכת בלבד, אל תצטט: ההזמנה עדיין בתהליך, אין אישור. "
             "אל תכריז שסגרת — תגיד שאתה על זה ותעדכן כשסגור.]\n\n"
@@ -269,7 +290,7 @@ async def converse(phone: str, text: str) -> dict:
         phone,
         name=(result.get("name") or None),
         email=(result.get("email") or None),
-        prefs={**prefs, **facts, "_chat": {"turns": turns}},
+        prefs={**prefs, **facts, "_chat": {"turns": turns, "ts": time.time()}},
     )
     return result
 
@@ -300,7 +321,7 @@ async def run_booking(phone: str, fields: dict) -> None:
         _booking.pop(phone, None)
         await send_text(phone, "רגע לאיזו מסעדה אנחנו סוגרים")
         return
-    _booking[phone] = {"state": "working", "info": ""}
+    _booking[phone] = {"state": "working", "info": name}
     try:
         found = await resolve_ontopo_url(name)
         if found["status"] == "none":
@@ -478,5 +499,6 @@ async def handle_inbound(phone: str, text: str, message_id: str | None = None) -
         _spawn(run_commit(phone))  # 'מאשר' על הזמנה ממתינה → סגירה אמיתית
     elif result.get("ready"):
         _pending_commit.pop(phone, None)  # התחלת/שינוי הזמנה — נוטשים gate ישן
-        _booking[phone] = {"state": "working", "info": ""}
+        # info = שם המסעדה בתהליך, כדי שה-truth_note ינקוב בה אם תגיע בקשה אחרת בזמן ריצה.
+        _booking[phone] = {"state": "working", "info": (result.get("restaurant") or "").strip()}
         _spawn(run_booking(phone, result))
