@@ -15,7 +15,7 @@ from google import genai
 from google.genai import types
 
 from app.automation import engine
-from app.automation.browser_book import book_table_bu
+from app.automation.browser_book import BU_TIMEOUT_S, book_table_bu
 from app.automation.resolve import resolve_ontopo_url
 from app.config import settings
 from app.db import memory
@@ -274,9 +274,6 @@ async def converse(phone: str, text: str) -> dict:
     return result
 
 
-BOOKING_TIMEOUT_S = 240  # ponytail: תקרה קשיחה — צעד תקוע נכשל בקול, לא בדממה אינסופית
-
-
 def _il_phone(p: str) -> str:
     """מספר וואטסאפ (972XXXXXXXXX) → פורמט ישראלי מקומי (0XXXXXXXXX) שהטופס מצפה לו."""
     p = (p or "").lstrip("+")
@@ -371,12 +368,12 @@ async def run_booking(phone: str, fields: dict) -> None:
                 res.summary + engine.error_detail(d.get("error"), session_id=d.get("session_id")),
             )
     except asyncio.TimeoutError:
-        log.warning("booking timed out (%ss) for %s", BOOKING_TIMEOUT_S, phone)
+        log.warning("booking timed out (%ss) for %s", BU_TIMEOUT_S, phone)
         _booking[phone] = {"state": "failed", "info": "נתקע (timeout)"}
         await send_text(
             phone,
             "אחי זה נתקע לי, לקח יותר מדי. ננסה שוב?"
-            + engine.error_detail(f"timeout אחרי {BOOKING_TIMEOUT_S}s"),
+            + engine.error_detail(f"timeout אחרי {BU_TIMEOUT_S}s"),
         )
     except Exception as e:
         log.exception("booking failed for %s", phone)
@@ -449,12 +446,12 @@ async def run_commit(phone: str) -> None:
                 res.summary + engine.error_detail(d.get("error"), session_id=d.get("session_id")),
             )
     except asyncio.TimeoutError:
-        log.warning("commit timed out (%ss) for %s", BOOKING_TIMEOUT_S, phone)
+        log.warning("commit timed out (%ss) for %s", BU_TIMEOUT_S, phone)
         _booking[phone] = {"state": "failed", "info": "נתקע (timeout)"}
         await send_text(
             phone,
             "אחי זה נתקע לי באישור, ננסה שוב?"
-            + engine.error_detail(f"timeout אחרי {BOOKING_TIMEOUT_S}s"),
+            + engine.error_detail(f"timeout אחרי {BU_TIMEOUT_S}s"),
         )
     except Exception as e:
         log.exception("commit failed for %s", phone)

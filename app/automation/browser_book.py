@@ -14,7 +14,8 @@ from app.config import settings
 from app.models.schemas import ActionResult
 
 _RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bu_runner.py")
-BU_TIMEOUT_S = 300  # ponytail: תקרה קשיחה — agent תקוע נכשל בקול, לא בדממה
+BU_TIMEOUT_S = 600  # ponytail: תקרה קשיחה (10 דק') — browser-use עובר את כל זרימת Ontopo
+# עד הסיכום; 5 דק' קטעו ריצות חיות באמצע (dry-run #2). agent תקוע נכשל בקול, לא בדממה.
 
 
 async def _run_subprocess(job: dict) -> None:
