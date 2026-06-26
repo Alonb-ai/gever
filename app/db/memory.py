@@ -73,28 +73,57 @@ def _decrypt(value: str | None) -> str | None:
         return value
 
 
+async def _request(
+    method: str,
+    path: str,
+    *,
+    op: str,
+    phone: str,
+    params: dict | None = None,
+    json: dict | None = None,
+    headers: dict | None = None,
+) -> httpx.Response | None:
+    """בקשת PostgREST אחת: client+headers+raise_for_status, תופס ומחזיר None בכשל.
+
+    מרכז את ה-boilerplate החוזר (יצירת client, מפתחות שירות, try/except-warning).
+    מי שקורא אחראי על ה-_enabled() short-circuit ועל עיצוב ברירת-המחדל המגודרת.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.request(
+                method,
+                _rest_url(path),
+                headers=_headers(headers),
+                params=params,
+                json=json,
+            )
+            resp.raise_for_status()
+            return resp
+    except Exception as exc:  # noqa: BLE001 — לעולם לא מפילים את הפייפליין על קריאת זיכרון
+        log.warning("memory.%s failed for %s: %s", op, phone, exc)
+        return None
+
+
 async def get_profile(phone: str) -> dict | None:
     """פרופיל המשתמש לפי phone, עם name/email מפוענחים. None אם אין/כבוי/כשל."""
     if not _enabled():
         return None
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(
-                _rest_url("users"),
-                headers=_headers(),
-                params={"phone": f"eq.{phone}", "select": "*", "limit": "1"},
-            )
-            resp.raise_for_status()
-            rows = resp.json()
-        if not rows:
-            return None
-        row = rows[0]
-        row["name"] = _decrypt(row.get("name"))
-        row["email"] = _decrypt(row.get("email"))
-        return row
-    except Exception as exc:  # noqa: BLE001 — לעולם לא מפילים את הפייפליין על קריאת זיכרון
-        log.warning("memory.get_profile failed for %s: %s", phone, exc)
+    resp = await _request(
+        "GET",
+        "users",
+        op="get_profile",
+        phone=phone,
+        params={"phone": f"eq.{phone}", "select": "*", "limit": "1"},
+    )
+    if resp is None:
         return None
+    rows = resp.json()
+    if not rows:
+        return None
+    row = rows[0]
+    row["name"] = _decrypt(row.get("name"))
+    row["email"] = _decrypt(row.get("email"))
+    return row
 
 
 async def upsert_profile(
@@ -113,17 +142,15 @@ async def upsert_profile(
         payload["email"] = _encrypt(email)
     if prefs is not None:
         payload["prefs"] = prefs
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(
-                _rest_url("users"),
-                headers=_headers({"Prefer": "resolution=merge-duplicates"}),
-                params={"on_conflict": "phone"},
-                json=payload,
-            )
-            resp.raise_for_status()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("memory.upsert_profile failed for %s: %s", phone, exc)
+    await _request(
+        "POST",
+        "users",
+        op="upsert_profile",
+        phone=phone,
+        headers={"Prefer": "resolution=merge-duplicates"},
+        params={"on_conflict": "phone"},
+        json=payload,
+    )
 
 
 async def log_booking(
@@ -145,36 +172,31 @@ async def log_booking(
         "party_size": party_size,
         "status": status,
     }
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(
-                _rest_url("bookings"),
-                headers=_headers(),
-                json=payload,
-            )
-            resp.raise_for_status()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("memory.log_booking failed for %s: %s", phone, exc)
+    await _request(
+        "POST",
+        "bookings",
+        op="log_booking",
+        phone=phone,
+        json=payload,
+    )
 
 
 async def recent_bookings(phone: str, limit: int = 3) -> list:
     """ההזמנות האחרונות (חדש→ישן) לצורך recap קל. [] אם אין/כבוי/כשל."""
     if not _enabled():
         return []
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(
-                _rest_url("bookings"),
-                headers=_headers(),
-                params={
-                    "phone": f"eq.{phone}",
-                    "select": "*",
-                    "order": "created_at.desc",
-                    "limit": str(limit),
-                },
-            )
-            resp.raise_for_status()
-            return resp.json()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("memory.recent_bookings failed for %s: %s", phone, exc)
+    resp = await _request(
+        "GET",
+        "bookings",
+        op="recent_bookings",
+        phone=phone,
+        params={
+            "phone": f"eq.{phone}",
+            "select": "*",
+            "order": "created_at.desc",
+            "limit": str(limit),
+        },
+    )
+    if resp is None:
         return []
+    return resp.json()
