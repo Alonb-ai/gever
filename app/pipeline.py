@@ -19,7 +19,7 @@ from app.automation.browser_book import book_table_bu
 from app.automation.resolve import resolve_ontopo_url
 from app.config import settings
 from app.db import memory
-from app.llm.intent import SYSTEM_PROMPT, gender_line
+from app.llm.intent import KNOWN_HINT, ONBOARDING_BLOCK, SYSTEM_PROMPT, gender_line
 from app.whatsapp.client import send_text, send_typing
 
 _EXTRACT = (
@@ -141,7 +141,12 @@ def _seed_from(profile: dict | None, bookings: list) -> str:
     ב-_chat_for (משמשים גם לתורות השמורות) ומועברים לכאן — בלי טעינה כפולה.
     בלי מפתחות profile=None/bookings=[] → בדיוק כמו היום."""
     base = SYSTEM_PROMPT + "\n\n" + gender_line(None)
-    return base + _profile_block(profile) + _recap_block(bookings) + _EXTRACT
+    # חדש (אין profile/email) → בלוק היכרות; מוכר (יש מייל) → הפרופיל + רמז לשזירה עדינה.
+    if not (profile and profile.get("email")):
+        intro = ONBOARDING_BLOCK
+    else:
+        intro = _profile_block(profile) + KNOWN_HINT
+    return base + intro + _recap_block(bookings) + _EXTRACT
 
 
 async def _chat_for(phone: str) -> tuple:
