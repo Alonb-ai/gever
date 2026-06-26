@@ -219,6 +219,11 @@ def _truth_note(phone: str) -> str:
             "אישורו לסגירה סופית. עדיין לא סגרת בפועל, אל תגיד שסגרת ואל תזמין שוב. אם הוא "
             "מאשר במפורש — זה הסימן לסגור; תאשר לו רק כשבאמת ייסגר.]\n\n"
         )
+    if state == "card":
+        return (
+            "[אמת-למערכת בלבד: המקום דורש כרטיס אשראי מראש ואינך סוגר אותו אוטומטית. כבר "
+            "שלחת ללקוח לינק לסגור בעצמו. אל תמציא שסגרת ואל תנסה שוב — הצע לעזור במקום אחר.]\n\n"
+        )
     if state == "none":
         return f"[אמת-למערכת בלבד: לא מצאתי מסעדה בשם '{info}'. אל תמציא שסגרת — בקש שם אחר.]\n\n"
     if state == "ambiguous":
@@ -356,7 +361,7 @@ async def run_booking(phone: str, fields: dict) -> None:
 
 async def run_commit(phone: str) -> None:
     """הסגירה האמיתית אחרי 'מאשר': מריץ מחדש את ה-playbook עם dry_run=False, סוגר,
-    ורושם. book_table עצמו שולח את 'סגור ✅' (כולל מספר אישור) — לא משכפלים פה.
+    רושם, ושולח 'סגור ✅' ללקוח. אם המקום דורש כרטיס אשראי — לא נסגר (PCI), מודיעים בכנות.
     עטוף ב-timeout/except כמו run_booking: תקיעה/חריגה → הודעת כישלון כנה."""
 
     async def notify(msg: str) -> None:
@@ -383,7 +388,8 @@ async def run_commit(phone: str) -> None:
         )
         if res.success:
             d = res.details or {}
-            _booking[phone] = {"state": "done", "info": d.get("confirmation") or ""}
+            conf = d.get("confirmation") or ""
+            _booking[phone] = {"state": "done", "info": conf}
             await memory.log_booking(
                 phone,
                 d.get("restaurant") or job["restaurant"],
@@ -393,6 +399,23 @@ async def run_commit(phone: str) -> None:
                 status="confirmed",
             )
             _reset_next.add(phone)  # ההזמנה נסגרה — ההודעה הבאה פותחת דף חדש
+            when = f"ל-{job['date']} " if job.get("date") else ""
+            msg = (
+                f"סגור ✅ {job['restaurant']} {when}בשעה {job['time']} "
+                f"ל-{job['party_size']} סועדים.\nאישור יגיע אליך ב-SMS מהמסעדה 🤙"
+            )
+            if conf:
+                msg += f"\nמספר אישור: {conf}"
+            await send_text(phone, msg)
+        elif (res.details or {}).get("card_required"):
+            # זרוע C — קיר כרטיס: המקום דורש תשלום מראש, לא סוגרים אוטומטית (PCI).
+            # מוסרים ללקוח את לינק המסעדה ב-Ontopo כדי שיסגור בעצמו.
+            _booking[phone] = {"state": "card", "info": job["page_url"]}
+            await send_text(
+                phone,
+                f"{job['restaurant']} דורש כרטיס אשראי מראש, ואת זה אני לא ממלא במקומך. "
+                f"הנה הלינק לסגור בעצמך 👇\n{job['page_url']}",
+            )
         else:
             _booking[phone] = {"state": "failed", "info": res.summary}
             d = res.details or {}

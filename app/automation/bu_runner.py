@@ -7,8 +7,10 @@
 קלט: JSON job ב-stdin. פלט: כותב JSON תוצאה ל-job["result_path"] (נקי, בלי ערבוב עם
 ה-logs הרועשים של browser-use ב-stdout/stderr).
 
-חוק ברזל (שער בטיחות): המשימה עוצרת *לפני* הזנת כרטיס אשראי / אישור סופי. גם dry_run
-וגם לא — בינתיים תמיד עוצרים בשלב הכרטיס (סגירה אמיתית עם כרטיס = עבודה עתידית).
+שני מצבים לפי job["dry_run"]:
+  dry_run=True  → recon: עוצרים בשלב הכרטיס (לא סוגרים). מאכלס את ה-gate.
+  dry_run=False → commit: סוגרים באמת — *אבל* אם נדרש כרטיס אשראי עוצרים שם תמיד
+                  (PCI: לא מזינים כרטיס). מקום בלי-כרטיס נסגר; מדווח BOOKED <אישור>.
 """
 
 import asyncio
@@ -18,7 +20,7 @@ import sys
 
 
 def _build_task(job: dict) -> str:
-    return f"""
+    steps = f"""
 לך לכתובת {job["url"]} (אתר הזמנות מסעדה Ontopo, בעברית).
 המטרה: להזמין שולחן ל-{job["party_size"]} אנשים בתאריך {job["date"]} בשעה {job["time"]}.
 
@@ -30,13 +32,59 @@ def _build_task(job: dict) -> str:
 5. בחר אחת השעות הזמינות שמופיעות (הקרובה ביותר למבוקש).
 6. במסך הסיכום: סמן את כל תיבות הסימון של התנאים, ולחץ "המשך".
 7. מלא פרטי קשר: שם "{job.get("name") or "אלון"}", אימייל "{job.get("email") or ""}", טלפון "{job.get("phone") or ""}".
-8. המשך עד שאתה מגיע לשלב של פרטי כרטיס אשראי / תשלום.
+"""
+    # dry_run=True → רק מגיעים עד הכרטיס (recon). commit (dry_run=False) → סוגרים באמת,
+    # אבל אם נדרש כרטיס אשראי עוצרים שם תמיד (PCI — לא מזינים כרטיס, לא סוגרים).
+    if job.get("dry_run", True):
+        tail = """8. המשך עד שאתה מגיע לשלב של פרטי כרטיס אשראי / תשלום.
 
 *** חוק ברזל: עצור בשלב כרטיס האשראי. אל תזין שום פרטי כרטיס אשראי, ואל תלחץ על
 האישור הסופי / "שלם" / "אשר הזמנה". המטרה היא רק להגיע עד שם. ***
 
-בסיום דווח: לאיזה שלב הגעת, והאם נדרש כרטיס אשראי כדי לסיים.
-"""
+בסיום דווח: לאיזה שלב הגעת, והאם נדרש כרטיס אשראי כדי לסיים."""
+    else:
+        tail = """8. המשך עד מסך האישור הסופי של ההזמנה.
+
+*** חוק ברזל — כרטיס אשראי: אם בשלב כלשהו האתר דורש פרטי כרטיס אשראי / תשלום מראש,
+עצור מיד. אל תזין שום פרטי כרטיס ואל תמשיך — מקום שדורש תשלום מראש לא נסגר אוטומטית.
+במקרה כזה סיים את הדיווח במילה: CARD_REQUIRED ***
+
+אם לא נדרש כרטיס אשראי: לחץ על כפתור האישור הסופי לסגירת ההזמנה
+(למשל "אשר הזמנה" / "סיום" / "הזמן"). ודא שמופיע מסך/הודעת אישור שההזמנה נסגרה.
+רק כשההזמנה נסגרה בהצלחה — סיים את הדיווח במילה BOOKED ואחריה מספר האישור אם הופיע."""
+    return steps + tail
+
+
+def _parse_result(final: str, *, commit: bool) -> dict:
+    """דיווח ה-agent → תוצאת JSON. הנתיב הבטיחותי: בסגירה (commit) success=True רק אם
+    באמת נסגר (marker BOOKED) ולא נעצרנו בקיר כרטיס (CARD_REQUIRED). ב-recon אין סגירה."""
+    final = (final or "").strip()
+    low = final.lower()
+    if commit:
+        # markers מה-task: BOOKED <אישור> = נסגר באמת, CARD_REQUIRED = קיר כרטיס (לא נסגר).
+        card = "card_required" in low
+        booked = ("booked" in low) and not card
+        confirmation = ""
+        if booked:
+            confirmation = final[low.find("booked") + len("booked") :].strip(" :–-\n")[:120]
+        return {
+            "success": booked,  # נעצר בכרטיס/נתקע → לא הזמנה, לא נרשום
+            "stage": final[:400],
+            "card_required": card,
+            "booked": booked,
+            "confirmation": confirmation,
+            "message": final,
+        }
+    # recon (dry_run): הצלחה = הגענו עד הכרטיס ויש דיווח. אין סגירה אמיתית.
+    card = ("אשראי" in final) or ("card" in low) or ("כרטיס" in final)
+    return {
+        "success": bool(final),
+        "stage": final[:400],
+        "card_required": card,
+        "booked": False,
+        "confirmation": "",
+        "message": final,
+    }
 
 
 async def _run(job: dict) -> dict:
@@ -68,9 +116,7 @@ async def _run(job: dict) -> dict:
     agent = Agent(**agent_kwargs)
     history = await agent.run(max_steps=job.get("max_steps", 40))
     final = (history.final_result() or "").strip()
-    low = final.lower()
-    card = ("אשראי" in final) or ("card" in low) or ("כרטיס" in final)
-    return {"success": bool(final), "stage": final[:400], "card_required": card, "message": final}
+    return _parse_result(final, commit=not job.get("dry_run", True))
 
 
 def main() -> None:

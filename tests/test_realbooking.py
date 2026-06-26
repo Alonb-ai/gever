@@ -65,6 +65,43 @@ def test_run_commit_books_for_real_and_logs(monkeypatch):
     assert log_calls and log_calls[0]["status"] == "confirmed"
     assert "p1" not in pipeline._pending_commit  # ה-gate נוקה
     assert "p1" in pipeline._reset_next  # דף חדש בהודעה הבאה
+    assert any("סגור ✅" in m for m in sent)  # הלקוח קיבל אישור סגירה
+    assert any("ABC123" in m for m in sent)  # כולל מספר האישור
+
+
+def test_run_commit_card_wall_hands_link(monkeypatch):
+    """קיר כרטיס בסגירה: success=False + card_required → לא log_booking, מוסרים לינק (זרוע C)."""
+    _reset()
+    sent, log_calls = [], []
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def fake_book(**kwargs):
+        return ActionResult(success=False, summary="CARD_REQUIRED", details={"card_required": True})
+
+    async def fake_log(*a, **k):
+        log_calls.append(1)
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "log_booking", fake_log)
+
+    pipeline._pending_commit["pc"] = {
+        "restaurant": "הדסון",
+        "page_url": "http://ontopo/hudson",
+        "date": "מחר",
+        "time": "20:00",
+        "party_size": 2,
+        "name": "אלון",
+    }
+    asyncio.run(pipeline.run_commit("pc"))
+
+    assert not log_calls  # לא נרשמה הזמנה
+    assert pipeline._booking["pc"]["state"] == "card"
+    assert sent and "כרטיס אשראי" in sent[-1]
+    assert "http://ontopo/hudson" in sent[-1]  # זרוע C: הלינק נמסר
+    assert not any("סגור ✅" in m for m in sent)  # לא מזייפים סגירה
 
 
 def test_run_commit_without_name_asks_no_book(monkeypatch):
