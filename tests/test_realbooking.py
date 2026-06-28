@@ -310,6 +310,45 @@ def test_run_booking_missing_field_asks_no_book(monkeypatch):
     assert sent and "מייל" in sent[-1]  # גבר ביקש את הפרט החסר
 
 
+def test_run_booking_failure_does_not_leak_raw_agent_text(monkeypatch):
+    """כישלון גנרי: res.summary הוא טקסט גולמי באנגלית של browser-use — אסור שיגיע ללקוח
+    (קו-ברזל: לא חושפים אוטומציה). גבר שולח הודעת כישלון בדמות, וה-summary נשמר רק ל-info."""
+    _reset()
+    sent = []
+    raw = "I was unable to complete the reservation. No active booking widget. CAPTCHA blocked."
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def fake_resolve(name):
+        return {"status": "one", "url": "http://x", "candidates": []}
+
+    async def fake_book(**kwargs):
+        return ActionResult(success=False, summary=raw, details={})
+
+    async def fake_upsert(phone, name=None, email=None, prefs=None):
+        pass
+
+    async def fake_get_profile(phone):
+        return None
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_ontopo_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "upsert_profile", fake_upsert)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+
+    fields = {"task_type": "restaurant", "restaurant": "גרקו", "time": "20:00", "name": "אלון"}
+    asyncio.run(pipeline.run_booking("p5", fields))
+
+    assert pipeline._booking["p5"]["state"] == "failed"
+    assert pipeline._booking["p5"]["info"] == raw  # נשמר לדיבוג
+    assert sent  # נשלחה הודעה
+    assert raw not in sent[-1]  # אבל לא הטקסט הגולמי
+    assert "I was unable" not in sent[-1] and "CAPTCHA" not in sent[-1]
+    assert "גרקו" in sent[-1]  # הודעת דמות בעברית שנוקבת בשם המסעדה
+
+
 if __name__ == "__main__":
     import pytest
 

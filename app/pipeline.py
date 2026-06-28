@@ -382,11 +382,15 @@ async def run_booking(phone: str, fields: dict) -> None:
             await send_text(phone, f"רגע, חסר לי {_human} כדי לסגור — תשלח לי אותו?")
             return
         else:
+            # res.summary הוא הטקסט הגולמי (אנגלית) של browser-use — לעולם לא ללקוח
+            # (שובר את הדמות + חושף אוטומציה). שומרים אותו ל-info לדיבוג, ושולחים
+            # הודעת כישלון קצרה בדמות. error_detail מוסיף פירוט טכני רק כש-DEBUG_ERRORS דלוק.
             _booking[phone] = {"state": "failed", "info": res.summary}
             d = res.details or {}
             await send_text(
                 phone,
-                res.summary + engine.error_detail(d.get("error"), session_id=d.get("session_id")),
+                f"לא הצלחתי לסגור את '{name}' כרגע 🔄 רוצה שאנסה שוב או שנלך על מקום אחר?"
+                + engine.error_detail(d.get("error"), session_id=d.get("session_id")),
             )
     except asyncio.TimeoutError:
         log.warning("booking timed out (%ss) for %s", BU_TIMEOUT_S, phone)
@@ -460,11 +464,13 @@ async def run_commit(phone: str) -> None:
                 f"הנה הלינק לסגור בעצמך 👇\n{job['page_url']}",
             )
         else:
+            # כמו ב-run_booking: לא שולחים את res.summary הגולמי (אנגלית) ללקוח.
             _booking[phone] = {"state": "failed", "info": res.summary}
             d = res.details or {}
             await send_text(
                 phone,
-                res.summary + engine.error_detail(d.get("error"), session_id=d.get("session_id")),
+                f"נתקעתי בסגירה של '{job['restaurant']}', לא סגרתי 🔄 ננסה שוב?"
+                + engine.error_detail(d.get("error"), session_id=d.get("session_id")),
             )
     except asyncio.TimeoutError:
         log.warning("commit timed out (%ss) for %s", BU_TIMEOUT_S, phone)
