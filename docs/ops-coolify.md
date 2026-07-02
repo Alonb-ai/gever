@@ -1,8 +1,29 @@
-# Deploy ל-Coolify — צ'קליסט (B2)
+# Deploy ל-Coolify — בוצע ✅ (2026-07-02) + מפת הניתוב על השרת
 
-היעד: גבר באוויר 24/7 בלי המאק ובלי tunnel. השרת: Coolify על 88.198.116.222.
-ה-Dockerfile כבר מוכן (שני venvs, **בלי Chrome** — הדפדפן ב-Browserbase דרך CDP,
-אומת חי 2026-07-02 על Ontopo וגם Tabit).
+**פרודקשן חי:** `https://geverai.duckdns.org` (health → `{"status":"ok","service":"gever"}`).
+Meta Callback מעודכן לשם. WHATSAPP_APP_SECRET מוגדר → אימות חתימת webhook פעיל.
+ה-tunnel המקומי (ngrok) = dev בלבד מעכשיו.
+
+## מפת הניתוב על השרת (88.198.116.222 — Elestio VM שמריץ גם n8n!)
+
+⚠️ **פורט 443 שייך ל-nginx של Elestio, לא ל-Traefik של Coolify** — לכן דומיין
+שמוגדר רק ב-Coolify לא עובד. המסלול בפועל:
+
+```
+Meta → https://geverai.duckdns.org (nginx של Elestio, תעודת LE אוטומטית)
+     → proxy_pass http://0.0.0.0:8001 (עריכת server block ייעודי לדומיין,
+       Elestio dashboard → Security → Nginx configuration; 3 שורות proxy_pass)
+     → container של Coolify (Port Mapping 8001:8000) → uvicorn :8000
+```
+
+- הדומיין: DuckDNS (geverai.duckdns.org → 88.198.116.222, חשבון GitHub של אלון).
+- הדומיין נוסף ב-Elestio → Custom Domain Names → Manage SSL Domains (מנפיק LE).
+- ה-server block של geverai הוא קובץ נפרד — **לא נוגע ב-n8n** (דומיין אחר, בלוק אחר).
+- פורט 8001 חסום מבחוץ ע"י חומת האש — בכוונה; רק ה-nginx ניגש מבפנים.
+- **redeploy רגיל של קוד = רק Coolify** (Redeploy אחרי push ל-main). ה-nginx של
+  Elestio לא קשור לקוד — נוגעים בו רק אם משנים דומיין/פורט.
+
+## הצ'קליסט המקורי (בוצע — נשמר לשחזור)
 
 ## צעדים ב-Coolify UI (חד-פעמי)
 

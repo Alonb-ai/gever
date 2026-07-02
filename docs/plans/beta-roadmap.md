@@ -50,12 +50,12 @@
       לפני deploy, ולכן קודם למעבר שרת: עם Browserbase ה-container של Coolify
       **לא צריך Chrome בכלל** (bu_runner מתחבר over CDP) — ה-deploy מצטמצם
       לשני venvs של Python בלבד.
-- [ ] **B2. Coolify deploy** (88.198.116.222) — Dockerfile עם .venv + .venv-bu
-      (בלי Chrome), env מלא ב-Coolify UI (המפתחות + token הקבוע + ENCRYPTION_KEY
-      *הסופי* — החלפתו אחרי בטא = PII ישן אבוד), subdomain + SSL, ואז Callback URL
-      קבוע ב-Meta. ה-tunnel נשאר לפיתוח מקומי בלבד.
-- [ ] **B3. אימות המשכיות** — הודעה אחרי redeploy: שיחה נמשכת (prefs._chat),
-      recap הזמנות מופיע.
+- [x] **B2. Coolify deploy — בוצע ✅ (2026-07-02)** — חי על
+      `https://geverai.duckdns.org` (DuckDNS). ⚠️ הניתוב עובר דרך ה-nginx של
+      Elestio (443 שלו, לא של Coolify) → פורט 8001 → container. המפה המלאה:
+      `docs/ops-coolify.md`. Callback של Meta עודכן; WHATSAPP_APP_SECRET הוגדר
+      (אימות חתימה פעיל). ה-tunnel = dev בלבד מעכשיו.
+- [x] **B3. אימות המשכיות — בוצע ✅** — גבר עונה ב-WhatsApp מהשרת (המאק חופשי).
 
 ## Phase C — מספר אמיתי + דף נחיתה מוכן להצגה
 
