@@ -229,9 +229,9 @@ def test_handle_inbound_suppresses_character_leak(monkeypatch):
 
 
 def test_handle_inbound_splits_reply_lines_into_separate_messages(monkeypatch):
-    """וואטסאפ אנושי = הודעות קצרות: כל שורה ב-reply נשלחת כהודעה נפרדת."""
+    """וואטסאפ אנושי = הודעות קצרות: כל שורה נשלחת כהודעה נפרדת, עם typing+השהיה בין הודעות."""
     _reset()
-    sent = []
+    sent, paces, typing = [], [], []
 
     async def fake_converse(phone, text):
         return {"reply": "סגור אחי\nבודק לך את זה\nשניה איתי", "ready": False}
@@ -240,14 +240,20 @@ def test_handle_inbound_splits_reply_lines_into_separate_messages(monkeypatch):
         sent.append(msg)
 
     async def fake_send_typing(mid):
-        pass
+        typing.append(mid)
+
+    async def fake_pace(seconds):
+        paces.append(seconds)
 
     monkeypatch.setattr(pipeline, "converse", fake_converse)
     monkeypatch.setattr(pipeline, "send_text", fake_send_text)
     monkeypatch.setattr(pipeline, "send_typing", fake_send_typing)
-    asyncio.run(pipeline.handle_inbound("pS", "תסגור לי משהו"))
+    monkeypatch.setattr(pipeline, "_pace", fake_pace)
+    asyncio.run(pipeline.handle_inbound("pS", "תסגור לי משהו", message_id="wamid.X"))
 
     assert sent == ["סגור אחי", "בודק לך את זה", "שניה איתי"]
+    assert len(paces) == 2 and all(0.8 <= p <= 2.5 for p in paces)  # השהיה בין הודעות בלבד
+    assert typing == ["wamid.X", "wamid.X", "wamid.X"]  # פתיחה + לפני כל הודעת המשך
 
 
 def test_route_confirm_blocked_when_dry_run(monkeypatch):

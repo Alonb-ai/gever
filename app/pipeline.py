@@ -108,6 +108,11 @@ def _error_detail(exc, *, session_id: str | None = None) -> str:
     return f"\n\nשגיאה טכנית: {head}{tail}"
 
 
+async def _pace(seconds: float) -> None:
+    """השהיה בין הודעות רצופות (קצב הקלדה אנושי). פונקציה נפרדת כדי שטסטים יעקפו."""
+    await asyncio.sleep(seconds)
+
+
 def _spawn(coro) -> None:
     """כמו create_task, אבל שומר reference (אחרת ה-task נעלם בשקט ב-GC)."""
     task = asyncio.create_task(coro)
@@ -567,10 +572,15 @@ async def handle_inbound(phone: str, text: str, message_id: str | None = None) -
         reply = "שניה אחי אני על משהו חוזר אליך עוד רגע 🔄"
     # וואטסאפ אמיתי = כמה הודעות קצרות, לא פסקה: כל שורה ב-reply נשלחת כהודעה
     # נפרדת (הפרסונה מונחית לכתוב ככה). מעל 4 שורות — השאר מתאחד לאחרונה.
+    # בין הודעות: 'מקליד…' + השהיה לפי אורך ההודעה הבאה — פרץ הודעות באותה שנייה
+    # מרגיש בוט בדיוק כמו פסקה.
     lines = [ln.strip() for ln in reply.split("\n") if ln.strip()] or [reply]
     if len(lines) > 4:
         lines = lines[:3] + [" ".join(lines[3:])]
-    for ln in lines:
+    for i, ln in enumerate(lines):
+        if i:
+            await send_typing(message_id)  # best-effort — נמשך עד ההודעה הבאה
+            await _pace(min(0.8 + 0.04 * len(ln), 2.5))
         await send_text(phone, ln)
     # באג 4/5: guard ל-double-fire — אם כבר רצה הזמנה לטלפון הזה ("?" של הלקוח גרם
     # ל-ready=true שוב), לא יורים run_booking/run_commit שני שיתנגש בראשון (וגם לא
