@@ -43,7 +43,8 @@ class Settings(BaseSettings):
     # ponytail: דגל יחיד; הופכים ל-False ב-.env/Coolify רק להזמנה אמיתית, עם פיקוח.
     dry_run: bool = True
 
-    # ponytail: שדות Lemon Squeezy (זרוע 6) עדיין מוסרים — אף מסלול לא קורא להם.
+    # ponytail: אין כאן שדות Lemon Squeezy (זרוע 6) בכוונה — אף קוד לא קורא להם עדיין.
+    # כשזרוע התשלום תיבנה: להוסיף אותם כאן + למלא ב-.env (המפתחות כבר ב-.env.example).
 
 
 settings = Settings()

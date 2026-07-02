@@ -52,8 +52,8 @@ app/
   automation/
     bu_runner.py           בניית המשימה ל-browser-use + פענוח התוצאה (רץ ב-.venv-bu)
     browser_book.py        עטיפת book_table_bu (BU_TIMEOUT_S)
-    resolve.py             resolve_ontopo_url — בוחר את דף Ontopo הנכון, שואל אם עמום
-    ontopo.py / engine.py  עזרים טהורים (string match / error_detail)
+    resolve.py             resolve_reservation_url — Ontopo › Tabit, שואל אם עמום
+    ontopo.py              עזרים טהורים (string match לדיסאמביגואציה)
   whatsapp/client.py       שליחת הודעות (Meta Graph API)
   db/memory.py             Supabase דרך PostgREST — פרופיל, שיחה, הזמנות (Fernet)
   models/schemas.py        סכמות משותפות

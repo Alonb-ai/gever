@@ -14,7 +14,6 @@ import time
 from google import genai
 from google.genai import types
 
-from app.automation import engine
 from app.automation.browser_book import BU_TIMEOUT_S, book_table_bu
 from app.automation.resolve import resolve_reservation_url
 from app.config import settings
@@ -87,6 +86,16 @@ SESSION_GAP_S = 3 * 60 * 60  # ~3 שעות
 
 # כמה תורות לשמור בזיכרון השיחה (10 חילופים). שיחת הזמנה כמעט אף פעם לא ארוכה מזה.
 CHAT_TURNS = 20
+
+
+def _error_detail(exc, *, session_id: str | None = None) -> str:
+    """סיומת לפירוט שגיאה בהודעת WhatsApp: סוג+טקסט השגיאה (+session ל-replay). ריק
+    כש-DEBUG_ERRORS כבוי (פרודקשן) או כשאין שגיאה — אז ההודעה נשארת בדמות בלבד."""
+    if not settings.debug_errors or not exc:
+        return ""
+    head = f"{type(exc).__name__}: {exc}" if isinstance(exc, BaseException) else str(exc)
+    tail = f" · session {session_id}" if session_id else ""
+    return f"\n\nשגיאה טכנית: {head}{tail}"
 
 
 def _spawn(coro) -> None:
@@ -392,7 +401,7 @@ async def run_booking(phone: str, fields: dict) -> None:
             await send_text(
                 phone,
                 f"לא הצלחתי לסגור את '{name}' כרגע 🔄 רוצה שאנסה שוב או שנלך על מקום אחר?"
-                + engine.error_detail(d.get("error"), session_id=d.get("session_id")),
+                + _error_detail(d.get("error"), session_id=d.get("session_id")),
             )
     except asyncio.TimeoutError:
         log.warning("booking timed out (%ss) for %s", BU_TIMEOUT_S, phone)
@@ -400,12 +409,12 @@ async def run_booking(phone: str, fields: dict) -> None:
         await send_text(
             phone,
             "אחי זה נתקע לי, לקח יותר מדי. ננסה שוב?"
-            + engine.error_detail(f"timeout אחרי {BU_TIMEOUT_S}s"),
+            + _error_detail(f"timeout אחרי {BU_TIMEOUT_S}s"),
         )
     except Exception as e:
         log.exception("booking failed for %s", phone)
         _booking[phone] = {"state": "failed", "info": "חריגה באמצע"}
-        await send_text(phone, "נתקעתי באמצע, לא הצלחתי לסגור. ננסה שוב?" + engine.error_detail(e))
+        await send_text(phone, "נתקעתי באמצע, לא הצלחתי לסגור. ננסה שוב?" + _error_detail(e))
 
 
 async def run_commit(phone: str) -> None:
@@ -473,20 +482,19 @@ async def run_commit(phone: str) -> None:
             await send_text(
                 phone,
                 f"נתקעתי בסגירה של '{job['restaurant']}', לא סגרתי 🔄 ננסה שוב?"
-                + engine.error_detail(d.get("error"), session_id=d.get("session_id")),
+                + _error_detail(d.get("error"), session_id=d.get("session_id")),
             )
     except asyncio.TimeoutError:
         log.warning("commit timed out (%ss) for %s", BU_TIMEOUT_S, phone)
         _booking[phone] = {"state": "failed", "info": "נתקע (timeout)"}
         await send_text(
             phone,
-            "אחי זה נתקע לי באישור, ננסה שוב?"
-            + engine.error_detail(f"timeout אחרי {BU_TIMEOUT_S}s"),
+            "אחי זה נתקע לי באישור, ננסה שוב?" + _error_detail(f"timeout אחרי {BU_TIMEOUT_S}s"),
         )
     except Exception as e:
         log.exception("commit failed for %s", phone)
         _booking[phone] = {"state": "failed", "info": "חריגה באישור"}
-        await send_text(phone, "נתקעתי באישור, לא סגרתי. ננסה שוב?" + engine.error_detail(e))
+        await send_text(phone, "נתקעתי באישור, לא סגרתי. ננסה שוב?" + _error_detail(e))
     finally:
         _pending_commit.pop(phone, None)
 
