@@ -10,6 +10,8 @@ import json
 import os
 import time as _time
 
+import httpx
+
 from app.config import settings
 from app.models.schemas import ActionResult
 
@@ -42,13 +44,21 @@ async def _run_subprocess(job: dict) -> None:
         raise
 
 
-def _cdp_url() -> str:
-    """connectUrl של סשן Browserbase (מצב browserbase = stealth+captcha). לא ממומש עד
-    מעבר לפרודקשן — דורש אימות מול API יצירת-הסשן של Browserbase. dev רץ local."""
-    raise NotImplementedError(
-        "bu_browser=browserbase: לאמת את API הסשן של Browserbase ולהחזיר connectUrl. "
-        "בינתיים השאר bu_browser=local."
-    )
+async def _cdp_url() -> str:
+    """יוצר סשן Browserbase ומחזיר את ה-connectUrl (CDP-over-WS) ל-browser-use.
+    Browserbase מטפל ב-stealth/CAPTCHA/proxy — solveCaptchas דלוק כברירת-מחדל בצד שלהם.
+    docs: https://docs.browserbase.com/reference/api/create-a-session"""
+    async with httpx.AsyncClient(timeout=30) as http:
+        resp = await http.post(
+            "https://api.browserbase.com/v1/sessions",
+            headers={
+                "X-BB-API-Key": settings.browserbase_api_key,
+                "Content-Type": "application/json",
+            },
+            json={"projectId": settings.browserbase_project_id, "proxies": True},
+        )
+        resp.raise_for_status()
+        return resp.json()["connectUrl"]
 
 
 async def book_table_bu(
@@ -83,7 +93,7 @@ async def book_table_bu(
         "max_steps": 40,
     }
     if settings.bu_browser == "browserbase":
-        job["cdp_url"] = _cdp_url()
+        job["cdp_url"] = await _cdp_url()
     elif settings.bu_chrome_path:
         job["chrome_path"] = settings.bu_chrome_path
 

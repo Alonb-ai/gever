@@ -7,7 +7,32 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.automation.bu_runner import _parse_result  # noqa: E402
+from app.automation.bu_runner import _build_task, _parse_result  # noqa: E402
+
+_JOB = {
+    "url": "https://tabitisrael.co.il/site/גרקו",
+    "party_size": 2,
+    "date": "2026-06-30",
+    "time": "20:00",
+    "name": "אלון",
+    "email": "a@b.com",
+    "phone": "0540000000",
+}
+
+
+def test_build_task_is_platform_agnostic_and_keeps_contract():
+    """ה-task עקרוני (לא מתכון נעול ל-Ontopo) אבל שומר על חוזה ה-markers + חוקי הברזל."""
+    recon = _build_task({**_JOB, "dry_run": True})
+    commit = _build_task({**_JOB, "dry_run": False})
+    # פלטפורמה-אגנוסטי: ה-URL והפרטים מוזרקים, ואין כפתור Ontopo קשיח.
+    assert _JOB["url"] in recon and "אלון" in recon
+    assert "מצאו לי שולחן" not in recon  # לא לקודד כפתור ספציפי של Ontopo
+    # חוזה ה-markers נשמר.
+    assert "SUMMARY_REACHED" in recon and "CARD_REQUIRED" in recon
+    assert "BOOKED" in commit and "CARD_REQUIRED" in commit
+    # חוקי ברזל: לא להמציא (MISSING) + לא לסגור ב-recon.
+    assert "MISSING" in recon
+    assert "אל תלחץ" in recon  # recon עוצר לפני הכפתור הסופי
 
 
 def test_commit_booked_succeeds_with_confirmation():
