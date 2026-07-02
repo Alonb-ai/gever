@@ -81,9 +81,11 @@ async def search_reservation(name: str, city: str = "") -> list[dict]:
     query = " ".join(p for p in [name, city, "הזמנת מקום"] if p)
     if settings.brave_api_key:
         async with httpx.AsyncClient(timeout=20) as http:
+            # בלי country: ישראל לא ב-enum של Brave (422, נבדק חי) — השאילתה העברית
+            # ממילא מחזירה תוצאות ישראליות.
             resp = await http.get(
                 BRAVE,
-                params={"q": query, "country": "IL", "count": 20},
+                params={"q": query, "count": 20},
                 headers={
                     "X-Subscription-Token": settings.brave_api_key,
                     "Accept": "application/json",
