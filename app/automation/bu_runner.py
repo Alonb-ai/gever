@@ -33,15 +33,26 @@ def _build_task(job: dict) -> str:
 אתה נווט אוטונומי. האתר יכול להיות Ontopo, Tabit, או מערכת אחרת, וה-UI משתנה
 ביניהם — אל תחפש רצף כפתורים קבוע. הבן כל מסך ופעל לפי העקרונות:
 - בחר את מספר הסועדים, התאריך והשעה המבוקשים. אם השעה המדויקת תפוסה — בחר את
-  הזמינה הקרובה ביותר.
+  הזמינה הקרובה ביותר, עד שעה הפרש לכל היותר. אין זמינות בטווח הזה →
+  FAILED:no_availability.
 - התקדם דרך כל שלבי ההזמנה (חיפוש שולחן, בחירת מועד, אישור תנאים וכו') עד שתגיע
   ל*מסך הסיכום* — המסך שמרכז את כל פרטי ההזמנה ממש לפני האישור/תשלום הסופי.
+- באנר עוגיות/פרסומת — סגור והמשך. אלמנט שלא מגיב ללחיצה — נסה מקלדת (Tab/Enter)
+  או גלול אליו; חזרת על אותה פעולה פעמיים בלי שינוי במסך — שנה גישה (חזור אחורה
+  ונסה נתיב אחר) במקום לנסות שוב.
+- אינך מצליח להתקדם בכלל (דף שבור, נדרשת התחברות או קוד SMS) — עצור וסיים את
+  הדיווח ב-FAILED:<סיבה קצרה באנגלית> (למשל FAILED:login_required).
 
 *** חוק ברזל — פרטי לקוח: השתמש *רק* בשם/אימייל/טלפון שניתנו בדיוק כאן למטה. אסור
 להמציא או לנחש שום ערך (שם, מייל, שם משפחה). אם שדה חובה בטופס ריק ואין לך אותו —
-אל תמלא ואל תמציא; עצור מיד וסיים את הדיווח במילה MISSING ואחריה שם השדה
-(למשל MISSING:email או MISSING:name). ***
+אל תמלא ואל תמציא; עצור מיד וסיים את הדיווח במילה MISSING ואחריה שם השדה, תמיד
+באנגלית: MISSING:name / MISSING:last_name / MISSING:email / MISSING:phone. ***
 פרטי קשר: שם "{job.get("name") or ""}", אימייל "{job.get("email") or ""}", טלפון "{job.get("phone") or ""}".
+
+בסוף הדיווח ציין מה נבחר בפועל (תאריך, שעה, מספר סועדים), ואז את שורת הסיום —
+תמיד השורה האחרונה של הדיווח, באותיות גדולות בדיוק:
+SUMMARY_REACHED / CARD_REQUIRED / BOOKED <אישור> / MISSING:<שדה> / FAILED:<סיבה>.
+אל תשתמש במילים האלה בשום מקום אחר בדיווח.
 """
     # dry_run=True → recon: עוצרים במסך הסיכום *לפני* האישור הסופי (לא סוגרים, גם בלי כרטיס).
     # commit (dry_run=False) → סוגרים באמת, אבל אם נדרש כרטיס אשראי עוצרים שם (PCI).
@@ -65,44 +76,50 @@ def _build_task(job: dict) -> str:
     return steps + tail
 
 
+def _marker_arg(line: str, marker: str) -> str:
+    """הטקסט שאחרי marker בשורת הסיום ('MISSING:email' → 'email'). ריק-בטוח."""
+    parts = line[line.find(marker) + len(marker) :].strip(" :–-").split()
+    return parts[0].rstrip(".,") if parts else "unknown"
+
+
 def _parse_result(final: str, *, commit: bool) -> dict:
-    """דיווח ה-agent → תוצאת JSON. הנתיב הבטיחותי: כרטיס מזוהה *רק* לפי ה-marker המפורש
-    CARD_REQUIRED (לא לפי substring עברי שתופס גם שלילה). בסגירה (commit) success=True רק
-    אם באמת נסגר (BOOKED). ב-recon הצלחה = הגענו למסך הסיכום (SUMMARY_REACHED), בלי סגירה.
-    בכל מצב: MISSING:<field> = שדה חובה ריק → כישלון + השדה החסר ב-details."""
+    """דיווח ה-agent → תוצאת JSON. הנתיב הבטיחותי: markers נקראים *רק* מהשורה האחרונה
+    ו-case-sensitive (החוזה ב-task: שורת סיום באותיות גדולות) — פרוזה כמו "fully booked"
+    או "לא נדרש כרטיס" לא מדליקה כלום. בסגירה (commit) success=True רק אם באמת נסגר
+    (BOOKED). ב-recon הצלחה = SUMMARY_REACHED בלי סגירה. MISSING:<שדה> = שדה חובה ריק →
+    כישלון + השדה ב-details. FAILED:<סיבה> = לא הצליח להתקדם (אין זמינות/login/דף שבור)."""
     final = (final or "").strip()
-    low = final.lower()
-    # marker מפורש בלבד — שלילה עברית ("לא נדרש כרטיס") לא מדליקה אותו.
-    card = "card_required" in low
-    missing = ""
-    if "missing:" in low:
-        missing = final[low.find("missing:") + len("missing:") :].strip(" :–-\n").split()[0]
+    last = next((ln for ln in reversed(final.splitlines()) if ln.strip()), "")
+    card = "CARD_REQUIRED" in last
+    missing = _marker_arg(last, "MISSING:") if "MISSING:" in last else ""
+    failed = _marker_arg(last, "FAILED:") if "FAILED:" in last else ""
     if commit:
-        # markers מה-task: BOOKED <אישור> = נסגר באמת, CARD_REQUIRED = קיר כרטיס (לא נסגר).
-        booked = ("booked" in low) and not card and not missing
+        # BOOKED <אישור> = נסגר באמת; כרטיס/שדה-חסר/כישלון גוברים — לא נרשמת הזמנה.
+        booked = "BOOKED" in last and not card and not missing and not failed
         confirmation = ""
         if booked:
-            confirmation = final[low.find("booked") + len("booked") :].strip(" :–-\n")[:120]
+            confirmation = last[last.find("BOOKED") + len("BOOKED") :].strip(" :–-")[:120]
         return {
-            "success": booked,  # נעצר בכרטיס/נתקע/חסר שדה → לא הזמנה, לא נרשום
+            "success": booked,
             "stage": final[:400],
             "card_required": card,
             "booked": booked,
             "confirmation": confirmation,
             "missing": missing,
+            "failed": failed,
             "message": final,
         }
     # recon (dry_run): הצלחה = הגענו למסך הסיכום (SUMMARY_REACHED), בלי סגירה אמיתית.
-    # שדה חובה חסר (MISSING:<field>) גובר → כישלון, גבר ישאל את הלקוח.
-    summary_reached = "summary_reached" in low
+    summary_reached = "SUMMARY_REACHED" in last
     return {
-        "success": summary_reached and not missing,
+        "success": summary_reached and not missing and not failed,
         "stage": final[:400],
         "card_required": card,
         "booked": False,
         "confirmation": "",
         "summary_reached": summary_reached,
         "missing": missing,
+        "failed": failed,
         "message": final,
     }
 

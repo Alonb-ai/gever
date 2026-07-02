@@ -205,6 +205,29 @@ def _route(monkeypatch, *, dry_run, result, pending=False):
     return spawned
 
 
+def test_handle_inbound_suppresses_character_leak(monkeypatch):
+    """שכבת המגן האחרונה: reply שמסגיר AI לא יוצא לוואטסאפ — הודעת גישור בדמות במקומו."""
+    _reset()
+    sent = []
+
+    async def fake_converse(phone, text):
+        return {"reply": "כמודל שפה אני לא יכול להזמין שולחן", "ready": False}
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def fake_send_typing(mid):
+        pass
+
+    monkeypatch.setattr(pipeline, "converse", fake_converse)
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "send_typing", fake_send_typing)
+    asyncio.run(pipeline.handle_inbound("pL", "תזמין לי שולחן"))
+
+    assert sent and "כמודל" not in sent[-1]  # הדליפה לא הגיעה ללקוח
+    assert "רגע" in sent[-1]  # הודעת גישור בדמות
+
+
 def test_route_confirm_blocked_when_dry_run(monkeypatch):
     """dry_run=True: 'מאשר' (confirm) על הזמנה ממתינה לא מפעיל סגירה אמיתית."""
     spawned = _route(
@@ -312,7 +335,8 @@ def test_run_booking_missing_field_asks_no_book(monkeypatch):
 
 def test_run_booking_failure_does_not_leak_raw_agent_text(monkeypatch):
     """כישלון גנרי: res.summary הוא טקסט גולמי באנגלית של browser-use — אסור שיגיע ללקוח
-    (קו-ברזל: לא חושפים אוטומציה). גבר שולח הודעת כישלון בדמות, וה-summary נשמר רק ל-info."""
+    (קו-ברזל: לא חושפים אוטומציה) *ולא* ל-info (מוזרק ל-truth_note — אתר זדוני היה יכול
+    להשחיל טקסט לבלוק האמת של המודל). נשמר רק ב-debug."""
     _reset()
     sent = []
     raw = "I was unable to complete the reservation. No active booking widget. CAPTCHA blocked."
@@ -342,7 +366,9 @@ def test_run_booking_failure_does_not_leak_raw_agent_text(monkeypatch):
     asyncio.run(pipeline.run_booking("p5", fields))
 
     assert pipeline._booking["p5"]["state"] == "failed"
-    assert pipeline._booking["p5"]["info"] == raw  # נשמר לדיבוג
+    assert pipeline._booking["p5"]["info"] == ""  # הגולמי לא נכנס ל-truth_note
+    assert pipeline._booking["p5"]["debug"] == raw  # נשמר לדיבוג בלבד
+    assert raw not in pipeline._truth_note("p5")  # בלוק האמת נקי מטקסט צד-שלישי
     assert sent  # נשלחה הודעה
     assert raw not in sent[-1]  # אבל לא הטקסט הגולמי
     assert "I was unable" not in sent[-1] and "CAPTCHA" not in sent[-1]

@@ -44,7 +44,7 @@
 
 היעד: גבר עונה גם כשהמאק סגור. שני צעדים, בסדר הזה:
 
-- [ ] **B1. הפעלת Browserbase מקומית קודם** — `BU_BROWSER=browserbase` ב-.env,
+- [x] **B1. הפעלת Browserbase — בוצע ואומת חי (2026-07-02)** — `BU_BROWSER=browserbase` ב-.env,
       ספייק על Ontopo וגם Tabit. ⚠️ knob ידוע: `proxies:true` עלול לשבור geo
       באתרים ישראליים — אם נופל, `proxies:false` או geo=IL. זה ה-unknown האחרון
       לפני deploy, ולכן קודם למעבר שרת: עם Browserbase ה-container של Coolify

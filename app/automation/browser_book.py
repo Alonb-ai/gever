@@ -127,6 +127,7 @@ async def book_table_bu(
             "confirmation": r.get("confirmation"),
             "summary_reached": r.get("summary_reached"),
             "missing": r.get("missing"),
+            "failed": r.get("failed"),
             "restaurant": restaurant,
             "record_dir": record_dir,
         },

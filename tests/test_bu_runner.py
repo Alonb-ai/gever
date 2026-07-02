@@ -33,6 +33,36 @@ def test_build_task_is_platform_agnostic_and_keeps_contract():
     # חוקי ברזל: לא להמציא (MISSING) + לא לסגור ב-recon.
     assert "MISSING" in recon
     assert "אל תלחץ" in recon  # recon עוצר לפני הכפתור הסופי
+    # חוזה שורת-הסיום: marker בשורה האחרונה, שמות שדות באנגלית, FAILED קיים.
+    assert "השורה האחרונה" in recon and "FAILED" in recon
+    assert "MISSING:last_name" in recon  # נצפה חי: שדה שם-משפחה נפרד בטפסים
+
+
+def test_markers_only_from_last_line_case_sensitive():
+    # R1: פרוזת כישלון באנגלית עם 'booked' באותיות קטנות — לא הזמנה.
+    r = _parse_result("The restaurant is fully booked for tonight", commit=True)
+    assert r["success"] is False and r["booked"] is False
+    # marker באמצע הדיווח (לא בשורה האחרונה) — לא נספר; רק שורת הסיום קובעת.
+    r = _parse_result("BOOKED 123\nבסוף לא הושלם", commit=True)
+    assert r["booked"] is False
+    # שלילה שמצטטת marker בשורה אחרת לא מדליקה recon.
+    r = _parse_result("לא הגעתי למסך הסיכום\nנתקעתי בבורר", commit=False)
+    assert r["success"] is False
+
+
+def test_failed_marker_reports_reason():
+    r = _parse_result("אין שולחנות פנויים בטווח.\nFAILED:no_availability", commit=False)
+    assert r["success"] is False
+    assert r["failed"] == "no_availability"
+    r = _parse_result("נדרשת התחברות. FAILED:login_required", commit=True)
+    assert r["success"] is False and r["booked"] is False
+    assert r["failed"] == "login_required"
+
+
+def test_bare_missing_colon_does_not_crash():
+    r = _parse_result("חסר שדה. MISSING:", commit=False)
+    assert r["success"] is False
+    assert r["missing"] == "unknown"
 
 
 def test_commit_booked_succeeds_with_confirmation():
