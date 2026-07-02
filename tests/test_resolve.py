@@ -12,6 +12,7 @@ from app.automation.ontopo import _match_restaurant  # noqa: E402
 from app.automation.resolve import (  # noqa: E402
     _PAGE,
     _TABIT,
+    _from_brave,
     _parse_results,
     resolve_reservation_url,
 )
@@ -88,6 +89,25 @@ def test_parse_results_tabit_generic_title_gets_slug_and_entities_unescaped():
     ontopo = next(c for c in out if c["platform"] == "ontopo")
     assert "גרקו פרישמן" in tabit["title"]  # ה-slug המפוענח נוסף לכותרת הגנרית
     assert ontopo["title"] == "גרקו ביץ' תל אביב"  # &#x27; פוענח
+
+
+def test_from_brave_extracts_platform_candidates_and_dedups():
+    # פורמט התשובה של Brave web search: data["web"]["results"] עם url+title.
+    data = {
+        "web": {
+            "results": [
+                {"url": "https://ontopo.com/he/il/page/123", "title": "רוסטיקו בזל: הזמנת מקום"},
+                {"url": "https://www.tabitisrael.co.il/site/greco", "title": "הזמנת מקום - טאביט"},
+                {"url": "https://ontopo.com/he/il/page/123", "title": "כפול — לא נספר"},
+                {"url": "https://example.com/rustico", "title": "אתר לא רלוונטי"},
+            ]
+        }
+    }
+    out = _from_brave(data)
+    assert [c["platform"] for c in out] == ["ontopo", "tabit"]
+    assert out[0]["url"] == "https://ontopo.com/he/il/page/123"
+    assert "greco" in out[1]["title"]  # ה-slug נוסף לכותרת הגנרית
+    assert _from_brave({}) == []  # תשובה ריקה — לא קורס
 
 
 def test_resolve_no_strong_match_never_picks_arbitrary_one(monkeypatch):

@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.5-flash"
 
+    # Brave Search — מנוע ה-resolve בפרודקשן (DDG חוסם IP של דטהסנטר). ריק → DDG (dev).
+    brave_api_key: str = ""
+
     # WhatsApp via Meta Cloud API
     whatsapp_access_token: str = ""
     whatsapp_phone_number_id: str = ""

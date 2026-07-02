@@ -1,12 +1,12 @@
 """
 resolver: שם מסעדה → URL של דף הזמנות, בלי דפדפן. multi-platform: Ontopo › Tabit.
 
-חיפוש web (DuckDuckGo HTML) בשאילתה רחבה ("<שם> הזמנת מקום") שתופסת את שתי
-הפלטפורמות, ואז דיסאמביגואציה לפי הכותרת (חשוב — לרשת כמו "הדסון" יש כמה סניפים)
-פלטפורמה-פלטפורמה לפי סדר עדיפות. מחזיר 'one' עם url+platform, 'many' עם מועמדים
-לשאלת הבהרה, או 'none'.
+חיפוש web בשאילתה רחבה ("<שם> הזמנת מקום") שתופסת את שתי הפלטפורמות, ואז
+דיסאמביגואציה לפי הכותרת (חשוב — לרשת כמו "הדסון" יש כמה סניפים) פלטפורמה-פלטפורמה
+לפי סדר עדיפות. מחזיר 'one' עם url+platform, 'many' עם מועמדים לשאלת הבהרה, או 'none'.
 
-הערה: DDG HTML scraping מתאים ל-MVP; לפרודקשן עדיף search API עם מפתח (Brave/Serp).
+מנוע החיפוש: Brave Search API כשיש BRAVE_API_KEY (פרודקשן — $5 קרדיט חודשי חינם),
+אחרת DDG HTML (dev בלבד: DDG מחזיר 202 אנטי-בוט ל-IP של דטהסנטר — נצפה חי בשרת).
 """
 
 import html
@@ -16,7 +16,9 @@ import urllib.parse
 import httpx
 
 from app.automation.ontopo import _is_listing, _match_restaurant
+from app.config import settings
 
+BRAVE = "https://api.search.brave.com/res/v1/web/search"
 DDG = "https://html.duckduckgo.com/html/"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
 _ANCHOR = re.compile(r'<a[^>]*uddg=([^&"]+)[^>]*>(.*?)</a>', re.S)
@@ -35,31 +37,61 @@ def _clean(t: str) -> str:
     return html.unescape(_TAG.sub("", t)).strip()
 
 
+def _candidate(url: str, raw_title: str, seen: set) -> dict | None:
+    """URL+כותרת של תוצאת חיפוש → מועמד {title, url קנוני, platform}, או None
+    אם זה לא דף הזמנות של פלטפורמה מוכרת (או כפול)."""
+    for platform, pattern, canon in _PLATFORMS:
+        m = pattern.search(url)
+        if not m or (platform, m.group(1)) in seen:
+            continue
+        seen.add((platform, m.group(1)))
+        title = _clean(raw_title)
+        if platform == "tabit":
+            # כותרות Tabit בתוצאות חיפוש גנריות ("הזמנת מקום - טאביט") — שם המסעדה
+            # יושב ב-slug של ה-URL. מוסיפים אותו לכותרת כדי שהדיסאמביגואציה תעבוד.
+            slug = urllib.parse.unquote(m.group(1)).replace("-", " ").strip()
+            if slug and slug not in title:
+                title = f"{title} | {slug}"
+        return {"title": title, "url": canon.format(m.group(1)), "platform": platform}
+    return None
+
+
 def _parse_results(body: str) -> list[dict]:
     """HTML של תוצאות DDG → [{title, url, platform}] (deduped, לפי סדר הופעה)."""
     out, seen = [], set()
     for enc_url, raw_title in _ANCHOR.findall(body):
-        url = urllib.parse.unquote(enc_url)
-        for platform, pattern, canon in _PLATFORMS:
-            m = pattern.search(url)
-            if not m or (platform, m.group(1)) in seen:
-                continue
-            seen.add((platform, m.group(1)))
-            title = _clean(raw_title)
-            if platform == "tabit":
-                # כותרות Tabit ב-DDG גנריות ("הזמנת מקום - טאביט") — שם המסעדה יושב
-                # ב-slug של ה-URL. מוסיפים אותו לכותרת כדי שהדיסאמביגואציה תעבוד.
-                slug = urllib.parse.unquote(m.group(1)).replace("-", " ").strip()
-                if slug and slug not in title:
-                    title = f"{title} | {slug}"
-            out.append({"title": title, "url": canon.format(m.group(1)), "platform": platform})
-            break
+        c = _candidate(urllib.parse.unquote(enc_url), raw_title, seen)
+        if c:
+            out.append(c)
+    return out
+
+
+def _from_brave(data: dict) -> list[dict]:
+    """JSON של Brave web search → [{title, url, platform}] (deduped, לפי סדר)."""
+    out, seen = [], set()
+    for r in (data.get("web") or {}).get("results") or []:
+        c = _candidate(r.get("url") or "", r.get("title") or "", seen)
+        if c:
+            out.append(c)
     return out
 
 
 async def search_reservation(name: str, city: str = "") -> list[dict]:
     """[{title, url, platform}] של דפי הזמנה (Ontopo/Tabit) התואמים לשאילתה (deduped)."""
     query = " ".join(p for p in [name, city, "הזמנת מקום"] if p)
+    if settings.brave_api_key:
+        async with httpx.AsyncClient(timeout=20) as http:
+            resp = await http.get(
+                BRAVE,
+                params={"q": query, "country": "IL", "count": 20},
+                headers={
+                    "X-Subscription-Token": settings.brave_api_key,
+                    "Accept": "application/json",
+                },
+            )
+            resp.raise_for_status()
+        return _from_brave(resp.json())
+    # dev בלבד: DDG חוסם IP של דטהסנטר (202 בלי תוצאות) — לא לפרודקשן.
     async with httpx.AsyncClient(timeout=20, headers={"User-Agent": UA}) as http:
         resp = await http.get(DDG, params={"q": query})
         resp.raise_for_status()

@@ -43,6 +43,7 @@ Meta → https://geverai.duckdns.org (nginx של Elestio, תעודת LE אוטו
 | שם | הערה |
 |---|---|
 | `GEMINI_API_KEY` | אותו מפתח (Tier 1, paid) |
+| `BRAVE_API_KEY` | **חובה בפרודקשן** — מנוע ה-resolve; DDG מחזיר 202 אנטי-בוט ל-IP של השרת (נצפה חי 2026-07-02) |
 | `GEMINI_MODEL` | `gemini-3.5-flash` |
 | `MODEL_NAME` | `google/gemini-3-flash-preview` |
 | `BU_BROWSER` | `browserbase` — **חובה**; אין Chrome ב-image |
