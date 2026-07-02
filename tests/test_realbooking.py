@@ -228,6 +228,28 @@ def test_handle_inbound_suppresses_character_leak(monkeypatch):
     assert "רגע" in sent[-1]  # הודעת גישור בדמות
 
 
+def test_handle_inbound_splits_reply_lines_into_separate_messages(monkeypatch):
+    """וואטסאפ אנושי = הודעות קצרות: כל שורה ב-reply נשלחת כהודעה נפרדת."""
+    _reset()
+    sent = []
+
+    async def fake_converse(phone, text):
+        return {"reply": "סגור אחי\nבודק לך את זה\nשניה איתי", "ready": False}
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def fake_send_typing(mid):
+        pass
+
+    monkeypatch.setattr(pipeline, "converse", fake_converse)
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "send_typing", fake_send_typing)
+    asyncio.run(pipeline.handle_inbound("pS", "תסגור לי משהו"))
+
+    assert sent == ["סגור אחי", "בודק לך את זה", "שניה איתי"]
+
+
 def test_route_confirm_blocked_when_dry_run(monkeypatch):
     """dry_run=True: 'מאשר' (confirm) על הזמנה ממתינה לא מפעיל סגירה אמיתית."""
     spawned = _route(
