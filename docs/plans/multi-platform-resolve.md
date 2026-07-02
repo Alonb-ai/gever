@@ -53,17 +53,17 @@
 - ספייק browser-use קצר על flow של Tabit (גרקו) עד מסך הסיכום — לתעד שמות כפתורים ואת
   נקודת ה"עצור לפני אישור". מראה כמו ספייק ה-Ontopo המקורי ב-`poc/`.
 
-### Phase 1 — `resolve.py` multi-platform
+### Phase 1 — `resolve.py` multi-platform ✅ (בוצע 2026-07-02)
 - regex מוכלל ל-ontopo + tabit (לוכד platform). שאילתה `"<name> הזמנת מקום"`.
-- תיעדוף ontopo › tabit; שמירת סינון listing + לוגיקת match. החזרת `platform`.
+- תיעדוף ontopo › tabit (פלטפורמה ראשונה עם match חזק מכריעה); שמירת סינון listing +
+  לוגיקת match. החזרת `platform`.
 - שינוי שם `resolve_ontopo_url` → `resolve_reservation_url` (+ עדכון callers).
-- טסטים: fixtures של DDG HTML עם לינקים משתי הפלטפורמות → priority + platform + none/many.
+- טסטים: תיעדוף both→ontopo, תרחיש-גרקו (ontopo חלש→tabit), tabit-only, none/many.
 
-### Phase 2 — `bu_runner._build_task` גנרי
-- "אתר Ontopo" → "אתר הזמנות מסעדה (<platform>)"; שלב 4 "מצאו לי שולחן" → "הצג/מצא
-  שולחנות פנויים". שמירת כל ה-markers + חוקי הברזל.
-- העברת `platform` ב-job (`browser_book` → `bu_runner`).
-- טסט: בונה task בלי "Ontopo"/"מצאו לי שולחן" hardcoded; markers קיימים.
+### Phase 2 — `bu_runner._build_task` גנרי ✅ (בוצע — a99bb0f + חיווט platform)
+- ה-task עקרוני ופלטפורמה-אגנוסטי (a99bb0f). markers + חוקי ברזל נשמרו.
+- `platform` עובר ב-job (`pipeline` → `browser_book` → `bu_runner`) כרמיזה בשורת
+  הפתיחה של ה-task, וגם נשמר ב-`_pending_commit` לסגירה האמיתית.
 
 ### Phase 3 — חיווט + live test
 - pipeline מעביר platform. dry-run חי על גרקו דרך Tabit → צפוי `SUMMARY_REACHED`.

@@ -65,6 +65,7 @@ async def book_table_bu(
     *,
     restaurant: str,
     page_url: str,
+    platform: str = "",  # רמיזה ל-agent (ontopo/tabit) — לא חובה, ה-task אגנוסטי
     date: str,
     time: str,  # noqa: A002 — תואם לחתימת book_table הישנה
     party_size: int,
@@ -73,12 +74,13 @@ async def book_table_bu(
     phone: str = "",
     dry_run: bool = True,
 ) -> ActionResult:
-    """מזמין ב-Ontopo דרך browser-use agent אוטונומי. עוצר בשלב הכרטיס (שער בטיחות)."""
+    """מזמין (Ontopo/Tabit) דרך browser-use agent אוטונומי. עוצר בשלב הכרטיס (שער בטיחות)."""
     run_id = str(int(_time.time() * 1000))
     record_dir = os.path.join(settings.bu_record_dir, run_id) if settings.bu_record_dir else "/tmp"
     result_path = os.path.join(record_dir, f"result_{run_id}.json")
     job = {
         "url": page_url,
+        "platform": platform,
         "date": date,
         "time": time,
         "party_size": party_size,

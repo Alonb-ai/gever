@@ -1,4 +1,4 @@
-"""bu_runner — נוהג הזמנת מסעדה ב-Ontopo דרך browser-use agent (ניווט אוטונומי).
+"""bu_runner — נוהג הזמנת מסעדה (Ontopo/Tabit) דרך browser-use agent (ניווט אוטונומי).
 
 רץ ב-.venv-bu בלבד (browser-use מצמיד google-genai==1.65, מתנגש עם ה-app שעל 2.8),
 ולכן הקובץ הזה מייבא *רק* browser_use + stdlib — לעולם לא app.*. מופעל כ-subprocess:
@@ -25,9 +25,10 @@ def _build_task(job: dict) -> str:
     # מבין את המסך לבד. ה-task פלטפורמה-אגנוסטי (Ontopo / Tabit / אתר אחר) — אל
     # תקודד פה שמות כפתורים או רצף קבוע. ה-markers (SUMMARY_REACHED/CARD_REQUIRED/
     # BOOKED/MISSING) הם החוזה עם _parse_result — אותם תמיד לדווח בדיוק.
+    plat = f" (מערכת {job['platform']})" if job.get("platform") else ""
     steps = f"""
 המשימה: להזמין שולחן ל-{job["party_size"]} סועדים בתאריך {job["date"]} בשעה {job["time"]}.
-התחל מהכתובת: {job["url"]} (דף הזמנות מקום של המסעדה, בעברית).
+התחל מהכתובת: {job["url"]} (דף הזמנות מקום של המסעדה, בעברית{plat}).
 
 אתה נווט אוטונומי. האתר יכול להיות Ontopo, Tabit, או מערכת אחרת, וה-UI משתנה
 ביניהם — אל תחפש רצף כפתורים קבוע. הבן כל מסך ופעל לפי העקרונות:

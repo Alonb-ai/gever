@@ -16,7 +16,7 @@ from google.genai import types
 
 from app.automation import engine
 from app.automation.browser_book import BU_TIMEOUT_S, book_table_bu
-from app.automation.resolve import resolve_ontopo_url
+from app.automation.resolve import resolve_reservation_url
 from app.config import settings
 from app.db import memory
 from app.llm.intent import KNOWN_HINT, ONBOARDING_BLOCK, SYSTEM_PROMPT, gender_line
@@ -323,10 +323,10 @@ async def run_booking(phone: str, fields: dict) -> None:
         return
     _booking[phone] = {"state": "working", "info": name}
     try:
-        found = await resolve_ontopo_url(name)
+        found = await resolve_reservation_url(name)
         if found["status"] == "none":
             _booking[phone] = {"state": "none", "info": name}
-            await send_text(phone, f"לא מצאתי את '{name}' ב-Ontopo. נסה שם אחר.")
+            await send_text(phone, f"לא מצאתי איפה מזמינים מקום ל'{name}'. נסה שם אחר.")
             return
         if found["status"] == "many":
             opts = " / ".join(c["title"][:30] for c in found["candidates"][:3])
@@ -342,6 +342,7 @@ async def run_booking(phone: str, fields: dict) -> None:
         res = await book_table_bu(
             restaurant=name,
             page_url=found["url"],
+            platform=found.get("platform") or "",
             date=fields.get("date") or "",
             time=fields.get("time") or "20:00",
             party_size=fields.get("party_size") or 2,
@@ -367,6 +368,7 @@ async def run_booking(phone: str, fields: dict) -> None:
             _pending_commit[phone] = {
                 "restaurant": name,  # name = שם המסעדה (ראה למעלה); page_url = ה-URL שנפתר
                 "page_url": found["url"],
+                "platform": found.get("platform") or "",
                 "date": fields.get("date") or "",
                 "time": d.get("time") or fields.get("time") or "20:00",  # השעה שאושרה בפועל
                 "party_size": fields.get("party_size") or 2,
@@ -426,6 +428,7 @@ async def run_commit(phone: str) -> None:
         res = await book_table_bu(
             restaurant=job["restaurant"],
             page_url=job["page_url"],
+            platform=job.get("platform") or "",
             date=job["date"],
             time=job["time"],
             party_size=job["party_size"],

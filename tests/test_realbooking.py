@@ -151,7 +151,7 @@ def test_run_booking_populates_gate(monkeypatch):
         return None
 
     monkeypatch.setattr(pipeline, "send_text", fake_send_text)
-    monkeypatch.setattr(pipeline, "resolve_ontopo_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
     monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
     monkeypatch.setattr(memory, "upsert_profile", fake_upsert)
     monkeypatch.setattr(memory, "get_profile", fake_get_profile)
@@ -287,7 +287,7 @@ def test_run_booking_missing_field_asks_no_book(monkeypatch):
         log_calls.append(1)
 
     monkeypatch.setattr(pipeline, "send_text", fake_send_text)
-    monkeypatch.setattr(pipeline, "resolve_ontopo_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
     monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
     monkeypatch.setattr(memory, "upsert_profile", fake_upsert)
     monkeypatch.setattr(memory, "get_profile", fake_get_profile)
@@ -333,7 +333,7 @@ def test_run_booking_failure_does_not_leak_raw_agent_text(monkeypatch):
         return None
 
     monkeypatch.setattr(pipeline, "send_text", fake_send_text)
-    monkeypatch.setattr(pipeline, "resolve_ontopo_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
     monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
     monkeypatch.setattr(memory, "upsert_profile", fake_upsert)
     monkeypatch.setattr(memory, "get_profile", fake_get_profile)

@@ -29,7 +29,7 @@ def _patch_io(monkeypatch):
         raise AssertionError("book_table לא אמור להיקרא במסלול 'other'")
 
     monkeypatch.setattr(pipeline, "send_text", fake_send_text)
-    monkeypatch.setattr(pipeline, "resolve_ontopo_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
     monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
     pipeline._booking.clear()
     return sent, called

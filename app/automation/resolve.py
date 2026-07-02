@@ -1,13 +1,15 @@
 """
-resolver: שם מסעדה → Ontopo page URL (deep-link), בלי דפדפן.
+resolver: שם מסעדה → URL של דף הזמנות, בלי דפדפן. multi-platform: Ontopo › Tabit.
 
-חיפוש web (DuckDuckGo HTML) שמחזיר את דף ה-Ontopo, ואז דיסאמביגואציה לפי
-הכותרת (חשוב — לרשת כמו "הדסון" יש כמה סניפים). מחזיר 'one' עם url, 'many'
-עם מועמדים לשאלת הבהרה, או 'none'.
+חיפוש web (DuckDuckGo HTML) בשאילתה רחבה ("<שם> הזמנת מקום") שתופסת את שתי
+הפלטפורמות, ואז דיסאמביגואציה לפי הכותרת (חשוב — לרשת כמו "הדסון" יש כמה סניפים)
+פלטפורמה-פלטפורמה לפי סדר עדיפות. מחזיר 'one' עם url+platform, 'many' עם מועמדים
+לשאלת הבהרה, או 'none'.
 
 הערה: DDG HTML scraping מתאים ל-MVP; לפרודקשן עדיף search API עם מפתח (Brave/Serp).
 """
 
+import html
 import re
 import urllib.parse
 
@@ -19,58 +21,81 @@ DDG = "https://html.duckduckgo.com/html/"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
 _ANCHOR = re.compile(r'<a[^>]*uddg=([^&"]+)[^>]*>(.*?)</a>', re.S)
 _PAGE = re.compile(r"ontopo\.com/[a-z]{2}/[a-z]{2}/page/(\d+)")
+_TABIT = re.compile(r"tabitisrael\.co\.il/site/([^/?&\"#]+)")
 _TAG = re.compile(r"<[^>]+>")
+
+# סדר = תיעדוף: שתיהן קיימות → Ontopo. ה-regex לוכד מזהה קנוני (page id / slug) ל-dedup.
+_PLATFORMS: list[tuple[str, re.Pattern, str]] = [
+    ("ontopo", _PAGE, "https://ontopo.com/he/il/page/{}"),
+    ("tabit", _TABIT, "https://www.tabitisrael.co.il/site/{}"),
+]
 
 
 def _clean(t: str) -> str:
-    return _TAG.sub("", t).strip()
+    return html.unescape(_TAG.sub("", t)).strip()
 
 
-async def search_ontopo(name: str, city: str = "") -> list[dict]:
-    """[{title, url}] של דפי Ontopo התואמים לשאילתה, לפי רלוונטיות (deduped)."""
-    query = " ".join(p for p in [name, city, "ontopo"] if p)
-    async with httpx.AsyncClient(timeout=20, headers={"User-Agent": UA}) as http:
-        resp = await http.get(DDG, params={"q": query})
-        resp.raise_for_status()
-        html = resp.text
-
+def _parse_results(body: str) -> list[dict]:
+    """HTML של תוצאות DDG → [{title, url, platform}] (deduped, לפי סדר הופעה)."""
     out, seen = [], set()
-    for enc_url, raw_title in _ANCHOR.findall(html):
+    for enc_url, raw_title in _ANCHOR.findall(body):
         url = urllib.parse.unquote(enc_url)
-        m = _PAGE.search(url)
-        if not m or m.group(1) in seen:
-            continue
-        seen.add(m.group(1))
-        out.append(
-            {"title": _clean(raw_title), "url": f"https://ontopo.com/he/il/page/{m.group(1)}"}
-        )
+        for platform, pattern, canon in _PLATFORMS:
+            m = pattern.search(url)
+            if not m or (platform, m.group(1)) in seen:
+                continue
+            seen.add((platform, m.group(1)))
+            title = _clean(raw_title)
+            if platform == "tabit":
+                # כותרות Tabit ב-DDG גנריות ("הזמנת מקום - טאביט") — שם המסעדה יושב
+                # ב-slug של ה-URL. מוסיפים אותו לכותרת כדי שהדיסאמביגואציה תעבוד.
+                slug = urllib.parse.unquote(m.group(1)).replace("-", " ").strip()
+                if slug and slug not in title:
+                    title = f"{title} | {slug}"
+            out.append({"title": title, "url": canon.format(m.group(1)), "platform": platform})
+            break
     return out
 
 
-async def resolve_ontopo_url(name: str, city: str = "") -> dict:
+async def search_reservation(name: str, city: str = "") -> list[dict]:
+    """[{title, url, platform}] של דפי הזמנה (Ontopo/Tabit) התואמים לשאילתה (deduped)."""
+    query = " ".join(p for p in [name, city, "הזמנת מקום"] if p)
+    async with httpx.AsyncClient(timeout=20, headers={"User-Agent": UA}) as http:
+        resp = await http.get(DDG, params={"q": query})
+        resp.raise_for_status()
+    return _parse_results(resp.text)
+
+
+async def resolve_reservation_url(name: str, city: str = "") -> dict:
     """
-    מחזיר {'status': one|many|none, 'url': str|None, 'candidates': [...]}.
+    מחזיר {'status': one|many|none, 'url': str|None, 'platform': str|None, 'candidates': [...]}.
     one → url מוכן; many → צריך לשאול את המשתמש לאיזה סניף; none → לא נמצא.
+    עוברים על הפלטפורמות לפי עדיפות — הפלטפורמה הראשונה עם match חזק מכריעה.
     """
-    candidates = await search_ontopo(name, city)
-    if not candidates:
-        return {"status": "none", "url": None, "candidates": []}
-
-    # סינון דילים/שוברים/חבילות לפני הדיסאמביגואציה — אלה מבלבלים את הלקוח.
-    # אם הסינון מרוקן הכל, נשארים עם הסט המקורי (fallback).
-    filtered = [c for c in candidates if not _is_listing(c["title"])]
-    candidates = filtered or candidates
-
-    titles = [c["title"] for c in candidates]
-    status, chosen_title, good = _match_restaurant(name, titles)
-    if status == "one":
-        url = next(c["url"] for c in candidates if c["title"] == chosen_title)
-        return {"status": "one", "url": url, "candidates": candidates}
-    if status == "many":
-        return {
-            "status": "many",
-            "url": None,
-            "candidates": [c for c in candidates if c["title"] in good],
-        }
-    # אף כותרת לא תאמה חזק → לעולם לא לבחור לבד. לשאול את הלקוח (many) או none אם אין כלום.
-    return {"status": "many" if candidates else "none", "url": None, "candidates": candidates}
+    candidates = await search_reservation(name, city)
+    for platform, _, _ in _PLATFORMS:
+        plat = [c for c in candidates if c["platform"] == platform]
+        if not plat:
+            continue
+        # סינון דילים/שוברים/חבילות לפני הדיסאמביגואציה — אלה מבלבלים את הלקוח.
+        # אם הסינון מרוקן הכל, נשארים עם הסט המקורי (fallback).
+        plat = [c for c in plat if not _is_listing(c["title"])] or plat
+        status, chosen_title, good = _match_restaurant(name, [c["title"] for c in plat])
+        if status == "one":
+            url = next(c["url"] for c in plat if c["title"] == chosen_title)
+            return {"status": "one", "url": url, "platform": platform, "candidates": plat}
+        if status == "many":
+            return {
+                "status": "many",
+                "url": None,
+                "platform": platform,
+                "candidates": [c for c in plat if c["title"] in good],
+            }
+        # אין match חזק בפלטפורמה הזו → מנסים את הבאה בתור.
+    # אף פלטפורמה לא נתנה match חזק → לעולם לא לבחור לבד. לשאול את הלקוח (many) או none.
+    return {
+        "status": "many" if candidates else "none",
+        "url": None,
+        "platform": None,
+        "candidates": candidates,
+    }
