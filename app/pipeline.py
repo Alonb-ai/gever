@@ -364,18 +364,32 @@ async def run_booking(phone: str, fields: dict) -> None:
         booker = (fields.get("name") or (prof or {}).get("name") or "").strip()
         email = (fields.get("email") or (prof or {}).get("email") or "").strip()
         await notify("רגע אני על זה 🔄")  # browser-use איטי ובלי streaming — מודיעים שאנחנו על זה
-        res = await book_table_bu(
-            restaurant=name,
-            page_url=found["url"],
-            platform=found.get("platform") or "",
-            date=fields.get("date") or "",
-            time=fields.get("time") or "20:00",
-            party_size=fields.get("party_size") or 2,
-            name=booker,
-            email=email,
-            phone=_il_phone(phone),
-            dry_run=True,
-        )
+        # A3: ניסיון ראשון על הפלטפורמה המנצחת; נכשל בפועל (דף מת/אין זמינות — תרחיש
+        # גרקו) ויש match חזק גם בפלטפורמה הבאה → ניסיון שני אחד. לא ממשיכים הלאה על
+        # success/missing/card — שדה חסר יחסר גם שם, וכרטיס הוא תשובה, לא כישלון.
+        attempts = [(found["url"], found.get("platform") or "")]
+        if found.get("fallback"):
+            attempts.append((found["fallback"]["url"], found["fallback"]["platform"]))
+        used_url, used_platform = attempts[0]
+        res = None
+        for i, (url, plat) in enumerate(attempts):
+            if i:
+                await notify("הנתיב הראשון לא הלך, מנסה דרך אחרת 🔄")
+            used_url, used_platform = url, plat
+            res = await book_table_bu(
+                restaurant=name,
+                page_url=url,
+                platform=plat,
+                date=fields.get("date") or "",
+                time=fields.get("time") or "20:00",
+                party_size=fields.get("party_size") or 2,
+                name=booker,
+                email=email,
+                phone=_il_phone(phone),
+                dry_run=True,
+            )
+            if res.success or (res.details or {}).get("missing"):
+                break
         if res.success:
             # DRY_RUN: הגענו למסך האישור — זו *לא* הזמנה אמיתית. לכן לא "done", לא
             # log_booking, ולא לזייף "סגור" (חוק הברזל). שומרים רק פרופיל (שם/מייל)
@@ -391,9 +405,9 @@ async def run_booking(phone: str, fields: dict) -> None:
             # שומרים את פרמטרי ההזמנה לסגירה האמיתית (confirm→commit). booker כבר נפתר למעלה.
             d = res.details or {}
             _pending_commit[phone] = {
-                "restaurant": name,  # name = שם המסעדה (ראה למעלה); page_url = ה-URL שנפתר
-                "page_url": found["url"],
-                "platform": found.get("platform") or "",
+                "restaurant": name,  # name = שם המסעדה (ראה למעלה); page_url = הנתיב שהצליח
+                "page_url": used_url,
+                "platform": used_platform,
                 "date": fields.get("date") or "",
                 "time": d.get("time") or fields.get("time") or "20:00",  # השעה שאושרה בפועל
                 "party_size": fields.get("party_size") or 2,

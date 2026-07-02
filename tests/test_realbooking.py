@@ -333,6 +333,87 @@ def test_run_booking_missing_field_asks_no_book(monkeypatch):
     assert sent and "מייל" in sent[-1]  # גבר ביקש את הפרט החסר
 
 
+def test_run_booking_falls_back_to_next_platform(monkeypatch):
+    """A3 (תרחיש גרקו): הניסיון הראשון נכשל בפועל (דף Ontopo מת) ויש fallback מ-Tabit →
+    ניסיון שני אחד, וה-pending_commit נשמר עם הנתיב שהצליח."""
+    _reset()
+    sent, calls = [], []
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def fake_resolve(name):
+        return {
+            "status": "one",
+            "url": "http://ontopo-dead",
+            "platform": "ontopo",
+            "candidates": [],
+            "fallback": {"url": "http://tabit-live", "platform": "tabit"},
+        }
+
+    async def fake_book(**kwargs):
+        calls.append((kwargs["page_url"], kwargs["platform"]))
+        if kwargs["page_url"] == "http://ontopo-dead":
+            return ActionResult(success=False, summary="FAILED:no_availability", details={})
+        return ActionResult(success=True, summary="SUMMARY_REACHED", details={})
+
+    async def fake_upsert(phone, name=None, email=None, prefs=None):
+        pass
+
+    async def fake_get_profile(phone):
+        return None
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "upsert_profile", fake_upsert)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+
+    fields = {"task_type": "restaurant", "restaurant": "גרקו", "time": "20:00", "name": "אלון"}
+    asyncio.run(pipeline.run_booking("p6", fields))
+
+    assert calls == [("http://ontopo-dead", "ontopo"), ("http://tabit-live", "tabit")]
+    assert pipeline._booking["p6"]["state"] == "pending"
+    job = pipeline._pending_commit["p6"]
+    assert job["page_url"] == "http://tabit-live" and job["platform"] == "tabit"
+
+
+def test_run_booking_missing_field_does_not_fallback(monkeypatch):
+    """MISSING = חסר נתון מהלקוח — יחסר גם בפלטפורמה השנייה; לא שורפים ניסיון שני."""
+    _reset()
+    calls = []
+
+    async def fake_send_text(phone, msg):
+        pass
+
+    async def fake_resolve(name):
+        return {
+            "status": "one",
+            "url": "http://a",
+            "platform": "ontopo",
+            "candidates": [],
+            "fallback": {"url": "http://b", "platform": "tabit"},
+        }
+
+    async def fake_book(**kwargs):
+        calls.append(kwargs["page_url"])
+        return ActionResult(success=False, summary="MISSING:email", details={"missing": "email"})
+
+    async def fake_get_profile(phone):
+        return None
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+
+    fields = {"task_type": "restaurant", "restaurant": "גרקו", "time": "20:00", "name": "אלון"}
+    asyncio.run(pipeline.run_booking("p7", fields))
+
+    assert calls == ["http://a"]  # ניסיון אחד בלבד
+    assert pipeline._booking["p7"]["state"] == "missing"
+
+
 def test_run_booking_failure_does_not_leak_raw_agent_text(monkeypatch):
     """כישלון גנרי: res.summary הוא טקסט גולמי באנגלית של browser-use — אסור שיגיע ללקוח
     (קו-ברזל: לא חושפים אוטומציה) *ולא* ל-info (מוזרק ל-truth_note — אתר זדוני היה יכול

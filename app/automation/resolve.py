@@ -68,11 +68,13 @@ async def search_reservation(name: str, city: str = "") -> list[dict]:
 
 async def resolve_reservation_url(name: str, city: str = "") -> dict:
     """
-    מחזיר {'status': one|many|none, 'url': str|None, 'platform': str|None, 'candidates': [...]}.
-    one → url מוכן; many → צריך לשאול את המשתמש לאיזה סניף; none → לא נמצא.
-    עוברים על הפלטפורמות לפי עדיפות — הפלטפורמה הראשונה עם match חזק מכריעה.
+    מחזיר {'status': one|many|none, 'url', 'platform', 'candidates', 'fallback'}.
+    one → url מוכן, ו-fallback = match חזק מהפלטפורמה הבאה בתור (לניסיון שני אם
+    ההזמנה נכשלת בפועל — תרחיש גרקו: דף Ontopo שפג עם כותרת מושלמת); many → לשאול
+    את המשתמש; none → לא נמצא. הפלטפורמה הראשונה עם match חזק מכריעה.
     """
     candidates = await search_reservation(name, city)
+    primary, fallback = None, None
     for platform, _, _ in _PLATFORMS:
         plat = [c for c in candidates if c["platform"] == platform]
         if not plat:
@@ -83,19 +85,27 @@ async def resolve_reservation_url(name: str, city: str = "") -> dict:
         status, chosen_title, good = _match_restaurant(name, [c["title"] for c in plat])
         if status == "one":
             url = next(c["url"] for c in plat if c["title"] == chosen_title)
-            return {"status": "one", "url": url, "platform": platform, "candidates": plat}
-        if status == "many":
+            if primary is None:
+                primary = {"status": "one", "url": url, "platform": platform, "candidates": plat}
+            else:
+                fallback = {"url": url, "platform": platform}
+                break
+        elif status == "many" and primary is None:
             return {
                 "status": "many",
                 "url": None,
                 "platform": platform,
                 "candidates": [c for c in plat if c["title"] in good],
+                "fallback": None,
             }
         # אין match חזק בפלטפורמה הזו → מנסים את הבאה בתור.
+    if primary:
+        return {**primary, "fallback": fallback}
     # אף פלטפורמה לא נתנה match חזק → לעולם לא לבחור לבד. לשאול את הלקוח (many) או none.
     return {
         "status": "many" if candidates else "none",
         "url": None,
         "platform": None,
         "candidates": candidates,
+        "fallback": None,
     }

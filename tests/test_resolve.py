@@ -125,7 +125,8 @@ def test_resolve_no_candidates_is_none(monkeypatch):
 
 
 def test_resolve_prefers_ontopo_when_both_match(monkeypatch):
-    # שתי הפלטפורמות עם match חזק → Ontopo מנצחת (התיעדוף).
+    # שתי הפלטפורמות עם match חזק → Ontopo מנצחת (התיעדוף), ו-Tabit נשמרת כ-fallback
+    # לניסיון שני אם ההזמנה נכשלת בפועל (A3, תרחיש גרקו).
     monkeypatch.setattr(
         resolve,
         "search_reservation",
@@ -148,6 +149,10 @@ def test_resolve_prefers_ontopo_when_both_match(monkeypatch):
     assert res["status"] == "one"
     assert res["platform"] == "ontopo"
     assert res["url"] == "https://ontopo.com/he/il/page/1"
+    assert res["fallback"] == {
+        "url": "https://www.tabitisrael.co.il/site/taizu",
+        "platform": "tabit",
+    }
 
 
 def test_resolve_falls_back_to_tabit_when_ontopo_weak(monkeypatch):
@@ -193,6 +198,7 @@ def test_resolve_tabit_only_works(monkeypatch):
     res = asyncio.run(resolve_reservation_url("גרקו"))
     assert res["status"] == "one"
     assert res["platform"] == "tabit"
+    assert res["fallback"] is None  # פלטפורמה אחת בלבד — אין ניסיון שני
 
 
 if __name__ == "__main__":
