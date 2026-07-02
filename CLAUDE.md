@@ -24,6 +24,14 @@ Full spec: [`גבר_MVP_Spec.docx`](גבר_MVP_Spec.docx). Roadmap & status: [`R
 4. **Goal-driven execution.** Turn vague instructions into verifiable targets
    before writing a line. "Add validation" becomes "write tests for invalid
    inputs, then make them pass."
+5. **Delegate to agents.** Any task that can run via agents/workflows/loops —
+   delegate it (parallel where possible) and supervise; don't grind through it
+   inline when a fan-out does it better.
+6. **Ponytail audit after code.** After every coding session, run a ponytail
+   (over-engineering) pass on what was written — delete what shouldn't exist.
+7. **Tests are mandatory.** Every new function gets a matching test. Every
+   change to existing code requires running — and if behavior changed,
+   updating — its tests. No green gate, no done.
 
 ---
 
