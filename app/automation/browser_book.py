@@ -128,6 +128,7 @@ async def book_table_bu(
             "summary_reached": r.get("summary_reached"),
             "missing": r.get("missing"),
             "failed": r.get("failed"),
+            "time": r.get("time"),
             "restaurant": restaurant,
             "record_dir": record_dir,
         },

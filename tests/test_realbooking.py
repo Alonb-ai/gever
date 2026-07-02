@@ -333,6 +333,49 @@ def test_run_booking_missing_field_asks_no_book(monkeypatch):
     assert sent and "מייל" in sent[-1]  # גבר ביקש את הפרט החסר
 
 
+def test_run_booking_alt_time_is_offered_not_silently_booked(monkeypatch):
+    """הלקוח ביקש 20:30, נמצא רק 21:00 → גבר מציע את החלופה במפורש לפני סגירה:
+    alt_time נשמר, ה-truth_note מנחה להגיד את זה, וה-commit ייסגר על 21:00 שאושרה."""
+    _reset()
+
+    async def fake_send_text(phone, msg):
+        pass
+
+    async def fake_resolve(name):
+        return {"status": "one", "url": "http://x", "platform": "ontopo", "candidates": []}
+
+    async def fake_book(**kwargs):
+        return ActionResult(
+            success=True, summary="SUMMARY_REACHED 21:00", details={"time": "21:00"}
+        )
+
+    async def fake_upsert(phone, name=None, email=None, prefs=None):
+        pass
+
+    async def fake_get_profile(phone):
+        return None
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "upsert_profile", fake_upsert)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+
+    fields = {
+        "task_type": "restaurant",
+        "restaurant": "טאיזו",
+        "time": "20:30",
+        "name": "אלון",
+    }
+    asyncio.run(pipeline.run_booking("p8", fields))
+
+    assert pipeline._booking["p8"]["state"] == "pending"
+    assert pipeline._booking["p8"]["alt_time"] == {"requested": "20:30", "actual": "21:00"}
+    note = pipeline._truth_note("p8")
+    assert "21:00" in note and "20:30" in note  # הפרסונה מקבלת הוראה להציע את החלופה
+    assert pipeline._pending_commit["p8"]["time"] == "21:00"  # הסגירה על השעה שתאושר
+
+
 def test_run_booking_falls_back_to_next_platform(monkeypatch):
     """A3 (תרחיש גרקו): הניסיון הראשון נכשל בפועל (דף Ontopo מת) ויש fallback מ-Tabit →
     ניסיון שני אחד, וה-pending_commit נשמר עם הנתיב שהצליח."""

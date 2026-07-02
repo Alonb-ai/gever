@@ -17,6 +17,7 @@
 import asyncio
 import json
 import os
+import re
 import sys
 
 
@@ -33,8 +34,8 @@ def _build_task(job: dict) -> str:
 אתה נווט אוטונומי. האתר יכול להיות Ontopo, Tabit, או מערכת אחרת, וה-UI משתנה
 ביניהם — אל תחפש רצף כפתורים קבוע. הבן כל מסך ופעל לפי העקרונות:
 - בחר את מספר הסועדים, התאריך והשעה המבוקשים. אם השעה המדויקת תפוסה — בחר את
-  הזמינה הקרובה ביותר, עד שעה הפרש לכל היותר. אין זמינות בטווח הזה →
-  FAILED:no_availability.
+  הזמינה הקרובה ביותר, עד 30 דקות הפרש לכל היותר (קדימה או אחורה). אין זמינות
+  בטווח הזה → FAILED:no_availability.
 - התקדם דרך כל שלבי ההזמנה (חיפוש שולחן, בחירת מועד, אישור תנאים וכו') עד שתגיע
   ל*מסך הסיכום* — המסך שמרכז את כל פרטי ההזמנה ממש לפני האישור/תשלום הסופי.
 - באנר עוגיות/פרסומת — סגור והמשך. אלמנט שלא מגיב ללחיצה — נסה מקלדת (Tab/Enter)
@@ -62,8 +63,9 @@ SUMMARY_REACHED / CARD_REQUIRED / BOOKED <אישור> / MISSING:<שדה> / FAILE
 הסיום ("אשר הזמנה" / "סיום" / "הזמן" / "שלם" וכדומה), ואל תזין פרטי כרטיס אשראי —
 בין אם נדרש כרטיס ובין אם לא. המטרה היא רק להגיע עד מסך הסיכום, *בלי* לסגור. ***
 
-כשהגעת למסך הסיכום, סיים את הדיווח במילה SUMMARY_REACHED. אם המסך דורש פרטי כרטיס
-אשראי כדי לסיים — הוסף אחריה גם את המילה CARD_REQUIRED."""
+כשהגעת למסך הסיכום, סיים את הדיווח במילה SUMMARY_REACHED ואחריה השעה שנבחרה
+בפועל (למשל: SUMMARY_REACHED 21:00). אם המסך דורש פרטי כרטיס אשראי כדי לסיים —
+הוסף גם את המילה CARD_REQUIRED."""
     else:
         tail = """
 *** חוק ברזל — כרטיס אשראי: אם בשלב כלשהו האתר דורש פרטי כרטיס אשראי / תשלום מראש,
@@ -93,6 +95,10 @@ def _parse_result(final: str, *, commit: bool) -> dict:
     card = "CARD_REQUIRED" in last
     missing = _marker_arg(last, "MISSING:") if "MISSING:" in last else ""
     failed = _marker_arg(last, "FAILED:") if "FAILED:" in last else ""
+    # השעה שנבחרה בפועל (החוזה: אחרי SUMMARY_REACHED) — כדי שגבר יציע חלופה ללקוח
+    # ("יש 21:00 במקום 20:30, מתאים?") לפני הסגירה, וה-commit יסגור את מה שאושר.
+    m = re.search(r"\b(\d{1,2}:\d{2})\b", last)
+    chosen_time = m.group(1) if m else ""
     if commit:
         # BOOKED <אישור> = נסגר באמת; כרטיס/שדה-חסר/כישלון גוברים — לא נרשמת הזמנה.
         booked = "BOOKED" in last and not card and not missing and not failed
@@ -107,6 +113,7 @@ def _parse_result(final: str, *, commit: bool) -> dict:
             "confirmation": confirmation,
             "missing": missing,
             "failed": failed,
+            "time": chosen_time,
             "message": final,
         }
     # recon (dry_run): הצלחה = הגענו למסך הסיכום (SUMMARY_REACHED), בלי סגירה אמיתית.
@@ -120,6 +127,7 @@ def _parse_result(final: str, *, commit: bool) -> dict:
         "summary_reached": summary_reached,
         "missing": missing,
         "failed": failed,
+        "time": chosen_time,
         "message": final,
     }
 

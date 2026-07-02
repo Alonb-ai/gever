@@ -94,6 +94,17 @@ def test_recon_summary_reached_succeeds_not_booked():
     assert r["card_required"] is False
 
 
+def test_recon_reports_actual_chosen_time():
+    # 20:30 היה תפוס וה-agent בחר 21:00 → השעה נחלצת כדי שגבר יציע אותה ללקוח.
+    r = _parse_result("נבחרו 2 סועדים ל-7.7. SUMMARY_REACHED 21:00", commit=False)
+    assert r["success"] is True
+    assert r["time"] == "21:00"
+    # בלי שעה בשורת הסיום — ריק, לא מומצא.
+    assert _parse_result("SUMMARY_REACHED", commit=False)["time"] == ""
+    # התקרה החדשה (±30 דק') מופיעה ב-task.
+    assert "30 דקות" in _build_task({**_JOB, "dry_run": True})
+
+
 def test_recon_summary_reached_flags_card_only_via_marker():
     r = _parse_result("מסך הסיכום דורש תשלום. SUMMARY_REACHED CARD_REQUIRED", commit=False)
     assert r["success"] is True
