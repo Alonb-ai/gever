@@ -207,6 +207,52 @@ def _route(monkeypatch, *, dry_run, result, pending=False):
     return spawned
 
 
+def test_pending_success_sends_proactive_message(monkeypatch):
+    """הבאג השקט: הצלחה (מסך סיכום) לא שלחה כלום — הלקוח חיכה לנצח. עכשיו הודעת
+    'הכל מוכן, לסגור?' יזומה, עם השעה שנתפסה בפועל והתראת שעה חלופית."""
+    _reset()
+    sent = []
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def fake_resolve(name):
+        return {"status": "one", "url": "http://x", "platform": "ontopo", "candidates": []}
+
+    async def fake_book(**kwargs):
+        return ActionResult(
+            success=True, summary="SUMMARY_REACHED 14:30", details={"time": "14:30"}
+        )
+
+    async def fake_upsert(phone, name=None, email=None, prefs=None):
+        pass
+
+    async def fake_get_profile(phone):
+        return None
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "upsert_profile", fake_upsert)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+
+    fields = {
+        "task_type": "restaurant",
+        "restaurant": "התאילנדית",
+        "date": "6.7",
+        "time": "14:00",
+        "party_size": 2,
+        "name": "אלון",
+    }
+    asyncio.run(pipeline.run_booking("pP", fields))
+
+    assert pipeline._booking["pP"]["state"] == "pending"
+    final = sent[-1]
+    assert "לסגור?" in final  # ההודעה היזומה נשלחה
+    assert "14:30" in final and "14:00" in final  # התראת שעה חלופית
+    assert "מוכן" in final or "תפסתי" in final
+
+
 def test_retry_remembers_chosen_branch_no_second_list(monkeypatch):
     """נצפה חי: retry ('תנסה בראשון') עם השם הקצר החזיר רשימת סניפים שנייה.
     הבחירה נזכרת — שם מבוקש שמוכל בה = אותו סניף, בלי resolve ובלי רשימה."""

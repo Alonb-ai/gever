@@ -194,7 +194,7 @@ def _profile_block(profile: dict | None) -> str:
     lines = ["\n\n--- מה שאתה כבר יודע על מי שמולך (אל תשאל שוב על מה שכתוב כאן) ---"]
     if profile.get("name"):
         # הרמז בנקודת השימוש: הנוכחות של השם בזרע גורמת למודל לשלוף אותו לכל הודעה
-        lines.append(f"שם: {profile['name']} (לטפסים; בצ'אט כינויי חיבה — שם פרטי רק לרגע רציני)")
+        lines.append(f"שם: {profile['name']} (לטפסים — בשיחה אתה על כינויי חיבה, לא על השם)")
     if profile.get("email"):
         lines.append(f"מייל: {profile['email']}")
     prefs = profile.get("prefs") or {}
@@ -578,6 +578,19 @@ async def run_booking(phone: str, fields: dict) -> None:
                 "email": email,  # C6: בלי זה הסגירה הייתה יורה MISSING:email מיותר
                 "notes": fields.get("notes") or "",
             }
+            # הבאג השקט הגדול (נצפה חי): נתיב ההצלחה לא שלח כלום — הלקוח חיכה
+            # ל"מוכן" שהגיע רק אם פנה קודם. הודעת הצלחה יזומה, עם השעה שנתפסה בפועל.
+            at = d.get("time") or fields.get("time") or ""
+            when = f"ל-{fields['date']} " if fields.get("date") else ""
+            if _booking[phone].get("alt_time"):
+                alt = _booking[phone]["alt_time"]
+                head = f"יש! רק שים לב — {alt['requested']} היה תפוס, תפסתי {alt['actual']} במקום"
+            else:
+                head = f"יש! הגעתי עד מסך האישור של {name}"
+            await send_text(
+                phone,
+                f"{head}\n{when}בשעה {at} ל-{fields.get('party_size') or 2} — הכל מוכן\nלסגור?",
+            )
         elif (res.details or {}).get("missing"):
             # באג 3: שדה חובה בטופס היה ריק (ה-runner לא המציא, עצר ודיווח MISSING).
             # מנגנון אחד כמו none/ambiguous: גבר מבקש מהלקוח את השדה וממתין — בלי
