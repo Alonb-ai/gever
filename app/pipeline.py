@@ -10,6 +10,8 @@ import asyncio
 import json
 import logging
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from google import genai
 from google.genai import types
@@ -31,6 +33,8 @@ _EXTRACT = (
     "\n\n--- מנגנון פנימי (אל תחשוף ואל תזכיר אותו) ---\n"
     "בכל תור החזר JSON: 'reply' = מה שאתה אומר למשתמש, בדמות. "
     "מלא restaurant/date/time/party_size כשהם ידועים מהשיחה. "
+    "date תמיד תאריך קונקרטי בפורמט DD.MM — חשב 'מחר'/'שישי הקרוב' לפי שורת 'היום' "
+    "שקיבלת (לעולם לא מילים כמו 'מחר' בשדה). "
     "אם המשתמש מסר את שמו או המייל שלו, מלא name/email (אל תמציא — רק אם נאמרו). "
     "אם מסר עובדה קבועה על עצמו ששווה לזכור — מצב זוגי, עיר מגורים, מסעדה מועדפת, "
     "מגבלות אוכל, או אזורים שהוא אוהב — מלא תחת 'profile' (רק מה שנאמר במפורש, אל "
@@ -114,10 +118,18 @@ async def _pace(seconds: float) -> None:
 
 
 def _spawn(coro) -> None:
-    """כמו create_task, אבל שומר reference (אחרת ה-task נעלם בשקט ב-GC)."""
+    """כמו create_task, אבל שומר reference (אחרת ה-task נעלם בשקט ב-GC)
+    ומתעד חריגה לא-תפוסה (למשל כששליחת הודעת הכישלון עצמה נכשלת) — בלי זה
+    ה-task מת בדממה והלקוח נשאר בלי תשובה ובלי זכר בלוגים."""
     task = asyncio.create_task(coro)
     _pending.add(task)
-    task.add_done_callback(_pending.discard)
+
+    def _done(t: asyncio.Task) -> None:
+        _pending.discard(t)
+        if not t.cancelled() and t.exception() is not None:
+            log.error("background task died: %r", t.exception())
+
+    task.add_done_callback(_done)
 
 
 def _profile_block(profile: dict | None) -> str:
@@ -160,6 +172,16 @@ def _recap_block(bookings: list) -> str:
     return "\n".join(lines)
 
 
+_WEEKDAYS = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]  # tm_wday: 0=שני
+
+
+def _today_line() -> str:
+    """שורת 'היום' לזרע — בלעדיה המודל לא יכול לחשב 'מחר'/'שישי הקרוב' לתאריך.
+    שעון ישראל (ה-container רץ UTC — בערב זה כבר יום אחר בישראל)."""
+    now = datetime.now(ZoneInfo("Asia/Jerusalem"))
+    return f"\n\nהיום: יום {_WEEKDAYS[now.weekday()]}, {now.day}.{now.month}.{now.year}."
+
+
 def _seed_from(profile: dict | None, bookings: list) -> str:
     """ה-system_instruction לשיחה: בסיס + פרופיל + recap. הנתונים נטענים פעם אחת
     ב-_chat_for (משמשים גם לתורות השמורות) ומועברים לכאן — בלי טעינה כפולה.
@@ -171,7 +193,7 @@ def _seed_from(profile: dict | None, bookings: list) -> str:
         intro = _profile_block(profile) + ONBOARDING_BLOCK
     else:
         intro = _profile_block(profile) + KNOWN_HINT
-    return base + intro + _recap_block(bookings) + _EXTRACT
+    return base + _today_line() + intro + _recap_block(bookings) + _EXTRACT
 
 
 async def _chat_for(phone: str) -> tuple:
@@ -360,6 +382,7 @@ async def run_booking(phone: str, fields: dict) -> None:
         await send_text(phone, "רגע לאיזו מסעדה אנחנו סוגרים")
         return
     _booking[phone] = {"state": "working", "info": name}
+    log.info("run_booking start: %s -> %s (%s %s)", phone, name, fields.get("date"), fields.get("time"))
     try:
         found = await resolve_reservation_url(name)
         if found["status"] == "none":
@@ -475,6 +498,8 @@ async def run_booking(phone: str, fields: dict) -> None:
         log.exception("booking failed for %s", phone)
         _booking[phone] = {"state": "failed", "info": "חריגה באמצע"}
         await send_text(phone, "נתקעתי באמצע, לא הצלחתי לסגור. ננסה שוב?" + _error_detail(e))
+    finally:
+        log.info("run_booking done: %s -> state=%s", phone, _booking.get(phone, {}).get("state"))
 
 
 async def run_commit(phone: str) -> None:

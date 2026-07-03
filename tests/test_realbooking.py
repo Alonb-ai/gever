@@ -228,6 +228,15 @@ def test_handle_inbound_suppresses_character_leak(monkeypatch):
     assert "רגע" in sent[-1]  # הודעת גישור בדמות
 
 
+def test_seed_contains_today_line_with_concrete_date():
+    """בלי שורת 'היום' המודל לא יכול לחשב 'מחר' לתאריך — וזה נשלח לדפדפן."""
+    import re
+
+    line = pipeline._today_line()
+    assert re.search(r"היום: יום \S+, \d{1,2}\.\d{1,2}\.\d{4}", line)
+    assert "היום: יום" in pipeline._seed_from(None, [])
+
+
 def test_handle_inbound_splits_reply_lines_into_separate_messages(monkeypatch):
     """וואטסאפ אנושי = הודעות קצרות: כל שורה נשלחת כהודעה נפרדת, עם typing+השהיה בין הודעות."""
     _reset()
