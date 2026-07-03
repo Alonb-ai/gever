@@ -382,7 +382,9 @@ async def run_booking(phone: str, fields: dict) -> None:
         await send_text(phone, "רגע לאיזו מסעדה אנחנו סוגרים")
         return
     _booking[phone] = {"state": "working", "info": name}
-    log.info("run_booking start: %s -> %s (%s %s)", phone, name, fields.get("date"), fields.get("time"))
+    log.info(
+        "run_booking start: %s -> %s (%s %s)", phone, name, fields.get("date"), fields.get("time")
+    )
     try:
         found = await resolve_reservation_url(name)
         if found["status"] == "none":
