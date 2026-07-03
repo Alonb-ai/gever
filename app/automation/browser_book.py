@@ -7,6 +7,7 @@
 
 import asyncio
 import json
+import logging
 import os
 import time as _time
 
@@ -14,6 +15,8 @@ import httpx
 
 from app.config import settings
 from app.models.schemas import ActionResult
+
+log = logging.getLogger("gever")
 
 _RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bu_runner.py")
 BU_TIMEOUT_S = 600  # ponytail: תקרה קשיחה (10 דק') — browser-use עובר את כל זרימת Ontopo
@@ -44,21 +47,64 @@ async def _run_subprocess(job: dict) -> None:
         raise
 
 
-async def _cdp_url() -> str:
-    """יוצר סשן Browserbase ומחזיר את ה-connectUrl (CDP-over-WS) ל-browser-use.
-    Browserbase מטפל ב-stealth/CAPTCHA/proxy — solveCaptchas דלוק כברירת-מחדל בצד שלהם.
-    docs: https://docs.browserbase.com/reference/api/create-a-session"""
+_BB_API = "https://api.browserbase.com/v1"
+
+
+async def _bb(method: str, path: str, body: dict | None = None) -> dict:
+    """קריאת Browserbase API אחת. docs.browserbase.com/reference/api."""
     async with httpx.AsyncClient(timeout=30) as http:
-        resp = await http.post(
-            "https://api.browserbase.com/v1/sessions",
+        resp = await http.request(
+            method,
+            f"{_BB_API}{path}",
+            json=body,
             headers={
                 "X-BB-API-Key": settings.browserbase_api_key,
                 "Content-Type": "application/json",
             },
-            json={"projectId": settings.browserbase_project_id, "proxies": True},
         )
         resp.raise_for_status()
-        return resp.json()["connectUrl"]
+        return resp.json()
+
+
+async def _bb_create_session() -> tuple[str, str]:
+    """סשן Browserbase חדש → (session_id, connectUrl). keepAlive: הסשן שורד ניתוק
+    CDP כדי לאפשר pause-resume (עצירה על שאלה ללקוח → המשך מאותו מסך). timeout=1800
+    הוא תקרת העלות לסשן נטוש — שחרור מפורש (release_session) בכל סוף ריצה."""
+    data = await _bb(
+        "POST",
+        "/sessions",
+        {
+            "projectId": settings.browserbase_project_id,
+            "proxies": True,
+            "keepAlive": True,
+            "timeout": 1800,
+        },
+    )
+    return data["id"], data["connectUrl"]
+
+
+async def _bb_live_connect_url(session_id: str) -> str | None:
+    """connectUrl של סשן אם הוא עדיין רץ, אחרת None (פג/נסגר/שגיאה) — לצורך resume."""
+    try:
+        data = await _bb("GET", f"/sessions/{session_id}")
+        return data.get("connectUrl") if data.get("status") == "RUNNING" else None
+    except Exception as exc:  # noqa: BLE001 — סשן מת = פשוט ריצה טרייה
+        log.warning("bb session check failed (%s): %s", session_id, exc)
+        return None
+
+
+async def release_session(session_id: str | None) -> None:
+    """שחרור סשן keepAlive — בלעדיו דקות-דפדפן נצברות באידל עד ה-timeout. best-effort."""
+    if not session_id:
+        return
+    try:
+        await _bb(
+            "POST",
+            f"/sessions/{session_id}",
+            {"projectId": settings.browserbase_project_id, "status": "REQUEST_RELEASE"},
+        )
+    except Exception as exc:  # noqa: BLE001 — ה-timeout של הסשן הוא רשת הביטחון
+        log.warning("bb session release failed (%s): %s", session_id, exc)
 
 
 async def book_table_bu(
@@ -74,8 +120,13 @@ async def book_table_bu(
     phone: str = "",
     notes: str = "",  # העדפות ביצוע מהלקוח (אזור ישיבה וכו') — מוזרק ל-task
     dry_run: bool = True,
+    resume: dict | None = None,  # {"session_id","recap"} — המשך סשן חי מאותו מסך (pause-resume)
 ) -> ActionResult:
-    """מזמין (Ontopo/Tabit) דרך browser-use agent אוטונומי. עוצר בשלב הכרטיס (שער בטיחות)."""
+    """מזמין (Ontopo/Tabit) דרך browser-use agent אוטונומי. עוצר בשלב הכרטיס (שער בטיחות).
+
+    pause-resume: ריצה שנעצרה על MISSING משאירה את סשן ה-Browserbase חי (keepAlive),
+    ו-details.session_id חוזר כדי שה-pipeline ישמור אותו. כשהלקוח עונה — resume עם
+    אותו session_id ממשיך מאותו מסך (שניות במקום ניווט מחדש). סשן מת → ריצה טרייה."""
     run_id = str(int(_time.time() * 1000))
     # record_dir ריק = בלי הקלטה בכלל (פרודקשן). הבאג הישן: fallback ל-/tmp הדליק
     # וידאו+GIF בטעות — יצירת GIF מריצה של דקות תקעה את ה-runner הרבה אחרי שהדפדפן
@@ -100,8 +151,18 @@ async def book_table_bu(
         "result_path": result_path,
         "max_steps": 40,
     }
+    session_id: str | None = None
     if settings.bu_browser == "browserbase":
-        job["cdp_url"] = await _cdp_url()
+        cdp = None
+        if resume and resume.get("session_id"):
+            cdp = await _bb_live_connect_url(resume["session_id"])
+            if cdp:
+                session_id = resume["session_id"]
+                job["resume"] = {"recap": (resume.get("recap") or "")[:400]}
+            # סשן מת → נופלים בשקט לריצה טרייה (התשובה כבר ב-notes) — אין הבדל ללקוח
+        if not cdp:
+            session_id, cdp = await _bb_create_session()
+        job["cdp_url"] = cdp
     elif settings.bu_chrome_path:
         job["chrome_path"] = settings.bu_chrome_path
 
@@ -111,17 +172,25 @@ async def book_table_bu(
         with open(result_path, encoding="utf-8") as f:
             r = json.load(f)
     except asyncio.TimeoutError:
+        await release_session(session_id)
         return ActionResult(
             success=False,
             summary="אחי זה נתקע לי, לקח יותר מדי. ננסה שוב?",
             details={"stage": "timeout"},
         )
     except Exception as e:  # noqa: BLE001 — כשל הופך להודעה כנה, לא ל-traceback
+        await release_session(session_id)
         return ActionResult(
             success=False,
             summary="נתקעתי באמצע, לא הצלחתי לסגור. ננסה שוב?",
             details={"stage": "error", "error": str(e)},
         )
+
+    # pause-resume: רק עצירה על שדה חסר משאירה את הסשן חי (מחכה לתשובת הלקוח).
+    # כל תוצאה אחרת — משחררים מיד, keepAlive מחויב גם באידל.
+    waiting = bool(r.get("missing")) and session_id is not None
+    if not waiting:
+        await release_session(session_id)
 
     return ActionResult(
         success=bool(r.get("success")),
@@ -137,5 +206,6 @@ async def book_table_bu(
             "time": r.get("time"),
             "restaurant": restaurant,
             "record_dir": record_dir,
+            "session_id": session_id if waiting else None,
         },
     )

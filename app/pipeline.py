@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 from google import genai
 from google.genai import types
 
-from app.automation.browser_book import BU_TIMEOUT_S, book_table_bu
+from app.automation.browser_book import BU_TIMEOUT_S, book_table_bu, release_session
 from app.automation.resolve import resolve_reservation_url
 from app.config import settings
 from app.db import memory
@@ -102,6 +102,9 @@ _booking: dict = {}
 # הזמנה שהגיעה למסך האישור ומחכה ל"מאשר" — פרמטרי ה-playbook לשחזור בסגירה האמיתית.
 # (res.details לא נשמר אחרי run_booking, לכן שומרים כאן את מה ש-book_table צריך.)
 _pending_commit: dict = {}
+# pause-resume: phone -> סשן דפדפן חי (keepAlive) שעצר על שאלה ללקוח ומחכה לתשובה —
+# {"restaurant","url","platform","session_id","recap"}. הריצה הבאה ממשיכה מאותו מסך.
+_resume: dict = {}
 
 # פער שאחריו פותחים "דף חדש": שיחה טרייה במקום לגרור את ההיסטוריה הישנה.
 SESSION_GAP_S = 3 * 60 * 60  # ~3 שעות
@@ -396,7 +399,23 @@ async def run_booking(phone: str, fields: dict) -> None:
         "run_booking start: %s -> %s (%s %s)", phone, name, fields.get("date"), fields.get("time")
     )
     try:
-        found = await resolve_reservation_url(name)
+        # pause-resume: יש סשן חי שמחכה לתשובה על אותה מסעדה → ממשיכים מאותו מסך,
+        # בלי resolve מחדש. הלקוח החליף מסעדה → משחררים את הסשן הישן וריצה טרייה.
+        resume_arg = None
+        waiting = _resume.pop(phone, None)
+        if waiting and waiting.get("restaurant") == name:
+            resume_arg = waiting
+            found = {
+                "status": "one",
+                "url": waiting["url"],
+                "platform": waiting["platform"],
+                "candidates": [],
+                "fallback": None,
+            }
+        else:
+            if waiting:
+                await release_session(waiting.get("session_id"))
+            found = await resolve_reservation_url(name)
         if found["status"] == "none":
             _booking[phone] = {"state": "none", "info": name}
             await send_text(phone, f"לא מצאתי איפה מזמינים מקום ל'{name}'. נסה שם אחר.")
@@ -440,6 +459,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                 phone=_il_phone(phone),
                 notes=fields.get("notes") or "",
                 dry_run=True,
+                resume=resume_arg if i == 0 else None,  # resume רלוונטי רק לנתיב המקורי
             )
             if res.success or (res.details or {}).get("missing"):
                 break
@@ -492,6 +512,16 @@ async def run_booking(phone: str, fields: dict) -> None:
             # pre-validation בצד שלנו (הטופס מחליט מה חובה).
             field = res.details["missing"]
             _booking[phone] = {"state": "missing", "info": field}
+            # pause-resume: הסשן נשאר חי (keepAlive) — נשמור אותו כדי שהתשובה של
+            # הלקוח תמשיך מאותו מסך במקום ניווט מחדש של דקות.
+            if res.details.get("session_id"):
+                _resume[phone] = {
+                    "restaurant": name,
+                    "url": used_url,
+                    "platform": used_platform,
+                    "session_id": res.details["session_id"],
+                    "recap": (res.details.get("stage") or "")[:400],
+                }
             _human = {
                 "email": "מייל",
                 "name": "שם",

@@ -18,6 +18,7 @@ def _reset():
     pipeline._reset_next.clear()
     pipeline._turns.clear()
     pipeline._last_seen.clear()
+    pipeline._resume.clear()
 
 
 def test_run_commit_books_for_real_and_logs(monkeypatch):

@@ -33,9 +33,20 @@ def _build_task(job: dict) -> str:
     # תקודד פה שמות כפתורים או רצף קבוע. ה-markers (SUMMARY_REACHED/CARD_REQUIRED/
     # BOOKED/MISSING) הם החוזה עם _parse_result — אותם תמיד לדווח בדיוק.
     plat = f" (מערכת {job['platform']})" if job.get("platform") else ""
-    steps = f"""
+    if job.get("resume"):
+        # pause-resume: הדפדפן פתוח בדיוק במסך שבו הריצה הקודמת עצרה (MISSING) —
+        # ממשיכים משם עם הפרטים שהלקוח השלים, בלי לנווט מחדש.
+        intro = f"""
+אתה ממשיך הזמנת שולחן ל-{job["party_size"]} סועדים בתאריך {job["date"]} בשעה {job["time"]}
+שכבר התחלת קודם. הדפדפן פתוח בדיוק במסך שבו עצרת — המשך מהמסך הנוכחי. אל תנווט
+לכתובת אחרת ואל תתחיל את התהליך מההתחלה.
+מה שקרה עד כה: {job["resume"].get("recap") or ""}
+עצרת כי חסר פרט מהלקוח — הוא השלים אותו עכשיו, והפרטים המעודכנים מופיעים למטה."""
+    else:
+        intro = f"""
 המשימה: להזמין שולחן ל-{job["party_size"]} סועדים בתאריך {job["date"]} בשעה {job["time"]}.
-התחל מהכתובת: {job["url"]} (דף הזמנות מקום של המסעדה, בעברית{plat}).
+התחל מהכתובת: {job["url"]} (דף הזמנות מקום של המסעדה, בעברית{plat})."""
+    steps = f"""{intro}
 
 אתה נווט אוטונומי. האתר יכול להיות Ontopo, Tabit, או מערכת אחרת, וה-UI משתנה
 ביניהם — אל תחפש רצף כפתורים קבוע. הבן כל מסך ופעל לפי העקרונות:
@@ -168,6 +179,10 @@ async def _run(job: dict) -> dict:
     profile = BrowserProfile(**profile_kwargs)
     llm = ChatGoogle(model=job.get("model") or "gemini-3-flash-preview")
     agent_kwargs: dict = {"task": _build_task(job), "llm": llm, "browser_profile": profile}
+    if job.get("resume"):
+        # ברירת המחדל של browser-use מנווטת אוטומטית לכל URL שמופיע ב-task —
+        # ב-resume זה היה הורס את המסך הקפוא. חובה לכבות.
+        agent_kwargs["directly_open_url"] = False
     if rec:  # הקלטה: GIF + הנמקת ה-agent צעד-צעד, לניתוח אחר כך
         agent_kwargs["generate_gif"] = os.path.join(rec, "run.gif")
         agent_kwargs["save_conversation_path"] = os.path.join(rec, "conversation")
