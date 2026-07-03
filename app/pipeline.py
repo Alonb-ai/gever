@@ -50,7 +50,8 @@ _EXTRACT = (
     "בלי דגל — אין הבטחה, יש שאלה.\n"
     "· task_type: 'restaurant' (וגם ברירת המחדל) או 'other'. ב-other לעולם אין "
     "ready — אין עדיין מי שיבצע, אתה רק עונה בכנות.\n"
-    "· notes: העדפות ביצוע שהלקוח נתן (אזור ישיבה, אירוע, בקשה מיוחדת) — טקסט קצר; "
+    "· notes: העדפות ביצוע שהלקוח נתן (אזור ישיבה, אירוע, בקשה מיוחדת) — טקסט קצר, "
+    "כולל הסיבה אם נתן אחת ('בחוץ — מעשנים', לא רק 'בחוץ'; הסיבה משנה את הבחירה בטופס); "
     "מגיע למי שמבצע. השלמה של שדה שביקשת (שם משפחה) הולכת לשדה עצמו, לא לכאן.\n"
     "· name/email — רק אם נאמרו במפורש. profile — עובדות קבועות שנאמרו על הלקוח "
     "(מצב זוגי, עיר, מסעדה מועדפת, מגבלות אוכל, אזורים, מין אם ברור מהשיחה) — לא "
@@ -138,6 +139,20 @@ def _option_label(title: str) -> str:
     parts = [_TITLE_NOISE.sub("", p).strip(" -–—") for p in re.split(r"[|:]", title)]
     parts = [" ".join(p.split()) for p in parts if p.strip()]
     return max(parts, key=len) if parts else title.strip()
+
+
+def _same_place(a: str, b: str) -> bool:
+    """התאמת שם-מסעדה סלחנית: ה-extract מנסח כל תור וריאציה אחרת של אותו מקום
+    ("התאילנדית בהר סיני" מול "התאילנדית בסמטת סיני תל אביב-יפו") — השוואה מדויקת
+    זרקה resume+cache והציפה את הרשימה 3 פעמים בשיחה אחת (נצפה חי). הכלה מלאה,
+    ואם אין — מילת המותג הראשונה מכריעה."""
+    a, b = " ".join(a.split()), " ".join(b.split())
+    if not a or not b:
+        return False
+    if a in b or b in a:
+        return True
+    fa, fb = a.split()[0], b.split()[0]
+    return len(fa) >= 3 and len(fb) >= 3 and (fa in fb or fb in fa)
 
 
 def _failure_reply(reason: str | None, name: str) -> tuple[str, str] | None:
@@ -448,11 +463,7 @@ async def run_booking(phone: str, fields: dict) -> None:
         waiting = _resume.pop(phone, None)
         cached = _resolved.get(phone)
 
-        def _same(a: str, b: str) -> bool:
-            a, b = " ".join(a.split()), " ".join(b.split())
-            return bool(a) and bool(b) and (a in b or b in a)
-
-        if waiting and waiting.get("restaurant") == name:
+        if waiting and _same_place(waiting.get("restaurant") or "", name):
             resume_arg = waiting
             found = {
                 "status": "one",
@@ -461,7 +472,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                 "candidates": [],
                 "fallback": None,
             }
-        elif cached and _same(name, cached["name"]):
+        elif cached and _same_place(name, cached["name"]):
             # retry על אותה מסעדה (יום/שעה אחרת) — הסניף כבר נבחר, לא שואלים שוב
             found = {
                 "status": "one",

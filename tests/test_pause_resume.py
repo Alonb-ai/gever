@@ -215,6 +215,49 @@ def test_missing_then_answer_resumes_same_session(monkeypatch):
     assert "pR" not in pipeline._resume  # נוצל — לא יתנגש בהזמנה הבאה
 
 
+def test_answer_with_variant_name_still_resumes(monkeypatch):
+    """ריצת הזהב (נצפה חי): הסשן נשמר עם התווית מהרשימה, אבל ה-extract ניסח את
+    התשובה עם וריאציה ("התאילנדית בהר סיני") — השוואה מדויקת זרקה את ה-resume
+    והלקוח קיבל את הרשימה בפעם השלישית. וריאציה של אותו מקום = ממשיכים מאותו מסך."""
+    pipeline._booking.clear()
+    pipeline._resume.clear()
+    released: list = []
+    ok_res = ActionResult(success=True, summary="SUMMARY_REACHED", details={})
+    sent, calls = _pipeline_harness(monkeypatch, [ok_res], released)
+    pipeline._resume["pV"] = {
+        "restaurant": "התאילנדית בסמטת סיני תל אביב-יפו",
+        "url": "http://simta",
+        "platform": "ontopo",
+        "session_id": "sess-42",
+        "recap": "עצרתי על ישיבה",
+    }
+
+    fields = {
+        "task_type": "restaurant",
+        "restaurant": "התאילנדית בהר סיני",  # וריאציה — לא מוכלת בתווית ולהפך
+        "date": "6.7",
+        "time": "14:00",
+        "party_size": 2,
+        "name": "אלון",
+        "notes": "בחוץ — מעשנים",
+    }
+    asyncio.run(pipeline.run_booking("pV", fields))
+
+    assert released == []  # הסשן החי לא שוחרר
+    assert "resolve" not in calls  # ובלי רשימה מחדש
+    books = [c for c in calls if isinstance(c, tuple)]
+    assert books[0][1]["session_id"] == "sess-42"  # resume מאותו מסך
+    assert books[0][2] == "http://simta"
+
+
+def test_same_place_matches_variants_not_strangers():
+    same = pipeline._same_place
+    assert same("התאילנדית בהר סיני", "התאילנדית בסמטת סיני תל אביב-יפו")  # וריאציה
+    assert same("התאילנדית", "התאילנדית בסמטת סיני תל אביב-יפו")  # שם קצר (הכלה)
+    assert not same("טאיזו", "התאילנדית בסמטת סיני תל אביב-יפו")  # מסעדה אחרת
+    assert not same("", "התאילנדית")  # ריק לעולם לא תואם
+
+
 def test_answer_with_different_restaurant_releases_stale_session(monkeypatch):
     """הלקוח החליף מסעדה בזמן שסשן חיכה → הסשן הישן משוחרר וריצה טרייה עם resolve."""
     pipeline._booking.clear()

@@ -302,6 +302,9 @@ def test_retry_remembers_chosen_branch_no_second_list(monkeypatch):
 
     assert resolves == ["התאילנדית בסמטת סיני תל אביב-יפו"]  # resolve פעם אחת בלבד
     assert books == ["http://simta", "http://simta"]  # אותו סניף בשתי הריצות
+    # ריצה 3 (ריצת הזהב): וריאציה שאינה מוכלת ("בהר סיני") — עדיין אותו סניף
+    asyncio.run(pipeline.run_booking("pT", {**full, "restaurant": "התאילנדית בהר סיני"}))
+    assert len(resolves) == 1 and books == ["http://simta"] * 3
 
 
 def test_profile_name_carries_usage_hint():
