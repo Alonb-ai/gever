@@ -16,7 +16,9 @@ from fastapi import FastAPI, Request, Response
 
 from app.automation.browser_book import sweep_orphan_sessions
 from app.config import settings
+from app.db import memory
 from app.pipeline import handle_inbound
+from app.whatsapp.client import send_text
 
 log = logging.getLogger("gever")
 
@@ -32,6 +34,19 @@ async def lifespan(_app: FastAPI):
                 log.info("released %d orphan browserbase session(s) on startup", n)
         except Exception:  # noqa: BLE001
             log.warning("orphan session sweep failed", exc_info=True)
+    # התאוששות יתומים: redeploy באמצע הזמנה הרג אותה בדממה (נצפה חי 3 פעמים) —
+    # הלקוח חיכה לכלום. עכשיו גבר מתנצל ומבקש לשלוח שוב.
+    try:
+        for o in await memory.list_inflight():
+            await memory.clear_inflight(o["phone"])
+            what = f" של {o['restaurant']}" if o.get("restaurant") else ""
+            await send_text(
+                o["phone"],
+                f"אחשלי נפלתי באמצע ההזמנה{what} 😮‍💨\nשלח לי שוב ואני סוגר את זה",
+            )
+            log.info("orphan booking recovered for %s (%s)", o["phone"], o.get("restaurant"))
+    except Exception:  # noqa: BLE001
+        log.warning("orphan booking recovery failed", exc_info=True)
     yield
 
 

@@ -434,6 +434,7 @@ async def run_booking(phone: str, fields: dict) -> None:
     log.info(
         "run_booking start: %s -> %s (%s %s)", phone, name, fields.get("date"), fields.get("time")
     )
+    await memory.set_inflight(phone, name)  # שורד restart — יתומים מזוהים בעלייה
     try:
         # pause-resume: יש סשן חי שמחכה לתשובה על אותה מסעדה → ממשיכים מאותו מסך,
         # בלי resolve מחדש. הלקוח החליף מסעדה → משחררים את הסשן הישן וריצה טרייה.
@@ -608,6 +609,7 @@ async def run_booking(phone: str, fields: dict) -> None:
         _booking[phone] = {"state": "failed", "info": "חריגה באמצע"}
         await send_text(phone, "נתקעתי באמצע, לא הצלחתי לסגור. ננסה שוב?" + _error_detail(e))
     finally:
+        await memory.clear_inflight(phone)
         log.info("run_booking done: %s -> state=%s", phone, _booking.get(phone, {}).get("state"))
 
 
@@ -623,6 +625,7 @@ async def run_commit(phone: str) -> None:
         await send_text(phone, "רגע על איזה שם לסגור")
         return
     _booking[phone] = {"state": "working", "info": ""}
+    await memory.set_inflight(phone, job["restaurant"])
     try:
         await send_text(phone, "רגע סוגר לך 🔄")  # browser-use איטי ובלי streaming
         res = await book_table_bu(
@@ -696,6 +699,7 @@ async def run_commit(phone: str) -> None:
         _booking[phone] = {"state": "failed", "info": "חריגה באישור"}
         await send_text(phone, "נתקעתי באישור, לא סגרתי. ננסה שוב?" + _error_detail(e))
     finally:
+        await memory.clear_inflight(phone)
         _pending_commit.pop(phone, None)
 
 

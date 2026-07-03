@@ -153,6 +153,48 @@ async def upsert_profile(
     )
 
 
+async def set_inflight(phone: str, restaurant: str) -> None:
+    """מסמן שהזמנה רצה עכשיו — שורד restart כדי שיתומים (redeploy באמצע ריצה) יזוהו
+    בעליית השרת. read-merge כי upsert דורס את prefs כיחידה. race מול תור שיחה מקביל
+    אפשרי תיאורטית — זניח למשתמשי הבטא, השדה מתנקה בכל מקרה בסוף הריצה הבאה."""
+    if not _enabled():
+        return
+    prof = await get_profile(phone)
+    prefs = (prof or {}).get("prefs") or {}
+    prefs["_inflight"] = {"restaurant": restaurant}
+    await upsert_profile(phone, prefs=prefs)
+
+
+async def clear_inflight(phone: str) -> None:
+    """מסיר את סימון הריצה (הריצה הסתיימה — בכל תוצאה)."""
+    if not _enabled():
+        return
+    prof = await get_profile(phone)
+    prefs = (prof or {}).get("prefs") or {}
+    if prefs.pop("_inflight", None) is not None:
+        await upsert_profile(phone, prefs=prefs)
+
+
+async def list_inflight() -> list[dict]:
+    """[{phone, restaurant}] של הזמנות שהיו באוויר — נקרא בעליית השרת לאיתור יתומים."""
+    if not _enabled():
+        return []
+    resp = await _request(
+        "GET",
+        "users",
+        op="list_inflight",
+        phone="*",
+        params={"select": "phone,prefs", "prefs->_inflight": "not.is.null"},
+    )
+    if resp is None:
+        return []
+    out = []
+    for row in resp.json():
+        inf = (row.get("prefs") or {}).get("_inflight") or {}
+        out.append({"phone": row.get("phone"), "restaurant": inf.get("restaurant") or ""})
+    return out
+
+
 async def log_booking(
     phone: str,
     restaurant: str,
