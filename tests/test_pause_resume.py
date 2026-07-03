@@ -62,9 +62,7 @@ def test_missing_keeps_session_alive_and_returns_id(monkeypatch):
 
 
 def test_terminal_result_releases_session(monkeypatch):
-    calls = _bb_harness(
-        monkeypatch, runner_result={"success": True, "message": "SUMMARY_REACHED"}
-    )
+    calls = _bb_harness(monkeypatch, runner_result={"success": True, "message": "SUMMARY_REACHED"})
     res = _book()
     assert calls["released"] == ["sess-new-1"]  # אין סיבה לשלם על אידל
     assert res.details["session_id"] is None
@@ -177,7 +175,14 @@ def test_missing_then_answer_resumes_same_session(monkeypatch):
     ok_res = ActionResult(success=True, summary="SUMMARY_REACHED", details={})
     sent, calls = _pipeline_harness(monkeypatch, [missing_res, ok_res], released)
 
-    fields = {"task_type": "restaurant", "restaurant": "גרקו", "date": "6.7", "time": "16:00", "party_size": 2, "name": "אלון"}
+    fields = {
+        "task_type": "restaurant",
+        "restaurant": "גרקו",
+        "date": "6.7",
+        "time": "16:00",
+        "party_size": 2,
+        "name": "אלון",
+    }
     asyncio.run(pipeline.run_booking("pR", fields))
     assert pipeline._resume["pR"]["session_id"] == "sess-77"  # הסשן נשמר
 
@@ -208,7 +213,14 @@ def test_answer_with_different_restaurant_releases_stale_session(monkeypatch):
         "recap": "...",
     }
 
-    fields = {"task_type": "restaurant", "restaurant": "טאיזו", "date": "6.7", "time": "20:00", "party_size": 2, "name": "אלון"}
+    fields = {
+        "task_type": "restaurant",
+        "restaurant": "טאיזו",
+        "date": "6.7",
+        "time": "20:00",
+        "party_size": 2,
+        "name": "אלון",
+    }
     asyncio.run(pipeline.run_booking("pS", fields))
 
     assert released == ["sess-stale"]  # לא מדליפים את הסשן הישן
