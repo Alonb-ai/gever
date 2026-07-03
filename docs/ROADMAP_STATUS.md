@@ -1,3 +1,6 @@
+> ⚠️ **סטטוס היסטורי (2026-06-19)** — קדם את המעבר ל-browser-use ואת ה-deploy.
+> המצב העדכני: `docs/plans/beta-roadmap.md`. נשמר כתיעוד בלבד.
+
 # גבר / Gever — Beta-Readiness Gap Report
 
 > סטטוס נכון ל-2026-06-19. מבוסס קריאת קוד + git log + אימות חי של Supabase.

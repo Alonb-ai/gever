@@ -1,3 +1,5 @@
+> ⚠️ **מסמך היסטורי** — נכתב בעידן Stagehand; קבצים שמוזכרים בו השתנו/נמחקו.
+
 # ROUTER layer — plan
 
 > The router is the part of "the cradle" that turns *intent* into *which path runs*.

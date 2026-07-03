@@ -62,7 +62,8 @@ tests/
 
 ## הרצה — שלב 0 (PoC)
 
-ה‑PoC רץ עם browser-use מול Chrome מקומי (לא Browserbase, לא Stagehand):
+ה‑PoC רץ עם browser-use מול Chrome מקומי. **בפרודקשן הדפדפן הוא Browserbase**
+(`BU_BROWSER=browserbase`) — אפשר להדליק גם מקומית לבדיקת stealth:
 
 ```bash
 python3 -m venv .venv-bu && source .venv-bu/bin/activate

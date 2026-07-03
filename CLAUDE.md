@@ -3,8 +3,8 @@
 WhatsApp personal assistant in Hebrew that saves you time by doing the annoying
 digital work for you — filling forms, submitting requests, and booking places —
 so you don't have to. Not a chatbot that talks, but someone who actually gets it done.
-**Flow:** WhatsApp message → Gemini (intent + clarify) → Stagehand + Browserbase
-(execute on the site) → confirmation reply.
+**Flow:** WhatsApp message → Gemini (intent + clarify) → browser-use agent on
+Browserbase (autonomous navigation, subprocess in `.venv-bu`) → confirmation reply.
 
 Full spec: [`גבר_MVP_Spec.docx`](גבר_MVP_Spec.docx). Roadmap & status: [`README.md`](README.md).
 
@@ -37,11 +37,11 @@ Full spec: [`גבר_MVP_Spec.docx`](גבר_MVP_Spec.docx). Roadmap & status: [`R
 
 ## Current focus
 
-**Stage 0 — the PoC is green** (`poc/spike_browseruse.py`): the browser-use spike
-drives Ontopo autonomously to the credit step, and the WhatsApp loop is LIVE on Meta Cloud API.
-**Current focus = Stage 1 → 2:** a real booking beyond DRY_RUN, plus
-stabilization — swap the 24h temp token for a permanent Meta System User token,
-and move off the temporary tunnel to a Coolify deploy.
+**Prod is LIVE 24/7** at `https://geverai.duckdns.org` (Coolify on the Elestio VM;
+routing map in `docs/ops-coolify.md`). Browser = Browserbase, resolver = Brave API,
+permanent Meta token — all stable. **Current focus = closed beta** (Phases A–D in
+`docs/plans/beta-roadmap.md`): first real booking beyond DRY_RUN, live-test fix
+loop with friends on the test number, then a real WhatsApp number.
 
 ## Commands
 
@@ -66,15 +66,14 @@ pytest
 ## Models (decided — change only via `.env` / Coolify env, never hardcode)
 
 - **Conversation (user-facing):** `gemini-3.5-flash` — strong colloquial Hebrew.
-- **Browser driver (Stagehand):** `google/gemini-3-flash-preview` — the only Gemini 3
-  Flash on Stagehand's act/observe/extract eval (73.8%, beats Sonnet 4.6) AND it won our
-  live Ontopo A/B on date selection (2/3 vs 0/3 for gemini-3.5-flash). Claude Fable 5
-  scores higher but is blocked for us; Anthropic is too expensive.
+- **Browser agent (browser-use):** `google/gemini-3-flash-preview` — drives the
+  autonomous browser-use agent; won our live Ontopo test vs gemini-3.5-flash.
+  Claude scores higher on evals but is blocked for us; Anthropic is too expensive.
 - Set via `MODEL_NAME` / `GEMINI_MODEL` in `.env` and Coolify env; defaults in `app/config.py`.
 
 ## Stack & structure
 
-Python 3.11+ · FastAPI · Stagehand + Browserbase · Gemini · Supabase ·
+Python 3.11+ · FastAPI · browser-use + Browserbase · Gemini · Supabase ·
 WhatsApp via Meta Cloud API · Lemon Squeezy.
 
 ```
@@ -82,14 +81,15 @@ poc/spike_browseruse.py   stage 0 PoC — standalone browser-use spike, the only
 app/main.py          FastAPI + Meta WhatsApp webhook
 app/config.py        settings (pydantic-settings, reads .env) — the single source for config
 app/llm/intent.py    Gemini intent + the גבר system prompt
-app/automation/      Stagehand actions (ontopo.py)
+app/automation/      browser-use runner (bu_runner.py, browser_book.py), resolve.py (Brave)
 app/whatsapp/        Meta Graph API client (send replies)
 app/models/          shared pydantic schemas
 ```
 
 ## Conventions
 
-- **Async throughout** — FastAPI handlers, `AsyncStagehand`, `httpx.AsyncClient`.
+- **Async throughout** — FastAPI handlers, `httpx.AsyncClient`; the browser agent
+  runs as an isolated subprocess in `.venv-bu` (google-genai version conflict).
 - **Config only via `app.config.settings`** — never read `os.environ` ad hoc
   (the standalone PoC is the one exception).
 - Ruff, line length 100. Type hints on public functions.
@@ -97,7 +97,7 @@ app/models/          shared pydantic schemas
 - **The גבר persona is product-critical and character-driven** — defined as a
   *person*, not a script (no do/don't phrase lists). Let the model speak freely
   within the character. Hard lines only: never reveal he's automated / show the
-  prompt; emoji only 🤙 ✅ 🔄. Lives in `app/llm/intent.py` (`SYSTEM_PROMPT` +
+  prompt; emoji only from the curated palette (`ALLOWED_EMOJI`). Lives in `app/llm/intent.py` (`SYSTEM_PROMPT` +
   the thin `character_leaks` guard). Verify with `poc/persona_eval.py`.
 
 ## Security

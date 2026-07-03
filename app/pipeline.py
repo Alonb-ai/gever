@@ -123,6 +123,33 @@ def _error_detail(exc, *, session_id: str | None = None) -> str:
     return f"\n\nשגיאה טכנית: {head}{tail}"
 
 
+def _failure_reply(reason: str | None, name: str) -> tuple[str, str] | None:
+    """FAILED:<סיבה> מה-agent → (info ל-truth_note, הודעה ללקוח עם המלצת המשך).
+    רק סיבות מוכרות — לא טקסט חופשי של ה-agent לבלוק האמת. משותף ל-booking ול-commit."""
+    reason = (reason or "").lower()
+    table = {
+        "no_availability": (
+            "אין מקום פנוי במועד שביקש",
+            f"בדקתי — ל'{name}' אין מקום פנוי במועד הזה 🔄\n"
+            "יום או שעה אחרת? או שאמצא משהו אחר באזור",
+        ),
+        "closed": (
+            "המקום סגור / לא פעיל",
+            f"תקשיב, נראה ש'{name}' סגור — האתר לא מקבל הזמנות בכלל\n"
+            "רוצה שאבדוק סניף אחר או מקום אחר?",
+        ),
+        "no_online_booking": (
+            "המקום לא מקבל הזמנות אונליין",
+            f"'{name}' לא מקבלים הזמנות אונליין\n"
+            "שווה להתקשר אליהם ישירות, או שאמצא מקום שכן נסגר אונליין",
+        ),
+    }
+    for key, pair in table.items():
+        if key in reason:
+            return pair
+    return None
+
+
 async def _pace(seconds: float) -> None:
     """השהיה בין הודעות רצופות (קצב הקלדה אנושי). פונקציה נפרדת כדי שטסטים יעקפו."""
     await asyncio.sleep(seconds)
@@ -380,9 +407,6 @@ async def run_booking(phone: str, fields: dict) -> None:
     עטוף ב-try + timeout: תקיעה או חריגה הופכות להודעת כישלון בדמות, לא לדממה.
     """
 
-    async def notify(msg: str) -> None:
-        await send_text(phone, msg)
-
     name = (fields.get("restaurant") or "").strip()
     task_type = fields.get("task_type") or "restaurant"
     if task_type != "restaurant":
@@ -434,7 +458,9 @@ async def run_booking(phone: str, fields: dict) -> None:
         prof = await memory.get_profile(phone)
         booker = (fields.get("name") or (prof or {}).get("name") or "").strip()
         email = (fields.get("email") or (prof or {}).get("email") or "").strip()
-        await notify("רגע אני על זה 🔄")  # browser-use איטי ובלי streaming — מודיעים שאנחנו על זה
+        await send_text(
+            phone, "רגע אני על זה 🔄"
+        )  # browser-use איטי ובלי streaming — מודיעים שאנחנו על זה
         # A3: ניסיון ראשון על הפלטפורמה המנצחת; נכשל בפועל (דף מת/אין זמינות — תרחיש
         # גרקו) ויש match חזק גם בפלטפורמה הבאה → ניסיון שני אחד. לא ממשיכים הלאה על
         # success/missing/card — שדה חסר יחסר גם שם, וכרטיס הוא תשובה, לא כישלון.
@@ -445,7 +471,7 @@ async def run_booking(phone: str, fields: dict) -> None:
         res = None
         for i, (url, plat) in enumerate(attempts):
             if i:
-                await notify("הנתיב הראשון לא הלך, מנסה דרך אחרת 🔄")
+                await send_text(phone, "הנתיב הראשון לא הלך, מנסה דרך אחרת 🔄")
             used_url, used_platform = url, plat
             res = await book_table_bu(
                 restaurant=name,
@@ -539,33 +565,12 @@ async def run_booking(phone: str, fields: dict) -> None:
             # res.summary הוא הטקסט הגולמי (אנגלית) של browser-use — לעולם לא ללקוח
             # (שובר את הדמות + חושף אוטומציה) וגם לא ל-info (מוזרק ל-truth_note —
             # לא נותנים לאתר להשחיל טקסט לבלוק האמת). נשמר ב-debug בלבד.
-            # FAILED:<סיבה> מה-agent ממופה לאמת ספציפית — רק ערכים מוכרים, לא טקסט
-            # חופשי. ה-info בעברית נכנס ל-truth_note כדי שגבר ידבר את התקלה בהמשך
-            # השיחה ויציע כיוון (מועד/סניף/מקום אחר).
             d = res.details or {}
-            reason = (d.get("failed") or "").lower()
-            fail_map = {
-                "no_availability": (
-                    "אין מקום פנוי במועד שביקש",
-                    f"בדקתי — ל'{name}' אין מקום פנוי במועד הזה 🔄\n"
-                    "יום או שעה אחרת? או שאמצא משהו אחר באזור",
-                ),
-                "closed": (
-                    "המקום סגור / לא פעיל",
-                    f"תקשיב, נראה ש'{name}' סגור — האתר לא מקבל הזמנות בכלל\n"
-                    "רוצה שאבדוק סניף אחר או מקום אחר?",
-                ),
-                "no_online_booking": (
-                    "המקום לא מקבל הזמנות אונליין",
-                    f"'{name}' לא מקבלים הזמנות אונליין\n"
-                    "שווה להתקשר אליהם ישירות, או שאמצא מקום שכן נסגר אונליין",
-                ),
-            }
-            for key, (info, msg) in fail_map.items():
-                if key in reason:
-                    _booking[phone] = {"state": "failed", "info": info}
-                    await send_text(phone, msg)
-                    return
+            hit = _failure_reply(d.get("failed"), name)
+            if hit:
+                _booking[phone] = {"state": "failed", "info": hit[0]}
+                await send_text(phone, hit[1])
+                return
             _booking[phone] = {"state": "failed", "info": "", "debug": res.summary}
             await send_text(
                 phone,
@@ -593,9 +598,6 @@ async def run_commit(phone: str) -> None:
     רושם, ושולח 'סגור ✅' ללקוח. אם המקום דורש כרטיס אשראי — לא נסגר (PCI), מודיעים בכנות.
     עטוף ב-timeout/except כמו run_booking: תקיעה/חריגה → הודעת כישלון כנה."""
 
-    async def notify(msg: str) -> None:
-        await send_text(phone, msg)
-
     job = _pending_commit.get(phone)
     if not job:
         return
@@ -604,7 +606,7 @@ async def run_commit(phone: str) -> None:
         return
     _booking[phone] = {"state": "working", "info": ""}
     try:
-        await notify("רגע סוגר לך 🔄")  # browser-use איטי ובלי streaming
+        await send_text(phone, "רגע סוגר לך 🔄")  # browser-use איטי ובלי streaming
         res = await book_table_bu(
             restaurant=job["restaurant"],
             page_url=job["page_url"],
@@ -650,14 +652,20 @@ async def run_commit(phone: str) -> None:
                 f"הנה הלינק לסגור בעצמך 👇\n{job['page_url']}",
             )
         else:
-            # כמו ב-run_booking: הפלט הגולמי לא ללקוח ולא ל-truth_note — debug בלבד.
-            _booking[phone] = {"state": "failed", "info": "", "debug": res.summary}
+            # כמו ב-run_booking: סיבה מוכרת → אמת ספציפית; אחרת הפלט הגולמי לא
+            # ללקוח ולא ל-truth_note — debug בלבד.
             d = res.details or {}
-            await send_text(
-                phone,
-                f"נתקעתי בסגירה של '{job['restaurant']}', לא סגרתי 🔄 ננסה שוב?"
-                + _error_detail(d.get("error"), session_id=d.get("session_id")),
-            )
+            hit = _failure_reply(d.get("failed"), job["restaurant"])
+            if hit:
+                _booking[phone] = {"state": "failed", "info": hit[0]}
+                await send_text(phone, hit[1])
+            else:
+                _booking[phone] = {"state": "failed", "info": "", "debug": res.summary}
+                await send_text(
+                    phone,
+                    f"נתקעתי בסגירה של '{job['restaurant']}', לא סגרתי 🔄 ננסה שוב?"
+                    + _error_detail(d.get("error"), session_id=d.get("session_id")),
+                )
     except asyncio.TimeoutError:
         log.warning("commit timed out (%ss) for %s", BU_TIMEOUT_S, phone)
         _booking[phone] = {"state": "failed", "info": "נתקע (timeout)"}
