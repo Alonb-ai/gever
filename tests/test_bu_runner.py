@@ -63,6 +63,18 @@ def test_failed_marker_reports_reason():
     assert r["failed"] == "login_required"
 
 
+def test_perk_lines_collected_for_customer():
+    """PERK: מהדף (הנחה/מבצע) נאסף ועובר להודעת הלקוח; בלי PERK — ריק."""
+    final = "מילאתי הכל.\nPERK: 10% הנחה על התפריט בשעה הזאת\nSUMMARY_REACHED 14:30"
+    r = _parse_result(final, commit=False)
+    assert r["perk"] == "10% הנחה על התפריט בשעה הזאת"
+    assert r["time"] == "14:30"
+    assert _parse_result("SUMMARY_REACHED", commit=False)["perk"] == ""
+    # ברירת מחדל מסומנת = בחירה — ההנחיה קיימת ב-task
+    assert "ברירת מחדל" in _build_task({**_JOB, "dry_run": True})
+    assert "PERK" in _build_task({**_JOB, "dry_run": True})
+
+
 def test_bare_missing_colon_does_not_crash():
     r = _parse_result("חסר שדה. MISSING:", commit=False)
     assert r["success"] is False

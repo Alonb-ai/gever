@@ -587,9 +587,11 @@ async def run_booking(phone: str, fields: dict) -> None:
                 head = f"יש! רק שים לב — {alt['requested']} היה תפוס, תפסתי {alt['actual']} במקום"
             else:
                 head = f"יש! הגעתי עד מסך האישור של {name}"
+            perk_line = f"\nשווה לדעת: {d['perk']}" if d.get("perk") else ""
             await send_text(
                 phone,
-                f"{head}\n{when}בשעה {at} ל-{fields.get('party_size') or 2} — הכל מוכן\nלסגור?",
+                f"{head}\n{when}בשעה {at} ל-{fields.get('party_size') or 2} — הכל מוכן"
+                f"{perk_line}\nלסגור?",
             )
         elif (res.details or {}).get("missing"):
             # באג 3: שדה חובה בטופס היה ריק (ה-runner לא המציא, עצר ודיווח MISSING).
