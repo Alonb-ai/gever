@@ -346,7 +346,7 @@ def test_handle_inbound_splits_reply_lines_into_separate_messages(monkeypatch):
     asyncio.run(pipeline.handle_inbound("pS", "תסגור לי משהו", message_id="wamid.X"))
 
     assert sent == ["סגור אחי", "בודק לך את זה", "שניה איתי"]
-    assert len(paces) == 2 and all(0.8 <= p <= 2.5 for p in paces)  # השהיה בין הודעות בלבד
+    assert len(paces) == 2 and all(0.5 <= p <= 3.1 for p in paces)  # השהיה עם jitter אנושי
     assert typing == ["wamid.X", "wamid.X", "wamid.X"]  # פתיחה + לפני כל הודעת המשך
 
 

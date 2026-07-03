@@ -9,6 +9,7 @@
 import asyncio
 import json
 import logging
+import random
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -646,7 +647,8 @@ async def handle_inbound(phone: str, text: str, message_id: str | None = None) -
     for i, ln in enumerate(lines):
         if i:
             await send_typing(message_id)  # best-effort — נמשך עד ההודעה הבאה
-            await _pace(min(0.8 + 0.04 * len(ln), 2.5))
+            # jitter: קצב אחיד לחלוטין הוא חתימת בוט (מחקר ההקלדה) — ±וריאציה אנושית
+            await _pace(max(0.5, min(0.8 + 0.04 * len(ln), 2.5) + random.uniform(-0.3, 0.6)))
         await send_text(phone, ln)
     # באג 4/5: guard ל-double-fire — אם כבר רצה הזמנה לטלפון הזה ("?" של הלקוח גרם
     # ל-ready=true שוב), לא יורים run_booking/run_commit שני שיתנגש בראשון (וגם לא
