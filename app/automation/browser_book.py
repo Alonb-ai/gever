@@ -76,8 +76,12 @@ async def book_table_bu(
 ) -> ActionResult:
     """מזמין (Ontopo/Tabit) דרך browser-use agent אוטונומי. עוצר בשלב הכרטיס (שער בטיחות)."""
     run_id = str(int(_time.time() * 1000))
-    record_dir = os.path.join(settings.bu_record_dir, run_id) if settings.bu_record_dir else "/tmp"
-    result_path = os.path.join(record_dir, f"result_{run_id}.json")
+    # record_dir ריק = בלי הקלטה בכלל (פרודקשן). הבאג הישן: fallback ל-/tmp הדליק
+    # וידאו+GIF בטעות — יצירת GIF מריצה של דקות תקעה את ה-runner הרבה אחרי שהדפדפן
+    # סיים (שרת 2 ליבות), והלקוח לא קיבל תשובה. קובץ התוצאה תמיד נכתב (גם בלי הקלטה).
+    record_dir = os.path.join(settings.bu_record_dir, run_id) if settings.bu_record_dir else ""
+    result_dir = record_dir or "/tmp"
+    result_path = os.path.join(result_dir, f"result_{run_id}.json")
     job = {
         "url": page_url,
         "platform": platform,
@@ -100,7 +104,7 @@ async def book_table_bu(
         job["chrome_path"] = settings.bu_chrome_path
 
     try:
-        os.makedirs(record_dir, exist_ok=True)
+        os.makedirs(result_dir, exist_ok=True)
         await _run_subprocess(job)
         with open(result_path, encoding="utf-8") as f:
             r = json.load(f)

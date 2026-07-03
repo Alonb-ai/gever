@@ -228,6 +228,40 @@ def test_handle_inbound_suppresses_character_leak(monkeypatch):
     assert "רגע" in sent[-1]  # הודעת גישור בדמות
 
 
+def test_book_table_empty_record_dir_disables_recording(monkeypatch, tmp_path):
+    """BU_RECORD_DIR ריק (פרודקשן) → אין הקלטה בכלל (record_dir=""), אבל קובץ
+    התוצאה עדיין נכתב ונקרא. הבאג הישן: fallback ל-/tmp הדליק וידאו+GIF שתקעו
+    את ה-runner אחרי שהדפדפן סיים — והלקוח לא קיבל תשובה."""
+    import json as _json
+
+    from app.automation import browser_book
+
+    captured = {}
+
+    async def fake_run(job):
+        captured.update(job)
+        with open(job["result_path"], "w", encoding="utf-8") as f:
+            _json.dump({"success": True, "message": "SUMMARY_REACHED"}, f)
+
+    monkeypatch.setattr(browser_book, "_run_subprocess", fake_run)
+    monkeypatch.setattr(browser_book.settings, "bu_record_dir", "")
+    monkeypatch.setattr(browser_book.settings, "bu_browser", "local")
+    monkeypatch.setattr(browser_book.settings, "bu_chrome_path", "")
+
+    res = asyncio.run(
+        browser_book.book_table_bu(
+            restaurant="רוסטיקו",
+            page_url="http://x",
+            date="4.7",
+            time="16:00",
+            party_size=2,
+        )
+    )
+    assert captured["record_dir"] == ""  # אין הקלטה — bu_runner לא ידליק וידאו/GIF
+    assert captured["result_path"].startswith("/tmp/")  # התוצאה עדיין נכתבת
+    assert res.success is True
+
+
 def test_seed_contains_today_line_with_concrete_date():
     """בלי שורת 'היום' המודל לא יכול לחשב 'מחר' לתאריך — וזה נשלח לדפדפן."""
     import re
