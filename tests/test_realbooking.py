@@ -447,6 +447,42 @@ def test_run_booking_alt_time_is_offered_not_silently_booked(monkeypatch):
     assert pipeline._pending_commit["p8"]["time"] == "21:00"  # הסגירה על השעה שתאושר
 
 
+def test_run_booking_card_wall_sends_link_immediately(monkeypatch):
+    """קיר כרטיס שהתגלה כבר ב-recon → לא 'לסגור?' חסר-משמעות אלא לינק מיידי
+    לסגירה עצמית, state='card', ואין הזמנה ממתינה לאישור."""
+    _reset()
+    sent = []
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def fake_resolve(name):
+        return {"status": "one", "url": "http://rustico", "platform": "ontopo", "candidates": []}
+
+    async def fake_book(**kwargs):
+        return ActionResult(
+            success=True,
+            summary="SUMMARY_REACHED CARD_REQUIRED",
+            details={"card_required": True, "summary_reached": True},
+        )
+
+    async def fake_get_profile(phone):
+        return None
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+
+    fields = {"task_type": "restaurant", "restaurant": "רוסטיקו", "time": "16:00", "name": "אלון"}
+    asyncio.run(pipeline.run_booking("p9", fields))
+
+    assert pipeline._booking["p9"]["state"] == "card"
+    assert "http://rustico" in sent[-1]  # הלינק נשלח מיד
+    assert "כרטיס" in sent[-1]
+    assert "p9" not in pipeline._pending_commit  # אין gate לאישור — אין מה לאשר
+
+
 def test_run_booking_falls_back_to_next_platform(monkeypatch):
     """A3 (תרחיש גרקו): הניסיון הראשון נכשל בפועל (דף Ontopo מת) ויש fallback מ-Tabit →
     ניסיון שני אחד, וה-pending_commit נשמר עם הנתיב שהצליח."""

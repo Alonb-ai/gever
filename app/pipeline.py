@@ -433,6 +433,18 @@ async def run_booking(phone: str, fields: dict) -> None:
             if res.success or (res.details or {}).get("missing"):
                 break
         if res.success:
+            d0 = res.details or {}
+            if d0.get("card_required"):
+                # קיר כרטיס שהתגלה כבר ב-recon: את זה לא נסגור אוטומטית (PCI) בשום
+                # מצב — אז במקום "לסגור?" חסר-משמעות, שולחים מיד את הלינק לסגירה
+                # עצמית. state="card" מיישר את הפרסונה (לא לטעון שסגר, לא לנסות שוב).
+                _booking[phone] = {"state": "card", "info": used_url}
+                await send_text(
+                    phone,
+                    f"{name} דורש כרטיס אשראי לסגירה, ואת זה אני לא ממלא במקומך 🔒\n"
+                    f"הבאתי אותך עד הסוף — נשאר רק להשלים את הפרטים כאן 👇\n{used_url}",
+                )
+                return
             # DRY_RUN: הגענו למסך האישור — זו *לא* הזמנה אמיתית. לכן לא "done", לא
             # log_booking, ולא לזייף "סגור" (חוק הברזל). שומרים רק פרופיל (שם/מייל)
             # לזיכרון. הסגירה האמיתית (confirm→commit) + שימוש בטלפון = זרוע C.
@@ -474,8 +486,11 @@ async def run_booking(phone: str, fields: dict) -> None:
                 # נצפה חי (ספייק Browserbase): טפסי Ontopo/Tabit עם שדה שם-משפחה נפרד
                 "last_name": "שם משפחה",
                 "lastName": "שם משפחה",
+                # נצפה חי (replay): האתר כפה בחירת אזור ישיבה — לא בוחרים בשביל הלקוח
+                "seating_area": "העדפת ישיבה (בפנים / בחוץ / בר)",
+                "seating": "העדפת ישיבה (בפנים / בחוץ / בר)",
             }.get(field, field)
-            await send_text(phone, f"רגע, חסר לי {_human} כדי לסגור — תשלח לי אותו?")
+            await send_text(phone, f"רגע, כדי להמשיך אני צריך ממך {_human} — מה אומר?")
             return
         else:
             # res.summary הוא הטקסט הגולמי (אנגלית) של browser-use — לעולם לא ללקוח
