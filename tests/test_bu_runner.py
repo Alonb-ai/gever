@@ -36,6 +36,10 @@ def test_build_task_is_platform_agnostic_and_keeps_contract():
     # חוזה שורת-הסיום: marker בשורה האחרונה, שמות שדות באנגלית, FAILED קיים.
     assert "השורה האחרונה" in recon and "FAILED" in recon
     assert "MISSING:last_name" in recon  # נצפה חי: שדה שם-משפחה נפרד בטפסים
+    # notes מהלקוח (אזור ישיבה וכו') מוזרקות ל-task — סוגרות את לולאת ה-MISSING.
+    with_notes = _build_task({**_JOB, "dry_run": True, "notes": "ישיבה בחוץ"})
+    assert "ישיבה בחוץ" in with_notes
+    assert "העדפות מהלקוח" not in recon  # בלי notes — אין שורה ריקה
 
 
 def test_markers_only_from_last_line_case_sensitive():

@@ -72,6 +72,7 @@ async def book_table_bu(
     name: str = "",
     email: str = "",
     phone: str = "",
+    notes: str = "",  # העדפות ביצוע מהלקוח (אזור ישיבה וכו') — מוזרק ל-task
     dry_run: bool = True,
 ) -> ActionResult:
     """מזמין (Ontopo/Tabit) דרך browser-use agent אוטונומי. עוצר בשלב הכרטיס (שער בטיחות)."""
@@ -91,6 +92,7 @@ async def book_table_bu(
         "name": name,
         "email": email,
         "phone": phone,
+        "notes": notes,
         "dry_run": dry_run,
         "model": settings.model_name.split("/")[-1],
         "headless": settings.bu_headless,

@@ -271,6 +271,57 @@ def test_seed_contains_today_line_with_concrete_date():
     assert "היום: יום" in pipeline._seed_from(None, [])
 
 
+def test_seed_gender_from_profile_activates_addressing():
+    """profile.gender (נאסף בשיחה) מפעיל את הטיית הפנייה — היה ענף מת."""
+    seed = pipeline._seed_from({"prefs": {"gender": "male"}}, [])
+    assert "זכר" in seed
+    assert "לא ידוע" in pipeline._seed_from(None, [])  # בלי פרופיל — ניטרלי
+
+
+def test_pending_commit_carries_email_and_notes(monkeypatch):
+    """C6: הסגירה האמיתית מקבלת את המייל וה-notes שנאספו — בלי זה MISSING:email מיותר."""
+    _reset()
+    captured = {}
+
+    async def fake_send_text(phone, msg):
+        pass
+
+    async def fake_resolve(name):
+        return {"status": "one", "url": "http://x", "platform": "ontopo", "candidates": []}
+
+    async def fake_book(**kwargs):
+        captured.update(kwargs)
+        return ActionResult(success=True, summary="SUMMARY_REACHED", details={})
+
+    async def fake_upsert(phone, name=None, email=None, prefs=None):
+        pass
+
+    async def fake_get_profile(phone):
+        return None
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "upsert_profile", fake_upsert)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+
+    fields = {
+        "task_type": "restaurant",
+        "restaurant": "גרקו",
+        "date": "6.7",
+        "time": "16:00",
+        "party_size": 2,
+        "name": "אלון",
+        "email": "a@b.com",
+        "notes": "ישיבה בחוץ",
+    }
+    asyncio.run(pipeline.run_booking("pC", fields))
+
+    assert captured["notes"] == "ישיבה בחוץ"  # recon מקבל את ההעדפות
+    job = pipeline._pending_commit["pC"]
+    assert job["email"] == "a@b.com" and job["notes"] == "ישיבה בחוץ"
+
+
 def test_handle_inbound_splits_reply_lines_into_separate_messages(monkeypatch):
     """וואטסאפ אנושי = הודעות קצרות: כל שורה נשלחת כהודעה נפרדת, עם typing+השהיה בין הודעות."""
     _reset()
