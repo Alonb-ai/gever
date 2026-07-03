@@ -206,6 +206,18 @@ def _route(monkeypatch, *, dry_run, result, pending=False):
     return spawned
 
 
+def test_emoji_palette_guard():
+    """הפלטה החדשה עוברת את הגארד; קלישאות-בוט (😊👍) עדיין נתפסות."""
+    from app.llm.intent import character_leaks
+
+    assert character_leaks("סגור 🤝") == []
+    assert character_leaks("שנייה בודק 🤌") == []
+    assert character_leaks("בלי עין הרע 🧿") == []
+    assert character_leaks("היה קרב 😮‍💨") == []  # רצף ZWJ — הרכיבים ברשימה
+    assert character_leaks("מעולה 😊") != []  # קלישאת בוט — נחסמת
+    assert character_leaks("תודה 🙏") != []
+
+
 def test_handle_inbound_suppresses_character_leak(monkeypatch):
     """שכבת המגן האחרונה: reply שמסגיר AI לא יוצא לוואטסאפ — הודעת גישור בדמות במקומו."""
     _reset()
