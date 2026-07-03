@@ -615,6 +615,37 @@ def test_run_booking_missing_field_does_not_fallback(monkeypatch):
     assert pipeline._booking["p7"]["state"] == "missing"
 
 
+def test_run_booking_no_availability_gets_specific_honest_message(monkeypatch):
+    """FAILED:no_availability (מסעדה סגורה/מלאה) → אמת ספציפית ללקוח, לא כישלון גנרי."""
+    _reset()
+    sent = []
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def fake_resolve(name):
+        return {"status": "one", "url": "http://x", "platform": "ontopo", "candidates": []}
+
+    async def fake_book(**kwargs):
+        return ActionResult(
+            success=False, summary="FAILED:no_availability", details={"failed": "no_availability"}
+        )
+
+    async def fake_get_profile(phone):
+        return None
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+
+    fields = {"task_type": "restaurant", "restaurant": "גרקו", "time": "16:00", "name": "אלון"}
+    asyncio.run(pipeline.run_booking("pA", fields))
+
+    assert "אין זמינות" in sent[-1]  # אמת ספציפית
+    assert pipeline._booking["pA"]["info"] == "אין זמינות במועד שביקש"  # truth_note מיושר
+
+
 def test_run_booking_failure_does_not_leak_raw_agent_text(monkeypatch):
     """כישלון גנרי: res.summary הוא טקסט גולמי באנגלית של browser-use — אסור שיגיע ללקוח
     (קו-ברזל: לא חושפים אוטומציה) *ולא* ל-info (מוזרק ל-truth_note — אתר זדוני היה יכול

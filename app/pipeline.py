@@ -507,8 +507,18 @@ async def run_booking(phone: str, fields: dict) -> None:
             # res.summary הוא הטקסט הגולמי (אנגלית) של browser-use — לעולם לא ללקוח
             # (שובר את הדמות + חושף אוטומציה) וגם לא ל-info (מוזרק ל-truth_note —
             # לא נותנים לאתר להשחיל טקסט לבלוק האמת). נשמר ב-debug בלבד.
-            _booking[phone] = {"state": "failed", "info": "", "debug": res.summary}
+            # FAILED:<סיבה> מה-agent ממופה לאמת ספציפית — רק ערכים מוכרים, לא טקסט חופשי.
             d = res.details or {}
+            reason = (d.get("failed") or "").lower()
+            if "availability" in reason or "closed" in reason:
+                _booking[phone] = {"state": "failed", "info": "אין זמינות במועד שביקש"}
+                await send_text(
+                    phone,
+                    f"בדקתי — ל'{name}' אין זמינות במועד הזה 🔄\n"
+                    "רוצה תאריך או שעה אחרת או שנלך על מקום אחר?",
+                )
+                return
+            _booking[phone] = {"state": "failed", "info": "", "debug": res.summary}
             await send_text(
                 phone,
                 f"לא הצלחתי לסגור את '{name}' כרגע 🔄 רוצה שאנסה שוב או שנלך על מקום אחר?"
