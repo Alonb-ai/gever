@@ -19,6 +19,7 @@ def _reset():
     pipeline._turns.clear()
     pipeline._last_seen.clear()
     pipeline._resume.clear()
+    pipeline._resolved.clear()
 
 
 def test_run_commit_books_for_real_and_logs(monkeypatch):
@@ -204,6 +205,63 @@ def _route(monkeypatch, *, dry_run, result, pending=False):
         }
     asyncio.run(pipeline.handle_inbound("pX", "מאשר"))
     return spawned
+
+
+def test_retry_remembers_chosen_branch_no_second_list(monkeypatch):
+    """נצפה חי: retry ('תנסה בראשון') עם השם הקצר החזיר רשימת סניפים שנייה.
+    הבחירה נזכרת — שם מבוקש שמוכל בה = אותו סניף, בלי resolve ובלי רשימה."""
+    _reset()
+    resolves, books = [], []
+
+    async def fake_send_text(phone, msg):
+        pass
+
+    async def fake_resolve(name):
+        resolves.append(name)
+        return {
+            "status": "one",
+            "url": "http://simta",
+            "platform": "ontopo",
+            "candidates": [],
+            "fallback": None,
+        }
+
+    async def fake_book(**kwargs):
+        books.append(kwargs["page_url"])
+        return ActionResult(
+            success=False, summary="FAILED:no_availability", details={"failed": "no_availability"}
+        )
+
+    async def fake_get_profile(phone):
+        return None
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+
+    # ריצה 1: הלקוח בחר סניף מהרשימה (שם מלא) — resolve רגיל, אין זמינות
+    full = {
+        "task_type": "restaurant",
+        "restaurant": "התאילנדית בסמטת סיני תל אביב-יפו",
+        "date": "4.7",
+        "time": "14:00",
+        "party_size": 2,
+        "name": "אלון",
+    }
+    asyncio.run(pipeline.run_booking("pT", full))
+    # ריצה 2: retry ליום ראשון עם השם הקצר — בלי resolve שני, אותו סניף
+    retry = {**full, "restaurant": "התאילנדית", "date": "6.7"}
+    asyncio.run(pipeline.run_booking("pT", retry))
+
+    assert resolves == ["התאילנדית בסמטת סיני תל אביב-יפו"]  # resolve פעם אחת בלבד
+    assert books == ["http://simta", "http://simta"]  # אותו סניף בשתי הריצות
+
+
+def test_profile_name_carries_usage_hint():
+    """השם בזרע מסומן 'לטפסים' — בלעדיו המודל שולף אותו לכל הודעה (נצפה חי)."""
+    block = pipeline._profile_block({"name": "אלון בזק", "prefs": {}})
+    assert "אלון בזק" in block and "לטפסים" in block
 
 
 def test_option_label_cleans_platform_noise():

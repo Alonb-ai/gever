@@ -41,8 +41,9 @@ _EXTRACT = (
     "restaurant (מסעדה אחת), date (יום אחד, DD.MM — חשב 'מחר'/'שישי'/'הערב' לפי "
     "שורת 'היום'), time (שעה מדויקת HH:MM), party_size (מספר). הבקשה עצמה היא "
     "האישור — יש הכל, סמן מיד בלי לבקש אישור נוסף. חסר או דו-משמעי ('או', 'הערב' "
-    "בלי שעה) — ready=false ושאלה על החסר בלבד. הלקוח עדכן פרט אחרי שיצאת לדרך — "
-    "השדות המעודכנים + ready=true מחדש, הקודמת נזנחת לבד.\n"
+    "בלי שעה) — ready=false ושאלה על החסר בלבד. הלקוח עדכן פרט אחרי שיצאת לדרך "
+    "('תנסה בראשון?') — זו בקשה מלאה מחדש: השדות המעודכנים + ready=true מיד, "
+    "פרטים שלא השתנו נשארים, ואין לוודא שוב ('אז לנסות ראשון?' = וידוא מיותר).\n"
     "· confirm=true סוגר סופית הזמנה שממתינה לאישור — רק כשאמת-למערכת אמרה שיש "
     "כזאת, ורק על אישור מפורש של הלקוח. לעולם לא לבקשה חדשה.\n"
     "· צימוד מוחלט בין דיבור למעשה: אמרת ללקוח שאתה על זה ⇔ סימנת דגל באותו JSON. "
@@ -106,6 +107,10 @@ _pending_commit: dict = {}
 # pause-resume: phone -> סשן דפדפן חי (keepAlive) שעצר על שאלה ללקוח ומחכה לתשובה —
 # {"restaurant","url","platform","session_id","recap"}. הריצה הבאה ממשיכה מאותו מסך.
 _resume: dict = {}
+# הסניף שנבחר לאחרונה (אחרי דיסאמביגואציה) — phone -> {"name","url","platform"}.
+# נצפה חי: retry ("תנסה בראשון") שלח את השם הקצר → resolve החזיר many → הלקוח
+# נאלץ לבחור סניף שוב. שם מבוקש שמוכל בבחירה האחרונה = אותו סניף, בלי resolve.
+_resolved: dict = {}
 
 # פער שאחריו פותחים "דף חדש": שיחה טרייה במקום לגרור את ההיסטוריה הישנה.
 SESSION_GAP_S = 3 * 60 * 60  # ~3 שעות
@@ -188,7 +193,8 @@ def _profile_block(profile: dict | None) -> str:
         return ""
     lines = ["\n\n--- מה שאתה כבר יודע על מי שמולך (אל תשאל שוב על מה שכתוב כאן) ---"]
     if profile.get("name"):
-        lines.append(f"שם: {profile['name']}")
+        # הרמז בנקודת השימוש: הנוכחות של השם בזרע גורמת למודל לשלוף אותו לכל הודעה
+        lines.append(f"שם: {profile['name']} (לטפסים; בצ'אט כינויי חיבה — שם פרטי רק לרגע רציני)")
     if profile.get("email"):
         lines.append(f"מייל: {profile['email']}")
     prefs = profile.get("prefs") or {}
@@ -440,6 +446,12 @@ async def run_booking(phone: str, fields: dict) -> None:
         # בלי resolve מחדש. הלקוח החליף מסעדה → משחררים את הסשן הישן וריצה טרייה.
         resume_arg = None
         waiting = _resume.pop(phone, None)
+        cached = _resolved.get(phone)
+
+        def _same(a: str, b: str) -> bool:
+            a, b = " ".join(a.split()), " ".join(b.split())
+            return bool(a) and bool(b) and (a in b or b in a)
+
         if waiting and waiting.get("restaurant") == name:
             resume_arg = waiting
             found = {
@@ -449,10 +461,25 @@ async def run_booking(phone: str, fields: dict) -> None:
                 "candidates": [],
                 "fallback": None,
             }
+        elif cached and _same(name, cached["name"]):
+            # retry על אותה מסעדה (יום/שעה אחרת) — הסניף כבר נבחר, לא שואלים שוב
+            found = {
+                "status": "one",
+                "url": cached["url"],
+                "platform": cached["platform"],
+                "candidates": [],
+                "fallback": None,
+            }
         else:
             if waiting:
                 await release_session(waiting.get("session_id"))
             found = await resolve_reservation_url(name)
+            if found["status"] == "one":
+                _resolved[phone] = {
+                    "name": name,
+                    "url": found["url"],
+                    "platform": found.get("platform") or "",
+                }
         if found["status"] == "none":
             _booking[phone] = {"state": "none", "info": name}
             await send_text(phone, f"לא מצאתי איפה מזמינים מקום ל'{name}'. נסה שם אחר.")
