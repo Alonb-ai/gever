@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.automation.bu_runner import _build_task, _parse_result  # noqa: E402
+from app.automation.bu_runner import _build_task, _parse_result, _profile_kwargs  # noqa: E402
 
 _JOB = {
     "url": "https://tabitisrael.co.il/site/גרקו",
@@ -73,6 +73,18 @@ def test_perk_lines_collected_for_customer():
     # ברירת מחדל מסומנת = בחירה — ההנחיה קיימת ב-task
     assert "ברירת מחדל" in _build_task({**_JOB, "dry_run": True})
     assert "PERK" in _build_task({**_JOB, "dry_run": True})
+
+
+def test_browserbase_profile_keeps_browser_alive_for_resume():
+    """נצפה חי: browser-use סגר את הדפדפן בסוף הריצה והרג את סשן ה-keepAlive —
+    ה-resume נפל לריצה טרייה במקום להמשיך מאותו מסך. על Browserbase חובה keep_alive."""
+    bb = _profile_kwargs({"cdp_url": "wss://connect", "headless": True})
+    assert bb["keep_alive"] is True and bb["cdp_url"] == "wss://connect"
+    # local dev: בלי keep_alive — שלא יישאר Chrome פתוח אחרי הריצה.
+    local = _profile_kwargs({"chrome_path": "/Applications/Chrome"})
+    assert "keep_alive" not in local
+    # record_dir ריק = בלי הקלטה (ה-fallback ל-/tmp כבר עקץ אותנו פעם).
+    assert "record_video_dir" not in _profile_kwargs({"cdp_url": "w", "record_dir": ""})
 
 
 def test_bare_missing_colon_does_not_crash():

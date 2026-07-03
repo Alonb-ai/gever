@@ -174,6 +174,21 @@ def _parse_result(final: str, *, commit: bool) -> dict:
     }
 
 
+def _profile_kwargs(job: dict) -> dict:
+    kwargs: dict = {"headless": job.get("headless", True)}
+    if job.get("cdp_url"):  # browserbase / remote — stealth+captcha חיים שם
+        kwargs["cdp_url"] = job["cdp_url"]
+        # ה-keepAlive של Browserbase מגן רק מפני *ניתוק*; בלעדי keep_alive כאן
+        # browser-use סוגר את הדפדפן בסוף הריצה (Browser.close) והורג את הסשן
+        # שה-pause-resume צריך חי. השחרור בפועל: release_session בכל נתיב סיום + sweeper.
+        kwargs["keep_alive"] = True
+    elif job.get("chrome_path"):  # local dev — בלי keep_alive, שלא יישאר Chrome תלוי
+        kwargs["executable_path"] = job["chrome_path"]
+    if job.get("record_dir"):
+        kwargs["record_video_dir"] = job["record_dir"]
+    return kwargs
+
+
 async def _run(job: dict) -> dict:
     from browser_use import Agent, BrowserProfile
     from browser_use.llm import ChatGoogle
@@ -183,17 +198,11 @@ async def _run(job: dict) -> dict:
         os.environ["GOOGLE_API_KEY"] = key
         os.environ["GEMINI_API_KEY"] = key
 
-    profile_kwargs: dict = {"headless": job.get("headless", True)}
-    if job.get("cdp_url"):  # browserbase / remote — stealth+captcha חיים שם
-        profile_kwargs["cdp_url"] = job["cdp_url"]
-    elif job.get("chrome_path"):  # local dev
-        profile_kwargs["executable_path"] = job["chrome_path"]
     rec = job.get("record_dir")
     if rec:
         os.makedirs(rec, exist_ok=True)
-        profile_kwargs["record_video_dir"] = rec
 
-    profile = BrowserProfile(**profile_kwargs)
+    profile = BrowserProfile(**_profile_kwargs(job))
     llm = ChatGoogle(model=job.get("model") or "gemini-3-flash-preview")
     agent_kwargs: dict = {"task": _build_task(job), "llm": llm, "browser_profile": profile}
     if job.get("resume"):
