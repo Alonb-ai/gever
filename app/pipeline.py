@@ -286,7 +286,8 @@ def _truth_note(phone: str) -> str:
         # לא נכנס לבלוק האמת (הוזז ל-debug): אתר זדוני לא מזריק טקסט להקשר הכי-אמין.
         why = f" ({info})" if info else ""
         return (
-            f"[אמת-למערכת בלבד: ההזמנה נכשלה{why}. אל תמציא הצלחה — תהיה כן ותציע לנסות שוב.]\n\n"
+            f"[אמת-למערכת בלבד: ההזמנה נכשלה{why}. אל תמציא הצלחה — תהיה כן על "
+            "הסיבה והצע כיוון הלאה שמתאים לה: מועד אחר, סניף אחר או מקום אחר.]\n\n"
         )
     if state == "done":
         return (
@@ -508,17 +509,33 @@ async def run_booking(phone: str, fields: dict) -> None:
             # res.summary הוא הטקסט הגולמי (אנגלית) של browser-use — לעולם לא ללקוח
             # (שובר את הדמות + חושף אוטומציה) וגם לא ל-info (מוזרק ל-truth_note —
             # לא נותנים לאתר להשחיל טקסט לבלוק האמת). נשמר ב-debug בלבד.
-            # FAILED:<סיבה> מה-agent ממופה לאמת ספציפית — רק ערכים מוכרים, לא טקסט חופשי.
+            # FAILED:<סיבה> מה-agent ממופה לאמת ספציפית — רק ערכים מוכרים, לא טקסט
+            # חופשי. ה-info בעברית נכנס ל-truth_note כדי שגבר ידבר את התקלה בהמשך
+            # השיחה ויציע כיוון (מועד/סניף/מקום אחר).
             d = res.details or {}
             reason = (d.get("failed") or "").lower()
-            if "availability" in reason or "closed" in reason:
-                _booking[phone] = {"state": "failed", "info": "אין זמינות במועד שביקש"}
-                await send_text(
-                    phone,
-                    f"בדקתי — ל'{name}' אין זמינות במועד הזה 🔄\n"
-                    "רוצה תאריך או שעה אחרת או שנלך על מקום אחר?",
-                )
-                return
+            fail_map = {
+                "no_availability": (
+                    "אין מקום פנוי במועד שביקש",
+                    f"בדקתי — ל'{name}' אין מקום פנוי במועד הזה 🔄\n"
+                    "יום או שעה אחרת? או שאמצא משהו אחר באזור",
+                ),
+                "closed": (
+                    "המקום סגור / לא פעיל",
+                    f"תקשיב, נראה ש'{name}' סגור — האתר לא מקבל הזמנות בכלל\n"
+                    "רוצה שאבדוק סניף אחר או מקום אחר?",
+                ),
+                "no_online_booking": (
+                    "המקום לא מקבל הזמנות אונליין",
+                    f"'{name}' לא מקבלים הזמנות אונליין\n"
+                    "שווה להתקשר אליהם ישירות, או שאמצא מקום שכן נסגר אונליין",
+                ),
+            }
+            for key, (info, msg) in fail_map.items():
+                if key in reason:
+                    _booking[phone] = {"state": "failed", "info": info}
+                    await send_text(phone, msg)
+                    return
             _booking[phone] = {"state": "failed", "info": "", "debug": res.summary}
             await send_text(
                 phone,

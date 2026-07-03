@@ -642,8 +642,37 @@ def test_run_booking_no_availability_gets_specific_honest_message(monkeypatch):
     fields = {"task_type": "restaurant", "restaurant": "גרקו", "time": "16:00", "name": "אלון"}
     asyncio.run(pipeline.run_booking("pA", fields))
 
-    assert "אין זמינות" in sent[-1]  # אמת ספציפית
-    assert pipeline._booking["pA"]["info"] == "אין זמינות במועד שביקש"  # truth_note מיושר
+    assert "אין מקום פנוי" in sent[-1]  # אמת ספציפית
+    assert pipeline._booking["pA"]["info"] == "אין מקום פנוי במועד שביקש"  # truth_note מיושר
+
+
+def test_run_booking_closed_restaurant_gets_specific_message(monkeypatch):
+    """FAILED:closed (ה-agent קרא בדף שהמקום סגור) → גבר אומר את זה ומציע סניף/מקום אחר."""
+    _reset()
+    sent = []
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def fake_resolve(name):
+        return {"status": "one", "url": "http://x", "platform": "ontopo", "candidates": []}
+
+    async def fake_book(**kwargs):
+        return ActionResult(success=False, summary="FAILED:closed", details={"failed": "closed"})
+
+    async def fake_get_profile(phone):
+        return None
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+
+    fields = {"task_type": "restaurant", "restaurant": "גרקו", "time": "16:00", "name": "אלון"}
+    asyncio.run(pipeline.run_booking("pB", fields))
+
+    assert "סגור" in sent[-1] and "סניף אחר" in sent[-1]
+    assert pipeline._truth_note("pB")  # ה-state מוזן לפרסונה להמשך השיחה
 
 
 def test_run_booking_failure_does_not_leak_raw_agent_text(monkeypatch):
