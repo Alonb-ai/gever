@@ -104,6 +104,23 @@ def test_timeout_releases_session(monkeypatch):
     assert calls["released"] == ["sess-new-1"]  # גם תקיעה לא מדליפה סשן
 
 
+def test_sweep_releases_all_running_orphans(monkeypatch):
+    """בעליית השרת אין ריצה חיה — כל סשן RUNNING בפרויקט משוחרר (redeploy באמצע ריצה)."""
+    released = []
+
+    async def fake_bb(method, path, body=None):
+        assert method == "GET" and "status=RUNNING" in path
+        return [{"id": "a1"}, {"id": "b2"}]
+
+    async def fake_release(session_id):
+        released.append(session_id)
+
+    monkeypatch.setattr(browser_book, "_bb", fake_bb)
+    monkeypatch.setattr(browser_book, "release_session", fake_release)
+    n = asyncio.run(browser_book.sweep_orphan_sessions())
+    assert n == 2 and released == ["a1", "b2"]
+
+
 # ─── שכבת ה-task: ניסוח ההמשך ────────────────────────────────────────────────
 
 

@@ -10,14 +10,32 @@ import hashlib
 import hmac
 import json
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 
+from app.automation.browser_book import sweep_orphan_sessions
 from app.config import settings
 from app.pipeline import handle_inbound
 
 log = logging.getLogger("gever")
-app = FastAPI(title="גבר / Gever", version="0.1.0")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # סשני keepAlive של ריצה שמתה (redeploy באמצע הזמנה) מחויבים באידל עד 30 דק' —
+    # מנקים בעלייה. best-effort: כשל בניקוי לא מפיל את השרת.
+    if settings.bu_browser == "browserbase" and settings.browserbase_api_key:
+        try:
+            n = await sweep_orphan_sessions()
+            if n:
+                log.info("released %d orphan browserbase session(s) on startup", n)
+        except Exception:  # noqa: BLE001
+            log.warning("orphan session sweep failed", exc_info=True)
+    yield
+
+
+app = FastAPI(title="גבר / Gever", version="0.1.0", lifespan=lifespan)
 
 
 def _valid_signature(body: bytes, header: str | None) -> bool:

@@ -93,6 +93,17 @@ async def _bb_live_connect_url(session_id: str) -> str | None:
         return None
 
 
+async def sweep_orphan_sessions() -> int:
+    """שחרור סשני keepAlive יתומים — ריצה שמתה (redeploy/קריסה) משאירה סשן חי שמחויב
+    עד ה-timeout (30 דק'). רץ בעליית השרת: בנקודה הזאת אין לנו שום ריצה חיה (ה-state
+    בזיכרון התהליך), אז כל סשן RUNNING בפרויקט הוא יתום. מחזיר כמה שוחררו."""
+    data = await _bb("GET", f"/sessions?projectId={settings.browserbase_project_id}&status=RUNNING")
+    sessions = data if isinstance(data, list) else []
+    for s in sessions:
+        await release_session(s.get("id"))
+    return len(sessions)
+
+
 async def release_session(session_id: str | None) -> None:
     """שחרור סשן keepAlive — בלעדיו דקות-דפדפן נצברות באידל עד ה-timeout. best-effort."""
     if not session_id:
