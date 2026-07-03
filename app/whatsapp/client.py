@@ -47,6 +47,37 @@ async def send_typing(message_id: str | None) -> None:
         log.warning("send_typing failed: %s", exc)
 
 
+def _list_rows(options: list[str]) -> list[dict]:
+    """אופציות → שורות interactive list. מגבלות Meta: עד 10 שורות, כותרת ≤24 תווים,
+    description ≤72 — שם ארוך נחתך בכותרת והמלא עובר ל-description."""
+    rows = []
+    for i, opt in enumerate(options[:10]):
+        row = {"id": str(i), "title": opt[:24]}
+        if len(opt) > 24:
+            row["description"] = opt[:72]
+        rows.append(row)
+    return rows
+
+
+async def send_list(to: str, body: str, options: list[str], button: str = "בחירה") -> dict:
+    """הודעת בחירה-מרשימה (WhatsApp interactive list) — במקום להקריא אופציות בטקסט.
+    התשובה חוזרת ב-webhook כ-list_reply ומוזרמת לשיחה כטקסט רגיל."""
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {"text": body},
+            "action": {"button": button[:20], "sections": [{"rows": _list_rows(options)}]},
+        },
+    }
+    async with httpx.AsyncClient(timeout=20) as http:
+        resp = await http.post(_messages_url(), json=payload, headers=_headers())
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def send_text(to: str, body: str) -> dict:
     """שליחת טקסט חופשי. `to` = wa_id במספרים בלבד (לדוגמה '972542773331')."""
     url = _messages_url()

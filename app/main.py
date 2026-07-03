@@ -62,6 +62,17 @@ async def receive(request: Request) -> Response:
                 for msg in change.get("value", {}).get("messages", []):
                     if msg.get("type") == "text":
                         await handle_inbound(msg["from"], msg["text"]["body"], msg.get("id"))
+                    elif msg.get("type") == "interactive":
+                        # בחירה מרשימה/כפתור → נכנסת לשיחה כטקסט רגיל (השם המלא
+                        # ב-description כשהכותרת נחתכה ל-24 תווים).
+                        r = (
+                            (msg.get("interactive") or {}).get("list_reply")
+                            or (msg.get("interactive") or {}).get("button_reply")
+                            or {}
+                        )
+                        choice = r.get("description") or r.get("title")
+                        if choice:
+                            await handle_inbound(msg["from"], choice, msg.get("id"))
     except Exception:
         log.exception("webhook handling failed")
     return Response(status_code=200)

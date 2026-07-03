@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -28,7 +29,7 @@ from app.llm.intent import (
     character_leaks,
     gender_line,
 )
-from app.whatsapp.client import send_text, send_typing
+from app.whatsapp.client import send_list, send_text, send_typing
 
 # ponytail: המנגנון הוא חוזה API, לא התנהגות — רק כאן מותר להיות ספציפי-מכני.
 # ההתנהגות עצמה חיה בפרסונה כעקרונות. כל שינוי כאן: לשמור על ההפרדה הזאת.
@@ -121,6 +122,17 @@ def _error_detail(exc, *, session_id: str | None = None) -> str:
     head = f"{type(exc).__name__}: {exc}" if isinstance(exc, BaseException) else str(exc)
     tail = f" · session {session_id}" if session_id else ""
     return f"\n\nשגיאה טכנית: {head}{tail}"
+
+
+_TITLE_NOISE = re.compile(r"הזמנת[ -]מקום|אונטופו|Ontopo|טאביט|Tabit", re.IGNORECASE)
+
+
+def _option_label(title: str) -> str:
+    """כותרת תוצאת חיפוש → תווית בחירה נקייה ללקוח: מפרקים לפי | ו-:, מנקים את
+    רעשי הפלטפורמה, ולוקחים את הקטע המשמעותי ("התאילנדית בסמטת סיני תל אביב-יפו")."""
+    parts = [_TITLE_NOISE.sub("", p).strip(" -–—") for p in re.split(r"[|:]", title)]
+    parts = [" ".join(p.split()) for p in parts if p.strip()]
+    return max(parts, key=len) if parts else title.strip()
 
 
 def _failure_reply(reason: str | None, name: str) -> tuple[str, str] | None:
@@ -445,13 +457,19 @@ async def run_booking(phone: str, fields: dict) -> None:
             await send_text(phone, f"לא מצאתי איפה מזמינים מקום ל'{name}'. נסה שם אחר.")
             return
         if found["status"] == "many":
-            # כותרות מהאינטרנט נכנסות ל-truth_note — מפשיטים סוגריים מרובעים כדי
-            # שכותרת זדונית לא תחקה את פורמט בלוק האמת.
-            opts = " / ".join(
-                c["title"][:30].replace("[", "").replace("]", "") for c in found["candidates"][:3]
-            )
-            _booking[phone] = {"state": "ambiguous", "info": opts}
-            await send_text(phone, f"יש כמה כאלה — לאיזה? {opts}")
+            # תוויות נקיות (בלי רעשי פלטפורמה ובלי חיתוך באמצע מילה); סוגריים
+            # מרובעים מסוננים כדי שכותרת זדונית לא תחקה את פורמט בלוק האמת.
+            labels = []
+            for c in found["candidates"][:10]:
+                lbl = _option_label(c["title"]).replace("[", "").replace("]", "")
+                if lbl and lbl not in labels:
+                    labels.append(lbl)
+            _booking[phone] = {"state": "ambiguous", "info": " / ".join(labels)}
+            if len(labels) >= 2:
+                # רשימת בחירה אמיתית של וואטסאפ — טאפ אחד במקום להקליד שם סניף
+                await send_list(phone, "יש כמה כאלה — איזה מהם?", labels)
+            else:
+                await send_text(phone, f"יש כמה כאלה — לאיזה? {' / '.join(labels)}")
             return
 
         # פרטי קשר: מהשיחה, ואם אין — מהפרופיל. הטלפון = הוואטסאפ בפורמט ישראלי (0...).

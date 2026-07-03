@@ -206,6 +206,111 @@ def _route(monkeypatch, *, dry_run, result, pending=False):
     return spawned
 
 
+def test_option_label_cleans_platform_noise():
+    """כותרות חיפוש → תוויות בחירה נקיות: בלי 'הזמנת מקום'/'אונטופו' ובלי חיתוך מילים."""
+    assert (
+        pipeline._option_label("התאילנדית בסמטת סיני תל אביב-יפו: הזמנת מקום | אונטופו")
+        == "התאילנדית בסמטת סיני תל אביב-יפו"
+    )
+    assert pipeline._option_label("הזמנת מקום - טאביט | גרקו פרישמן מסעדה") == "גרקו פרישמן מסעדה"
+    assert pipeline._option_label("טאיזו - Ontopo") == "טאיזו"
+
+
+def test_ambiguous_sends_whatsapp_list(monkeypatch):
+    """כמה סניפים → הודעת רשימה אינטראקטיבית (לא טקסט חתוך), עם כל המועמדים."""
+    _reset()
+    lists, texts = [], []
+
+    async def fake_send_list(phone, body, options, button="בחירה"):
+        lists.append(options)
+
+    async def fake_send_text(phone, msg):
+        texts.append(msg)
+
+    async def fake_resolve(name):
+        return {
+            "status": "many",
+            "url": None,
+            "platform": "ontopo",
+            "candidates": [
+                {"title": "התאילנדית בסמטת סיני תל אביב-יפו: הזמנת מקום | אונטופו"},
+                {"title": "אירועים בתאילנדית בסמטת סיני: הזמנת מקום | אונטופו"},
+                {"title": "התאילנדית רמת החייל: הזמנת מקום | אונטופו"},
+                {"title": "התאילנדית הרצליה: הזמנת מקום | אונטופו"},
+            ],
+        }
+
+    monkeypatch.setattr(pipeline, "send_list", fake_send_list)
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+
+    fields = {"task_type": "restaurant", "restaurant": "התאילנדית", "time": "20:00"}
+    asyncio.run(pipeline.run_booking("pL", fields))
+
+    assert len(lists) == 1 and len(lists[0]) == 4  # רשימה מלאה, לא 3 חתוכים
+    assert lists[0][0] == "התאילנדית בסמטת סיני תל אביב-יפו"  # נקי ולא קטוע
+    assert pipeline._booking["pL"]["state"] == "ambiguous"
+
+
+def test_list_rows_respects_meta_limits():
+    """שורות הרשימה: ≤10, כותרת ≤24 תווים, שם מלא עובר ל-description."""
+    from app.whatsapp.client import _list_rows
+
+    rows = _list_rows(["התאילנדית בסמטת סיני תל אביב-יפו"] + [f"סניף {i}" for i in range(12)])
+    assert len(rows) == 10
+    assert len(rows[0]["title"]) <= 24
+    assert rows[0]["description"] == "התאילנדית בסמטת סיני תל אביב-יפו"
+    assert "description" not in rows[1]  # שם קצר — בלי כפילות
+
+
+def test_webhook_routes_list_reply_as_text():
+    """בחירה מהרשימה חוזרת ב-webhook כ-interactive → נכנסת לשיחה כטקסט (השם המלא)."""
+    import app.main as main_mod
+    from fastapi.testclient import TestClient
+
+    got = []
+
+    async def fake_inbound(phone, text, message_id=None):
+        got.append((phone, text))
+
+    orig = main_mod.handle_inbound
+    main_mod.handle_inbound = fake_inbound
+    try:
+        payload = {
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "value": {
+                                "messages": [
+                                    {
+                                        "type": "interactive",
+                                        "from": "972500000000",
+                                        "id": "wamid.L",
+                                        "interactive": {
+                                            "type": "list_reply",
+                                            "list_reply": {
+                                                "id": "0",
+                                                "title": "התאילנדית בסמטת סיני תל",
+                                                "description": "התאילנדית בסמטת סיני תל אביב-יפו",
+                                            },
+                                        },
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+        client = TestClient(main_mod.app)
+        resp = client.post("/webhook", json=payload)
+        assert resp.status_code == 200
+        assert got == [("972500000000", "התאילנדית בסמטת סיני תל אביב-יפו")]  # ה-description המלא
+    finally:
+        main_mod.handle_inbound = orig
+
+
 def test_emoji_palette_guard():
     """הפלטה החדשה עוברת את הגארד; קלישאות-בוט (😊👍) עדיין נתפסות."""
     from app.llm.intent import character_leaks
