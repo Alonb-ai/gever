@@ -249,7 +249,7 @@ def test_pending_success_sends_proactive_message(monkeypatch):
 
     assert pipeline._booking["pP"]["state"] == "pending"
     final = sent[-1]
-    assert "לסגור?" in final  # ההודעה היזומה נשלחה
+    assert "סגור" in final and final.endswith("?")  # ההודעה היזומה + שאלת הסגירה
     assert "14:30" in final and "14:00" in final  # התראת שעה חלופית
     assert "מוכן" in final or "תפסתי" in final
 

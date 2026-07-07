@@ -13,7 +13,6 @@ from app.automation.resolve import (  # noqa: E402
     _PAGE,
     _TABIT,
     _from_brave,
-    _parse_results,
     resolve_reservation_url,
 )
 
@@ -76,27 +75,15 @@ def test_tabit_no_match_on_other_paths():
     assert _TABIT.search("https://www.tabitisrael.co.il/online-reservations/create") is None
 
 
-def test_parse_results_tabit_generic_title_gets_slug_and_entities_unescaped():
-    # נצפה חי: כותרות Tabit ב-DDG גנריות — שם המסעדה יושב ב-slug (URL-encoded עברית),
-    # ו-DDG מחזיר entities (&#x27;). הפרסינג חייב לפענח את שניהם כדי שה-match יעבוד.
-    slug = "%D7%92%D7%A8%D7%A7%D7%95-%D7%A4%D7%A8%D7%99%D7%A9%D7%9E%D7%9F"  # גרקו-פרישמן
-    body = f"""
-    <a href="/l/?uddg=https://www.tabitisrael.co.il/site/{slug}">הזמנת מקום - טאביט</a>
-    <a href="/l/?uddg=https://ontopo.com/he/il/page/123">גרקו ביץ&#x27; תל אביב</a>
-    """
-    out = _parse_results(body)
-    tabit = next(c for c in out if c["platform"] == "tabit")
-    ontopo = next(c for c in out if c["platform"] == "ontopo")
-    assert "גרקו פרישמן" in tabit["title"]  # ה-slug המפוענח נוסף לכותרת הגנרית
-    assert ontopo["title"] == "גרקו ביץ' תל אביב"  # &#x27; פוענח
-
-
 def test_from_brave_extracts_platform_candidates_and_dedups():
     # פורמט התשובה של Brave web search: data["web"]["results"] עם url+title.
     data = {
         "web": {
             "results": [
-                {"url": "https://ontopo.com/he/il/page/123", "title": "רוסטיקו בזל: הזמנת מקום"},
+                {
+                    "url": "https://ontopo.com/he/il/page/123",
+                    "title": "רוסטיקו בזל&#x27;ה: הזמנת מקום",  # entities מפוענחים (_clean)
+                },
                 {"url": "https://www.tabitisrael.co.il/site/greco", "title": "הזמנת מקום - טאביט"},
                 {"url": "https://ontopo.com/he/il/page/123", "title": "כפול — לא נספר"},
                 {"url": "https://example.com/rustico", "title": "אתר לא רלוונטי"},
@@ -106,6 +93,7 @@ def test_from_brave_extracts_platform_candidates_and_dedups():
     out = _from_brave(data)
     assert [c["platform"] for c in out] == ["ontopo", "tabit"]
     assert out[0]["url"] == "https://ontopo.com/he/il/page/123"
+    assert out[0]["title"] == "רוסטיקו בזל'ה: הזמנת מקום"  # &#x27; פוענח
     assert "greco" in out[1]["title"]  # ה-slug נוסף לכותרת הגנרית
     assert _from_brave({}) == []  # תשובה ריקה — לא קורס
 

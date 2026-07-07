@@ -232,7 +232,9 @@ async def _run(job: dict) -> dict:
         os.makedirs(rec, exist_ok=True)
 
     profile = BrowserProfile(**_profile_kwargs(job))
-    llm = ChatGoogle(model=job.get("model") or "gemini-3-flash-preview")
+    # בלי fallback מקודד — המודל מגיע תמיד מה-job (settings.model_name); שם מיושן
+    # כאן היה נשלף בשקט בדיבוג ידני ומסתיר את הקונפיגורציה האמיתית.
+    llm = ChatGoogle(model=job["model"])
     agent_kwargs: dict = {"task": _build_task(job), "llm": llm, "browser_profile": profile}
     if job.get("resume"):
         # ברירת המחדל של browser-use מנווטת אוטומטית לכל URL שמופיע ב-task —

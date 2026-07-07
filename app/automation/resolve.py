@@ -5,8 +5,8 @@ resolver: שם מסעדה → URL של דף הזמנות, בלי דפדפן. mul
 דיסאמביגואציה לפי הכותרת (חשוב — לרשת כמו "הדסון" יש כמה סניפים) פלטפורמה-פלטפורמה
 לפי סדר עדיפות. מחזיר 'one' עם url+platform, 'many' עם מועמדים לשאלת הבהרה, או 'none'.
 
-מנוע החיפוש: Brave Search API כשיש BRAVE_API_KEY (פרודקשן — $5 קרדיט חודשי חינם),
-אחרת DDG HTML (dev בלבד: DDG מחזיר 202 אנטי-בוט ל-IP של דטהסנטר — נצפה חי בשרת).
+מנוע החיפוש: Brave Search API (BRAVE_API_KEY חובה). נתיב ה-DDG נמחק: מת בפרוד
+(202 אנטי-בוט ל-IP של דטהסנטר) ומיותר ב-dev — ה-tier החינמי של Brave מספיק.
 """
 
 import html
@@ -18,9 +18,7 @@ import httpx
 from app.config import settings
 
 BRAVE = "https://api.search.brave.com/res/v1/web/search"
-DDG = "https://html.duckduckgo.com/html/"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
-_ANCHOR = re.compile(r'<a[^>]*uddg=([^&"]+)[^>]*>(.*?)</a>', re.S)
 _PAGE = re.compile(r"ontopo\.com/[a-z]{2}/[a-z]{2}/page/(\d+)")
 _TABIT = re.compile(r"tabitisrael\.co\.il/site/([^/?&\"#]+)")
 _TAG = re.compile(r"<[^>]+>")
@@ -136,16 +134,6 @@ def _candidate(url: str, raw_title: str, seen: set) -> dict | None:
     return None
 
 
-def _parse_results(body: str) -> list[dict]:
-    """HTML של תוצאות DDG → [{title, url, platform}] (deduped, לפי סדר הופעה)."""
-    out, seen = [], set()
-    for enc_url, raw_title in _ANCHOR.findall(body):
-        c = _candidate(urllib.parse.unquote(enc_url), raw_title, seen)
-        if c:
-            out.append(c)
-    return out
-
-
 def _from_brave(data: dict) -> list[dict]:
     """JSON של Brave web search → [{title, url, platform}] (deduped, לפי סדר)."""
     out, seen = [], set()
@@ -159,25 +147,22 @@ def _from_brave(data: dict) -> list[dict]:
 async def search_reservation(name: str) -> list[dict]:
     """[{title, url, platform}] של דפי הזמנה (Ontopo/Tabit) התואמים לשאילתה (deduped)."""
     query = f"{name} הזמנת מקום"
-    if settings.brave_api_key:
-        async with httpx.AsyncClient(timeout=20) as http:
-            # בלי country: ישראל לא ב-enum של Brave (422, נבדק חי) — השאילתה העברית
-            # ממילא מחזירה תוצאות ישראליות.
-            resp = await http.get(
-                BRAVE,
-                params={"q": query, "count": 20},
-                headers={
-                    "X-Subscription-Token": settings.brave_api_key,
-                    "Accept": "application/json",
-                },
-            )
-            resp.raise_for_status()
-        return _from_brave(resp.json())
-    # dev בלבד: DDG חוסם IP של דטהסנטר (202 בלי תוצאות) — לא לפרודקשן.
-    async with httpx.AsyncClient(timeout=20, headers={"User-Agent": UA}) as http:
-        resp = await http.get(DDG, params={"q": query})
+    if not settings.brave_api_key:
+        # כישלון קולני ולא [] שקט — בלי מפתח אין resolver, וזה באג קונפיגורציה
+        raise RuntimeError("BRAVE_API_KEY חסר — ה-resolver לא יכול לחפש")
+    async with httpx.AsyncClient(timeout=20) as http:
+        # בלי country: ישראל לא ב-enum של Brave (422, נבדק חי) — השאילתה העברית
+        # ממילא מחזירה תוצאות ישראליות.
+        resp = await http.get(
+            BRAVE,
+            params={"q": query, "count": 20},
+            headers={
+                "X-Subscription-Token": settings.brave_api_key,
+                "Accept": "application/json",
+            },
+        )
         resp.raise_for_status()
-    return _parse_results(resp.text)
+    return _from_brave(resp.json())
 
 
 async def resolve_reservation_url(name: str) -> dict:
