@@ -229,3 +229,79 @@ if __name__ == "__main__":
     test_page_matches()
     test_page_no_match()
     print("ok")
+
+
+def test_og_title_extracts_both_page_formats():
+    """og:title בדפי Ontopo: גם meta-tag קלאסי וגם JSON מוטמע (הפורמט שנצפה חי)."""
+    meta = '<meta data-hid="og:title" property="og:title" content="A.K.A תל אביב-יפו: הזמנת מקום | אונטופו">'
+    blob = '{"ogTitle":{"name":"og:title","content":"A.K.A תל אביב-יפו: הזמנת מקום | אונטופו"}}'
+    assert resolve._og_title(meta) == "A.K.A תל אביב-יפו: הזמנת מקום | אונטופו"
+    assert resolve._og_title(blob) == "A.K.A תל אביב-יפו: הזמנת מקום | אונטופו"
+    assert resolve._og_title("<html>אין כאן כלום</html>") == ""
+
+
+def test_resolve_url_title_enriched_from_page(monkeypatch):
+    """ריצת ה-AKA (נצפה חי): Brave החזיר את דף המסעדה עם ה-URL ככותרת — בלי שם אין
+    match ואין רשימה, והלקוח נתקע לנצח על 'יש כמה כאלה'. ההעשרה מביאה את השם
+    האמיתי מה-og:title של הדף, וההזמנה יוצאת לדרך (status=one)."""
+
+    class _FakeResp:
+        text = '<meta property="og:title" content="A.K.A תל אביב-יפו: הזמנת מקום | אונטופו">'
+
+    class _FakeHTTP:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            return _FakeResp()
+
+    monkeypatch.setattr(resolve.httpx, "AsyncClient", _FakeHTTP)
+    monkeypatch.setattr(
+        resolve,
+        "search_reservation",
+        _fake_search(
+            [
+                {
+                    "title": "https://ontopo.com/he/il/page/58397013?source=google",
+                    "url": "https://ontopo.com/he/il/page/58397013",
+                    "platform": "ontopo",
+                }
+            ]
+        ),
+    )
+    res = asyncio.run(resolve_reservation_url("Aka"))
+    assert res["status"] == "one"
+    assert res["url"] == "https://ontopo.com/he/il/page/58397013"
+    assert "A.K.A" in res["candidates"][0]["title"]
+
+
+def test_real_titles_leaves_textual_titles_and_survives_fetch_error(monkeypatch):
+    """כותרת טקסטואלית לא נוגעים בה (בלי GET מיותר); כשל fetch לא מפיל את ה-resolve."""
+
+    class _BoomHTTP:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            raise RuntimeError("network down")
+
+    monkeypatch.setattr(resolve.httpx, "AsyncClient", _BoomHTTP)
+    cands = [
+        {"title": "גרקו פרישמן: הזמנת מקום | אונטופו", "url": "u1", "platform": "ontopo"},
+        {"title": "https://ontopo.com/he/il/page/9", "url": "u2", "platform": "ontopo"},
+    ]
+    asyncio.run(resolve._real_titles(cands))
+    assert cands[0]["title"] == "גרקו פרישמן: הזמנת מקום | אונטופו"  # לא השתנה
+    assert cands[1]["title"] == "https://ontopo.com/he/il/page/9"  # כשל — נשאר, יסונן ברשימה

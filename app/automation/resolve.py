@@ -37,6 +37,36 @@ def _clean(t: str) -> str:
     return html.unescape(_TAG.sub("", t)).strip()
 
 
+# og:title מופיע בדפי Ontopo גם כ-meta-tag וגם בתוך JSON מוטמע — הרגקס תופס את שניהם.
+_OG_TITLE = re.compile(r'og:title"?[^>{]{0,120}?content"?\s*[:=]\s*\\?"([^"<>\\]+)')
+_URLISH_TITLE = re.compile(r"https?://|www\.")
+
+
+def _og_title(body: str) -> str:
+    m = _OG_TITLE.search(body)
+    return html.unescape(m.group(1)).strip() if m else ""
+
+
+async def _real_titles(candidates: list[dict]) -> None:
+    """כותרת שהיא URL (Brave מחזיר כאלה כשאין לו כותרת) → מביאים את השם האמיתי
+    מה-og:title של הדף עצמו. בלעדיו המסעדה בלתי-ניתנת להזמנה בכלל: אין שם להציג
+    ברשימה ואין על מה לעשות match — נצפה חי (AKA): כל שיחה מתה ב'יש כמה כאלה'."""
+    targets = [c for c in candidates if _URLISH_TITLE.search(c["title"]) or not c["title"]][:3]
+    if not targets:
+        return
+    async with httpx.AsyncClient(
+        timeout=10, headers={"User-Agent": UA}, follow_redirects=True
+    ) as http:
+        for c in targets:
+            try:
+                resp = await http.get(c["url"])
+                title = _og_title(resp.text)
+                if title:
+                    c["title"] = title
+            except Exception:  # noqa: BLE001 — best-effort: בלי שם הדף יסונן מהרשימה
+                pass
+
+
 def _candidate(url: str, raw_title: str, seen: set) -> dict | None:
     """URL+כותרת של תוצאת חיפוש → מועמד {title, url קנוני, platform}, או None
     אם זה לא דף הזמנות של פלטפורמה מוכרת (או כפול)."""
@@ -108,6 +138,7 @@ async def resolve_reservation_url(name: str, city: str = "") -> dict:
     את המשתמש; none → לא נמצא. הפלטפורמה הראשונה עם match חזק מכריעה.
     """
     candidates = await search_reservation(name, city)
+    await _real_titles(candidates)  # כותרות-URL → השם האמיתי מהדף, לפני כל התאמה
     primary, fallback = None, None
     for platform, _, _ in _PLATFORMS:
         plat = [c for c in candidates if c["platform"] == platform]
