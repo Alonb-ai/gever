@@ -668,6 +668,19 @@ def test_book_table_empty_record_dir_disables_recording(monkeypatch, tmp_path):
     assert captured["record_dir"] == ""  # אין הקלטה — bu_runner לא ידליק וידאו/GIF
     assert captured["result_path"].startswith("/tmp/")  # התוצאה עדיין נכתבת
     assert res.success is True
+    # יומן הצעדים (ה-reasoning של ה-agent) תמיד מקבל נתיב — בלעדיו "למה נתקע" עיוור
+    assert captured["steps_path"].startswith("/tmp/") and "steps_" in captured["steps_path"]
+
+
+def test_steps_tail_reads_reasoning_and_survives_missing_file(tmp_path):
+    """הזנב של יומן הצעדים עונה על 'למה הוא נתקע' — וקובץ חסר לא מפיל את הזרימה."""
+    from app.automation.browser_book import _steps_tail
+
+    p = tmp_path / "steps.log"
+    p.write_text("צעד 1\n" + "x" * 5000 + "\n🎯 המטרה הבאה: לבחור בר", encoding="utf-8")
+    tail = _steps_tail(str(p))
+    assert "🎯 המטרה הבאה: לבחור בר" in tail and len(tail) <= 2500
+    assert _steps_tail(str(tmp_path / "אין.log")) == "(אין יומן צעדים)"
 
 
 def test_seed_contains_today_line_with_concrete_date():

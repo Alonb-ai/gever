@@ -31,12 +31,15 @@ async def _run_subprocess(job: dict) -> None:
     if settings.gemini_api_key:
         env["GEMINI_API_KEY"] = settings.gemini_api_key
         env["GOOGLE_API_KEY"] = settings.gemini_api_key
+    # ה-reasoning של ה-agent (browser-use מדפיס כל צעד: הערכה, זיכרון, מטרה הבאה)
+    # נכתב לקובץ במקום להיזרק — ניתן לקריאה live (tail) וגם אחרי timeout/kill.
+    steps = open(job["steps_path"], "wb") if job.get("steps_path") else asyncio.subprocess.PIPE
     proc = await asyncio.create_subprocess_exec(
         settings.bu_venv_path,
         _RUNNER,
         stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        stdout=steps,
+        stderr=steps,
         env=env,
     )
     try:
@@ -45,6 +48,18 @@ async def _run_subprocess(job: dict) -> None:
         proc.kill()  # ponytail: הורג את ה-runner; browser-use סוגר את Chrome ביציאה
         await proc.wait()
         raise
+    finally:
+        if steps is not asyncio.subprocess.PIPE:
+            steps.close()
+
+
+def _steps_tail(path: str, n: int = 2500) -> str:
+    """הזנב של יומן הצעדים — התשובה ל'למה הוא נתקע/בחר ככה' בלי לפתוח את השרת."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()[-n:]
+    except OSError:
+        return "(אין יומן צעדים)"
 
 
 _BB_API = "https://api.browserbase.com/v1"
@@ -145,6 +160,7 @@ async def book_table_bu(
     record_dir = os.path.join(settings.bu_record_dir, run_id) if settings.bu_record_dir else ""
     result_dir = record_dir or "/tmp"
     result_path = os.path.join(result_dir, f"result_{run_id}.json")
+    steps_path = os.path.join(result_dir, f"steps_{run_id}.log")
     job = {
         "url": page_url,
         "platform": platform,
@@ -160,6 +176,7 @@ async def book_table_bu(
         "headless": settings.bu_headless,
         "record_dir": record_dir,
         "result_path": result_path,
+        "steps_path": steps_path,
         "max_steps": 40,
     }
     session_id: str | None = None
@@ -182,8 +199,11 @@ async def book_table_bu(
         await _run_subprocess(job)
         with open(result_path, encoding="utf-8") as f:
             r = json.load(f)
+        log.info("bu steps tail (%s):\n%s", steps_path, _steps_tail(steps_path))
     except asyncio.TimeoutError:
         await release_session(session_id)
+        # הזנב עונה על "למה נתקע?" — הצעדים האחרונים של ה-agent לפני ה-kill
+        log.warning("bu TIMEOUT steps tail (%s):\n%s", steps_path, _steps_tail(steps_path))
         return ActionResult(
             success=False,
             summary="אחי זה נתקע לי, לקח יותר מדי. ננסה שוב?",
@@ -191,6 +211,7 @@ async def book_table_bu(
         )
     except Exception as e:  # noqa: BLE001 — כשל הופך להודעה כנה, לא ל-traceback
         await release_session(session_id)
+        log.warning("bu ERROR steps tail (%s):\n%s", steps_path, _steps_tail(steps_path))
         return ActionResult(
             success=False,
             summary="נתקעתי באמצע, לא הצלחתי לסגור. ננסה שוב?",
