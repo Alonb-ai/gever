@@ -162,12 +162,18 @@ def _safe_label(title: str) -> str:
     return "" if not lbl or character_leaks(lbl) else lbl
 
 
+def _norm_place(s: str) -> str:
+    """נרמול שם לצורך התאמה: אותיות קטנות ובלי פיסוק — "A.K.A" ↔ "AKA" (נצפה חי:
+    הנקודות שברו את ההתאמה, הסשן החי שוחרר וה-resume נפל לריצה טרייה)."""
+    return " ".join(re.sub(r"[^\w\s]", "", s.lower()).split())
+
+
 def _same_place(a: str, b: str) -> bool:
     """התאמת שם-מסעדה סלחנית: ה-extract מנסח כל תור וריאציה אחרת של אותו מקום
     ("התאילנדית בהר סיני" מול "התאילנדית בסמטת סיני תל אביב-יפו") — השוואה מדויקת
     זרקה resume+cache והציפה את הרשימה 3 פעמים בשיחה אחת (נצפה חי). הכלה מלאה,
     ואם אין — מילת המותג הראשונה מכריעה."""
-    a, b = " ".join(a.lower().split()), " ".join(b.lower().split())
+    a, b = _norm_place(a), _norm_place(b)
     if not a or not b:
         return False
     if a in b or b in a:
@@ -496,10 +502,12 @@ async def run_booking(phone: str, fields: dict) -> None:
         #     By A.K.A תל אביב-יפו" — הכלה התאימה לשתיים והרשימה חזרה בלופ).
         # (2) הכלה — הלקוח ציטט חלק מהשם ("נחלת בנימין").
         # (3) מילת-מותג (_same_place) — רק אם היא מצביעה חד-משמעית.
-        nn = " ".join(name.lower().split())
-        picked = [lbl for lbl in picks if nn == " ".join(lbl.lower().split())]
+        nn = _norm_place(name)
+        picked = [lbl for lbl in picks if nn == _norm_place(lbl)]
         if not picked:
-            picked = [lbl for lbl in picks if nn and (nn in lbl.lower() or lbl.lower() in nn)]
+            picked = [
+                lbl for lbl in picks if nn and (nn in _norm_place(lbl) or _norm_place(lbl) in nn)
+            ]
         if not picked:
             picked = [lbl for lbl in picks if _same_place(name, lbl)]
 
@@ -689,7 +697,14 @@ async def run_booking(phone: str, fields: dict) -> None:
                 "seating_area": "העדפת ישיבה (בפנים / בחוץ / בר)",
                 "seating": "העדפת ישיבה (בפנים / בחוץ / בר)",
             }.get(field, field)
-            await send_text(phone, f"רגע, כדי להמשיך אני צריך ממך {_human} — מה אומר?")
+            # UX (בקשת אלון): האופציות *האמיתיות* מהדף במקום שאלה גנרית — רשימת
+            # בחירה בטאפ; התשובה חוזרת כטקסט מדויק שה-agent ימצא בדף אחד-לאחד.
+            real = [_safe_label(o) for o in (res.details.get("options") or [])]
+            real = list(dict.fromkeys(o for o in real if o))[:10]
+            if len(real) >= 2:
+                await send_list(phone, "רגע, האתר מבקש לבחור — אלו האפשרויות שיש:", real)
+            else:
+                await send_text(phone, f"רגע, כדי להמשיך אני צריך ממך {_human} — מה אומר?")
             return
         else:
             # res.summary הוא הטקסט הגולמי (אנגלית) של browser-use — לעולם לא ללקוח

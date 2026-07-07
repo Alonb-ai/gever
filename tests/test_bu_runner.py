@@ -87,6 +87,19 @@ def test_browserbase_profile_keeps_browser_alive_for_resume():
     assert "record_video_dir" not in _profile_kwargs({"cdp_url": "w", "record_dir": ""})
 
 
+def test_missing_choice_carries_real_page_options():
+    """עצירה על בחירה כפויה מדווחת OPTIONS: עם האפשרויות האמיתיות מהדף — גבר מציג
+    אותן ללקוח כרשימה במקום 'בפנים/בחוץ/בר' גנרי (בקשת UX מהשטח, ריצת A.K.A)."""
+    final = "האתר דורש אזור ישיבה.\nOPTIONS: בפנים | בר גבוה | מרפסת מעשנים\nMISSING:seating_area"
+    r = _parse_result(final, commit=False)
+    assert r["missing"] == "seating_area"
+    assert r["options"] == ["בפנים", "בר גבוה", "מרפסת מעשנים"]
+    assert _parse_result("MISSING:email", commit=False)["options"] == []
+    # ההוראה קיימת ב-task: שורת OPTIONS + חוק אנטי-התלבטות
+    task = _build_task({**_JOB, "dry_run": True})
+    assert "OPTIONS:" in task and "אל תתלבט" in task
+
+
 def test_bare_missing_colon_does_not_crash():
     r = _parse_result("חסר שדה. MISSING:", commit=False)
     assert r["success"] is False

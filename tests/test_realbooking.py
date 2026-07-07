@@ -402,6 +402,51 @@ def test_exact_pick_wins_when_label_is_suffix_of_sibling(monkeypatch):
     assert books == ["u-aka"] and len(lists) == 1 and len(resolves) == 1
 
 
+def test_missing_choice_sends_real_options_as_list(monkeypatch):
+    """UX (בקשת אלון, ריצת A.K.A): עצירה על בחירה כפויה שולחת את האופציות *האמיתיות*
+    מהדף כרשימת בחירה — לא 'בפנים/בחוץ/בר' גנרי. בלי options — השאלה הישנה בטקסט."""
+    _reset()
+    lists, texts = [], []
+
+    async def fake_send_list(phone, body, options, button="בחירה"):
+        lists.append(options)
+
+    async def fake_send_text(phone, msg):
+        texts.append(msg)
+
+    async def fake_resolve(name):
+        return {"status": "one", "url": "http://aka", "platform": "ontopo", "candidates": []}
+
+    async def fake_book(**kwargs):
+        return ActionResult(
+            success=False,
+            summary="MISSING:seating_area",
+            details={
+                "missing": "seating_area",
+                "options": ["בפנים", "בר גבוה 🍸", "מרפסת מעשנים"],
+                "session_id": "sess-9",
+                "stage": "עצרתי על אזור",
+            },
+        )
+
+    async def fake_get_profile(phone):
+        return None
+
+    monkeypatch.setattr(pipeline, "send_list", fake_send_list)
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+
+    fields = {"task_type": "restaurant", "restaurant": "אקא", "time": "19:00", "name": "אלון"}
+    asyncio.run(pipeline.run_booking("pO", fields))
+
+    # האופציות האמיתיות נשלחו כרשימה, אחרי שומר הדמות (האימוג'י הזר סולק)
+    assert lists == [["בפנים", "בר גבוה", "מרפסת מעשנים"]]
+    assert pipeline._resume["pO"]["session_id"] == "sess-9"  # הסשן ממתין לתשובה
+    assert not any("בפנים / בחוץ / בר" in t for t in texts)  # בלי השאלה הגנרית
+
+
 def test_safe_label_enforces_character_rules_on_list_rows():
     """הרשימה היא שליחה מכנית שעוקפת את שומרי הפרסונה — כותרת צד-שלישי חייבת
     לעבור את חוקי הדמות: אימוג'י זר מסולק, טקסט חושף-אוטומציה פוסל את התווית."""

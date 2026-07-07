@@ -256,6 +256,9 @@ def test_same_place_matches_variants_not_strangers():
     assert same("התאילנדית", "התאילנדית בסמטת סיני תל אביב-יפו")  # שם קצר (הכלה)
     assert not same("טאיזו", "התאילנדית בסמטת סיני תל אביב-יפו")  # מסעדה אחרת
     assert not same("", "התאילנדית")  # ריק לעולם לא תואם
+    # נצפה חי: הנקודות שברו את ההתאמה — הסשן החי שוחרר וה-resume נפל לריצה טרייה
+    assert same("AKA", "A.K.A תל אביב-יפו")
+    assert same("Aka", "A.K.A תל אביב-יפו")
 
 
 def test_answer_with_different_restaurant_releases_stale_session(monkeypatch):

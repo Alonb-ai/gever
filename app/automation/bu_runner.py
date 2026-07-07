@@ -81,8 +81,13 @@ def _build_task(job: dict) -> str:
 MISSING:phone. אותו כלל לבחירות שהאתר כופה ולא קיבלת עליהן העדפה — אזור ישיבה
 (פנים/בחוץ/בר), סוג תפריט, וכדומה: לעולם אל תבחר בשביל הלקוח, וגם ברירת מחדל
 שכבר מסומנת בטופס היא בחירה כזאת — אל תשאיר אותה סתם, עצור ודווח
-MISSING:<שם הבחירה באנגלית>, למשל MISSING:seating_area. חריג יחיד: כשקיימת
-באמת רק אפשרות אחת — קח אותה והמשך. ***
+MISSING:<שם הבחירה באנגלית>, למשל MISSING:seating_area. כשאתה עוצר על בחירה
+כזאת, הוסף בשורה שלפני שורת הסיום שורה שמתחילה ב-OPTIONS: עם האפשרויות בדיוק
+כפי שהן מופיעות בדף, מופרדות ב-|, למשל: OPTIONS: בפנים | בר גבוה | מרפסת מעשנים.
+חריג יחיד: כשקיימת באמת רק אפשרות אחת — קח אותה והמשך.
+קיבלת העדפה מהלקוח אבל היא לא תואמת חד-משמעית אף אפשרות בדף (למשל "בר" מול
+כמה סוגי בר) — אל תתלבט בניסיונות חוזרים: אם אחת קרובה בבירור בחר אותה,
+ואחרת עצור מיד עם MISSING ושורת OPTIONS. ***
 פרטי קשר: שם "{job.get("name") or ""}", אימייל "{job.get("email") or ""}", טלפון "{job.get("phone") or ""}".{_notes_line(job)}
 
 ראית בדף פרט ששווה ללקוח לדעת — הנחה, מבצע, הגבלת זמן שולחן, דרישת הגעה בזמן?
@@ -145,6 +150,13 @@ def _parse_result(final: str, *, commit: bool) -> dict:
         if "PERK:" in ln
     ]
     perk = " · ".join(p for p in perks if p)[:200]
+    # OPTIONS: האפשרויות האמיתיות מהדף כשעוצרים על בחירה כפויה (MISSING) — גבר
+    # מציג אותן ללקוח כרשימת בחירה במקום שאלה גנרית ("בפנים/בחוץ/בר").
+    options: list = []
+    for ln in final.splitlines():
+        if ln.strip().startswith("OPTIONS:"):
+            options = [o.strip()[:60] for o in ln.split("OPTIONS:", 1)[1].split("|") if o.strip()]
+    options = options[:10]
     if commit:
         # BOOKED <אישור> = נסגר באמת; כרטיס/שדה-חסר/כישלון גוברים — לא נרשמת הזמנה.
         booked = "BOOKED" in last and not card and not missing and not failed
@@ -161,6 +173,7 @@ def _parse_result(final: str, *, commit: bool) -> dict:
             "failed": failed,
             "time": chosen_time,
             "perk": perk,
+            "options": options,
             "message": final,
         }
     # recon (dry_run): הצלחה = הגענו למסך הסיכום (SUMMARY_REACHED), בלי סגירה אמיתית.
@@ -176,6 +189,7 @@ def _parse_result(final: str, *, commit: bool) -> dict:
         "failed": failed,
         "time": chosen_time,
         "perk": perk,
+        "options": options,
         "message": final,
     }
 
