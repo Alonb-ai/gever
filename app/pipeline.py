@@ -464,8 +464,11 @@ async def run_booking(phone: str, fields: dict) -> None:
     log.info(
         "run_booking start: %s -> %s (%s %s)", phone, name, fields.get("date"), fields.get("time")
     )
-    await memory.set_inflight(phone, name)  # שורד restart — יתומים מזוהים בעלייה
     try:
+        # בתוך ה-try בכוונה: כשל כאן (Supabase) חייב ליפול ל-except שמסמן failed
+        # ומודיע ללקוח — מחוץ ל-try הוא היה משאיר state="working" לנצח, וה-guard
+        # ב-handle_inbound היה בולע כל ready עתידי ("אני על זה" עד עולם).
+        await memory.set_inflight(phone, name)  # שורד restart — יתומים מזוהים בעלייה
         # pause-resume: יש סשן חי שמחכה לתשובה על אותה מסעדה → ממשיכים מאותו מסך,
         # בלי resolve מחדש. הלקוח החליף מסעדה → משחררים את הסשן הישן וריצה טרייה.
         resume_arg = None
@@ -715,8 +718,9 @@ async def run_commit(phone: str) -> None:
         await send_text(phone, "רגע על איזה שם לסגור")
         return
     _booking[phone] = {"state": "working", "info": ""}
-    await memory.set_inflight(phone, job["restaurant"])
     try:
+        # בתוך ה-try — כמו ב-run_booking: כשל לפני הריצה לא משאיר "working" תקוע.
+        await memory.set_inflight(phone, job["restaurant"])
         await send_text(phone, "רגע סוגר לך 🔄")  # browser-use איטי ובלי streaming
         res = await book_table_bu(
             restaurant=job["restaurant"],

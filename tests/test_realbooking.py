@@ -308,6 +308,42 @@ def test_retry_remembers_chosen_branch_no_second_list(monkeypatch):
     assert len(resolves) == 1 and books == ["http://simta"] * 3
 
 
+def test_set_inflight_failure_does_not_wedge_working_state(monkeypatch):
+    """חיזוק (נמצא בדיבאג ריצת ה-AKA): set_inflight ישב מחוץ ל-try — כשל Supabase
+    רגעי היה משאיר state="working" לנצח: ה-guard ב-handle_inbound בולע כל ready,
+    וה-truth-note מדקלם 'אני על זה' עד עולם. עכשיו: failed + הודעה כנה + guard משוחרר."""
+    _reset()
+    sent = []
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def boom_inflight(phone, name):
+        raise RuntimeError("supabase down")
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(memory, "set_inflight", boom_inflight)
+
+    fields = {"task_type": "restaurant", "restaurant": "גרקו", "time": "20:00", "name": "אלון"}
+    asyncio.run(pipeline.run_booking("pI", fields))
+    assert pipeline._booking["pI"]["state"] == "failed"  # לא "working" תקוע
+    assert sent and "נתקעתי" in sent[-1]  # הלקוח קיבל הודעת כישלון, לא דממה
+
+    # אותו חיזוק ב-run_commit
+    sent.clear()
+    pipeline._pending_commit["pI"] = {
+        "restaurant": "גרקו",
+        "page_url": "http://x",
+        "name": "אלון",
+        "date": "",
+        "time": "20:00",
+        "party_size": 2,
+    }
+    asyncio.run(pipeline.run_commit("pI"))
+    assert pipeline._booking["pI"]["state"] == "failed"
+    assert sent and "נתקעתי" in sent[-1]
+
+
 def test_profile_name_carries_usage_hint():
     """השם בזרע מסומן 'לטפסים' — בלעדיו המודל שולף אותו לכל הודעה (נצפה חי)."""
     block = pipeline._profile_block({"name": "אלון בזק", "prefs": {}})
