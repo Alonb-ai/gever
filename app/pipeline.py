@@ -112,6 +112,9 @@ _resume: dict = {}
 # נצפה חי: retry ("תנסה בראשון") שלח את השם הקצר → resolve החזיר many → הלקוח
 # נאלץ לבחור סניף שוב. שם מבוקש שמוכל בבחירה האחרונה = אותו סניף, בלי resolve.
 _resolved: dict = {}
+# רשימת הבהרה שנשלחה ומחכה לבחירה: phone -> {label: (url, platform)}. בלעדיה כל
+# תשובה ("כן בול" / טאפ) עברה resolve מחדש ושלחה את הרשימה שוב ושוב (נצפה חי).
+_pending_pick: dict = {}
 
 # פער שאחריו פותחים "דף חדש": שיחה טרייה במקום לגרור את ההיסטוריה הישנה.
 SESSION_GAP_S = 3 * 60 * 60  # ~3 שעות
@@ -133,12 +136,18 @@ def _error_detail(exc, *, session_id: str | None = None) -> str:
 _TITLE_NOISE = re.compile(r"הזמנת[ -]מקום|אונטופו|Ontopo|טאביט|Tabit", re.IGNORECASE)
 
 
+_URLISH = re.compile(r"https?\b|://|www\.|\.com|\.co\.il|[/?=]")
+
+
 def _option_label(title: str) -> str:
     """כותרת תוצאת חיפוש → תווית בחירה נקייה ללקוח: מפרקים לפי | ו-:, מנקים את
-    רעשי הפלטפורמה, ולוקחים את הקטע המשמעותי ("התאילנדית בסמטת סיני תל אביב-יפו")."""
+    רעשי הפלטפורמה, ולוקחים את הקטע המשמעותי ("התאילנדית בסמטת סיני תל אביב-יפו").
+    כותרת שהיא URL (Brave מחזיר כאלה) לא הופכת לתווית — נצפה חי: הלקוח קיבל
+    שורת רשימה '//.com/he/il/page/…' אחרי שמנקה-הרעשים מחק את שם הפלטפורמה
+    מתוך הדומיין. אין קטע טקסטואלי → "" (המועמד לא יוצג)."""
     parts = [_TITLE_NOISE.sub("", p).strip(" -–—") for p in re.split(r"[|:]", title)]
-    parts = [" ".join(p.split()) for p in parts if p.strip()]
-    return max(parts, key=len) if parts else title.strip()
+    parts = [" ".join(p.split()) for p in parts if p.strip() and not _URLISH.search(p)]
+    return max(parts, key=len) if parts else ""
 
 
 def _same_place(a: str, b: str) -> bool:
@@ -146,7 +155,7 @@ def _same_place(a: str, b: str) -> bool:
     ("התאילנדית בהר סיני" מול "התאילנדית בסמטת סיני תל אביב-יפו") — השוואה מדויקת
     זרקה resume+cache והציפה את הרשימה 3 פעמים בשיחה אחת (נצפה חי). הכלה מלאה,
     ואם אין — מילת המותג הראשונה מכריעה."""
-    a, b = " ".join(a.split()), " ".join(b.split())
+    a, b = " ".join(a.lower().split()), " ".join(b.lower().split())
     if not a or not b:
         return False
     if a in b or b in a:
@@ -461,29 +470,52 @@ async def run_booking(phone: str, fields: dict) -> None:
         # בלי resolve מחדש. הלקוח החליף מסעדה → משחררים את הסשן הישן וריצה טרייה.
         resume_arg = None
         waiting = _resume.pop(phone, None)
+        if waiting and not _same_place(waiting.get("restaurant") or "", name):
+            await release_session(waiting.get("session_id"))  # החליף מסעדה — לא מדליפים סשן
+            waiting = None
         cached = _resolved.get(phone)
+        picks = _pending_pick.get(phone) or {}
+        # שתי דרגות התאמה: הכלה מדויקת (טאפ על שורה / ציטוט הסניף) לפני מילת-מותג —
+        # אחרת "AKA נחלת בנימין" היה תואם את *כל* סניפי AKA והרשימה הייתה חוזרת.
+        nn = " ".join(name.lower().split())
+        picked = [lbl for lbl in picks if nn and (nn in lbl.lower() or lbl.lower() in nn)]
+        if not picked:
+            picked = [lbl for lbl in picks if _same_place(name, lbl)]
 
-        if waiting and _same_place(waiting.get("restaurant") or "", name):
-            resume_arg = waiting
-            found = {
+        def _one(url: str, platform: str) -> dict:
+            return {
                 "status": "one",
-                "url": waiting["url"],
-                "platform": waiting["platform"],
+                "url": url,
+                "platform": platform,
                 "candidates": [],
+                "fallback": None,
+            }
+
+        if waiting:
+            resume_arg = waiting
+            found = _one(waiting["url"], waiting["platform"])
+        elif len(picked) == 1:
+            # הלקוח בחר מהרשימה (טאפ או תשובה בטקסט) — ה-URL כבר בידינו, בלי resolve
+            url, plat = picks[picked[0]]
+            _pending_pick.pop(phone, None)
+            _resolved[phone] = {"name": picked[0], "url": url, "platform": plat}
+            found = _one(url, plat)
+        elif len(picked) > 1:
+            # השם עדיין מתאים לכמה שורות — מציגים שוב רק אותן, בלי חיפוש חדש
+            found = {
+                "status": "many",
+                "candidates": [
+                    {"title": lbl, "url": u, "platform": p}
+                    for lbl, (u, p) in picks.items()
+                    if lbl in picked
+                ],
                 "fallback": None,
             }
         elif cached and _same_place(name, cached["name"]):
             # retry על אותה מסעדה (יום/שעה אחרת) — הסניף כבר נבחר, לא שואלים שוב
-            found = {
-                "status": "one",
-                "url": cached["url"],
-                "platform": cached["platform"],
-                "candidates": [],
-                "fallback": None,
-            }
+            found = _one(cached["url"], cached["platform"])
         else:
-            if waiting:
-                await release_session(waiting.get("session_id"))
+            _pending_pick.pop(phone, None)  # מסעדה אחרת — הרשימה הישנה לא רלוונטית
             found = await resolve_reservation_url(name)
             if found["status"] == "one":
                 _resolved[phone] = {
@@ -498,17 +530,22 @@ async def run_booking(phone: str, fields: dict) -> None:
         if found["status"] == "many":
             # תוויות נקיות (בלי רעשי פלטפורמה ובלי חיתוך באמצע מילה); סוגריים
             # מרובעים מסוננים כדי שכותרת זדונית לא תחקה את פורמט בלוק האמת.
-            labels = []
+            options: dict[str, tuple[str, str]] = {}
             for c in found["candidates"][:10]:
                 lbl = _option_label(c["title"]).replace("[", "").replace("]", "")
-                if lbl and lbl not in labels:
-                    labels.append(lbl)
+                if lbl and lbl not in options:
+                    options[lbl] = (c["url"], c.get("platform") or "")
+            labels = list(options)
+            _pending_pick[phone] = options  # הבחירה הבאה תרוץ ישר, בלי resolve נוסף
             _booking[phone] = {"state": "ambiguous", "info": " / ".join(labels)}
             if len(labels) >= 2:
                 # רשימת בחירה אמיתית של וואטסאפ — טאפ אחד במקום להקליד שם סניף
                 await send_list(phone, "יש כמה כאלה — איזה מהם?", labels)
+            elif labels:
+                await send_text(phone, f"יש כמה כאלה — לאיזה? {labels[0]}")
             else:
-                await send_text(phone, f"יש כמה כאלה — לאיזה? {' / '.join(labels)}")
+                # כל הכותרות היו URL-ים (אין שם אנושי להציג) — שאלה חופשית במקום רשימת זבל
+                await send_text(phone, f"יש כמה סניפים של {name} — איזה סניף או איזו עיר?")
             return
 
         # פרטי קשר: מהשיחה, ואם אין — מהפרופיל. הטלפון = הוואטסאפ בפורמט ישראלי (0...).

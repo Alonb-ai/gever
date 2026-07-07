@@ -20,6 +20,7 @@ def _reset():
     pipeline._last_seen.clear()
     pipeline._resume.clear()
     pipeline._resolved.clear()
+    pipeline._pending_pick.clear()
 
 
 def test_run_commit_books_for_real_and_logs(monkeypatch):
@@ -321,6 +322,10 @@ def test_option_label_cleans_platform_noise():
     )
     assert pipeline._option_label("הזמנת מקום - טאביט | גרקו פרישמן מסעדה") == "גרקו פרישמן מסעדה"
     assert pipeline._option_label("טאיזו - Ontopo") == "טאיזו"
+    # נצפה חי (AKA): כותרת שהיא URL — אחרי שהניקוי מחק 'ontopo' מהדומיין הלקוח
+    # קיבל שורה '//.com/he/il/page/…'. URL לעולם לא תווית; אין טקסט → "".
+    assert pipeline._option_label("https://ontopo.com/he/il/page/58397013?source=google") == ""
+    assert pipeline._option_label("www.tabitisrael.co.il/site/aka") == ""
 
 
 def test_ambiguous_sends_whatsapp_list(monkeypatch):
@@ -340,10 +345,10 @@ def test_ambiguous_sends_whatsapp_list(monkeypatch):
             "url": None,
             "platform": "ontopo",
             "candidates": [
-                {"title": "התאילנדית בסמטת סיני תל אביב-יפו: הזמנת מקום | אונטופו"},
-                {"title": "אירועים בתאילנדית בסמטת סיני: הזמנת מקום | אונטופו"},
-                {"title": "התאילנדית רמת החייל: הזמנת מקום | אונטופו"},
-                {"title": "התאילנדית הרצליה: הזמנת מקום | אונטופו"},
+                {"title": "התאילנדית בסמטת סיני תל אביב-יפו: הזמנת מקום | אונטופו", "url": "u1"},
+                {"title": "אירועים בתאילנדית בסמטת סיני: הזמנת מקום | אונטופו", "url": "u2"},
+                {"title": "התאילנדית רמת החייל: הזמנת מקום | אונטופו", "url": "u3"},
+                {"title": "התאילנדית הרצליה: הזמנת מקום | אונטופו", "url": "u4"},
             ],
         }
 
@@ -357,6 +362,67 @@ def test_ambiguous_sends_whatsapp_list(monkeypatch):
     assert len(lists) == 1 and len(lists[0]) == 4  # רשימה מלאה, לא 3 חתוכים
     assert lists[0][0] == "התאילנדית בסמטת סיני תל אביב-יפו"  # נקי ולא קטוע
     assert pipeline._booking["pL"]["state"] == "ambiguous"
+
+
+def test_list_pick_runs_directly_no_second_list(monkeypatch):
+    """ריצת ה-AKA (נצפה חי, 3 באגים): שורת URL לא מוצגת ברשימה; תשובת בחירה
+    (טאפ או טקסט) רצה ישר עם ה-URL השמור — בלי resolve שני ובלי רשימה שנייה;
+    ותשובה שעדיין דו-משמעית ("Aka") מחזירה את אותה רשימה בלי חיפוש חדש."""
+    _reset()
+    lists, texts, resolves, books = [], [], [], []
+
+    async def fake_send_list(phone, body, options, button="בחירה"):
+        lists.append(options)
+
+    async def fake_send_text(phone, msg):
+        texts.append(msg)
+
+    async def fake_resolve(name):
+        resolves.append(name)
+        return {
+            "status": "many",
+            "candidates": [
+                {
+                    "title": "https://ontopo.com/he/il/page/58397013?source=google",
+                    "url": "https://ontopo.com/he/il/page/58397013",
+                    "platform": "ontopo",
+                },
+                {
+                    "title": "AKA נחלת בנימין: הזמנת מקום | אונטופו",
+                    "url": "u-nb",
+                    "platform": "ontopo",
+                },
+                {"title": "AKA הרצליה: הזמנת מקום | אונטופו", "url": "u-hz", "platform": "ontopo"},
+            ],
+        }
+
+    async def fake_book(**kwargs):
+        books.append(kwargs["page_url"])
+        return ActionResult(success=True, summary="SUMMARY_REACHED", details={})
+
+    async def fake_get_profile(phone):
+        return None
+
+    monkeypatch.setattr(pipeline, "send_list", fake_send_list)
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+
+    base = {"task_type": "restaurant", "restaurant": "Aka", "time": "19:00", "name": "אלון"}
+    asyncio.run(pipeline.run_booking("pA", base))
+    assert lists == [["AKA נחלת בנימין", "AKA הרצליה"]]  # שורת ה-URL סוננה
+
+    # הלקוח עונה "Aka" — עדיין דו-משמעי → אותה רשימה שוב, בלי resolve נוסף
+    asyncio.run(pipeline.run_booking("pA", base))
+    assert len(resolves) == 1 and len(lists) == 2 and lists[1] == lists[0]
+
+    # בחירה (טאפ/טקסט) → ריצה ישירה עם ה-URL השמור, בלי resolve ובלי רשימה
+    asyncio.run(pipeline.run_booking("pA", {**base, "restaurant": "AKA נחלת בנימין"}))
+    assert books == ["u-nb"] and len(resolves) == 1 and len(lists) == 2
+    # retry אחרי הבחירה (שעה אחרת, שם קצר) — הסניף זכור דרך ה-cache, בלי רשימה
+    asyncio.run(pipeline.run_booking("pA", {**base, "restaurant": "AKA", "time": "21:00"}))
+    assert books == ["u-nb", "u-nb"] and len(resolves) == 1 and len(lists) == 2
 
 
 def test_list_rows_respects_meta_limits():
