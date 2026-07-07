@@ -350,6 +350,58 @@ def test_profile_name_carries_usage_hint():
     assert "אלון בזק" in block and "לטפסים" in block
 
 
+def test_exact_pick_wins_when_label_is_suffix_of_sibling(monkeypatch):
+    """נצפה חי (A.K.A מול Sid&Nancy By A.K.A): התווית שנבחרה היא סיפא של אחותה —
+    התאמת-הכלה תפסה את שתיהן והרשימה חזרה בלופ אינסופי. שוויון מלא (טאפ) מנצח."""
+    _reset()
+    lists, resolves, books = [], [], []
+
+    async def fake_send_list(phone, body, options, button="בחירה"):
+        lists.append(options)
+
+    async def fake_send_text(phone, msg):
+        pass
+
+    async def fake_resolve(name):
+        resolves.append(name)
+        return {
+            "status": "many",
+            "candidates": [
+                {
+                    "title": "A.K.A תל אביב-יפו: הזמנת מקום | אונטופו",
+                    "url": "u-aka",
+                    "platform": "ontopo",
+                },
+                {
+                    "title": "Sid&Nancy By A.K.A תל אביב-יפו: הזמנת מקום | אונטופו",
+                    "url": "u-sid",
+                    "platform": "ontopo",
+                },
+            ],
+        }
+
+    async def fake_book(**kwargs):
+        books.append(kwargs["page_url"])
+        return ActionResult(success=True, summary="SUMMARY_REACHED", details={})
+
+    async def fake_get_profile(phone):
+        return None
+
+    monkeypatch.setattr(pipeline, "send_list", fake_send_list)
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+
+    base = {"task_type": "restaurant", "restaurant": "aka", "time": "19:00", "name": "אלון"}
+    asyncio.run(pipeline.run_booking("pE", base))
+    assert len(lists) == 1  # רשימה עם שתי השורות
+
+    # טאפ על "A.K.A תל אביב-יפו" — למרות שהיא מוכלת באחות, הריצה יוצאת מיד
+    asyncio.run(pipeline.run_booking("pE", {**base, "restaurant": "A.K.A תל אביב-יפו"}))
+    assert books == ["u-aka"] and len(lists) == 1 and len(resolves) == 1
+
+
 def test_safe_label_enforces_character_rules_on_list_rows():
     """הרשימה היא שליחה מכנית שעוקפת את שומרי הפרסונה — כותרת צד-שלישי חייבת
     לעבור את חוקי הדמות: אימוג'י זר מסולק, טקסט חושף-אוטומציה פוסל את התווית."""

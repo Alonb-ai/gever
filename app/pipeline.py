@@ -490,10 +490,16 @@ async def run_booking(phone: str, fields: dict) -> None:
             waiting = None
         cached = _resolved.get(phone)
         picks = _pending_pick.get(phone) or {}
-        # שתי דרגות התאמה: הכלה מדויקת (טאפ על שורה / ציטוט הסניף) לפני מילת-מותג —
-        # אחרת "AKA נחלת בנימין" היה תואם את *כל* סניפי AKA והרשימה הייתה חוזרת.
+        # שלוש דרגות התאמה, מהחדה לרחבה — עוצרים בראשונה שתופסת:
+        # (1) שוויון מלא — טאפ על שורה מחזיר את התווית עצמה; חייב לנצח גם כשתווית
+        #     אחת היא סיפא של אחרת (נצפה חי: "A.K.A תל אביב-יפו" מוכל ב-"Sid&Nancy
+        #     By A.K.A תל אביב-יפו" — הכלה התאימה לשתיים והרשימה חזרה בלופ).
+        # (2) הכלה — הלקוח ציטט חלק מהשם ("נחלת בנימין").
+        # (3) מילת-מותג (_same_place) — רק אם היא מצביעה חד-משמעית.
         nn = " ".join(name.lower().split())
-        picked = [lbl for lbl in picks if nn and (nn in lbl.lower() or lbl.lower() in nn)]
+        picked = [lbl for lbl in picks if nn == " ".join(lbl.lower().split())]
+        if not picked:
+            picked = [lbl for lbl in picks if nn and (nn in lbl.lower() or lbl.lower() in nn)]
         if not picked:
             picked = [lbl for lbl in picks if _same_place(name, lbl)]
 
