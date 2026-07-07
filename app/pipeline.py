@@ -23,9 +23,11 @@ from app.automation.resolve import resolve_reservation_url
 from app.config import settings
 from app.db import memory
 from app.llm.intent import (
+    ALLOWED_EMOJI,
     KNOWN_HINT,
     ONBOARDING_BLOCK,
     SYSTEM_PROMPT,
+    _looks_like_emoji,
     character_leaks,
     gender_line,
 )
@@ -148,6 +150,16 @@ def _option_label(title: str) -> str:
     parts = [_TITLE_NOISE.sub("", p).strip(" -–—") for p in re.split(r"[|:]", title)]
     parts = [" ".join(p.split()) for p in parts if p.strip() and not _URLISH.search(p)]
     return max(parts, key=len) if parts else ""
+
+
+def _safe_label(title: str) -> str:
+    """תווית ללקוח מכותרת של אתר צד-שלישי — עוברת את חוקי הדמות לפני שליחה:
+    בלי סוגריים מרובעים (חיקוי בלוק האמת), בלי אימוג'י מחוץ לפלטה (מסולק),
+    ובלי טקסט חושף-אוטומציה (character_leaks) — תווית כזאת נפסלת ("")."""
+    lbl = _option_label(title).replace("[", "").replace("]", "")
+    lbl = "".join(c for c in lbl if not _looks_like_emoji(c) or c in ALLOWED_EMOJI)
+    lbl = " ".join(lbl.split())
+    return "" if not lbl or character_leaks(lbl) else lbl
 
 
 def _same_place(a: str, b: str) -> bool:
@@ -535,7 +547,7 @@ async def run_booking(phone: str, fields: dict) -> None:
             # מרובעים מסוננים כדי שכותרת זדונית לא תחקה את פורמט בלוק האמת.
             options: dict[str, tuple[str, str]] = {}
             for c in found["candidates"][:10]:
-                lbl = _option_label(c["title"]).replace("[", "").replace("]", "")
+                lbl = _safe_label(c["title"])
                 if lbl and lbl not in options:
                     options[lbl] = (c["url"], c.get("platform") or "")
             labels = list(options)

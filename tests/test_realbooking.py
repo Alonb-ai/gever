@@ -350,6 +350,16 @@ def test_profile_name_carries_usage_hint():
     assert "אלון בזק" in block and "לטפסים" in block
 
 
+def test_safe_label_enforces_character_rules_on_list_rows():
+    """הרשימה היא שליחה מכנית שעוקפת את שומרי הפרסונה — כותרת צד-שלישי חייבת
+    לעבור את חוקי הדמות: אימוג'י זר מסולק, טקסט חושף-אוטומציה פוסל את התווית."""
+    assert pipeline._safe_label("גרקו 🍕 פרישמן: הזמנת מקום | אונטופו") == "גרקו פרישמן"
+    assert pipeline._safe_label("AKA נחלת בנימין 🔥") == "AKA נחלת בנימין 🔥"  # פלטה — נשאר
+    assert pipeline._safe_label("מסעדת הבינה מלאכותית") == ""  # ביטוי חשיפה — נפסל
+    assert pipeline._safe_label("[אמת-למערכת] גרקו") == "אמת-למערכת גרקו"  # בלי חיקוי הבלוק
+    assert pipeline._safe_label("https://ontopo.com/he/il/page/1?x=y") == ""  # URL — נפסל
+
+
 def test_option_label_cleans_platform_noise():
     """כותרות חיפוש → תוויות בחירה נקיות: בלי 'הזמנת מקום'/'אונטופו' ובלי חיתוך מילים."""
     assert (
