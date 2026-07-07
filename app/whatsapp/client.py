@@ -49,11 +49,22 @@ async def send_typing(message_id: str | None) -> None:
 
 def _list_rows(options: list[str]) -> list[dict]:
     """אופציות → שורות interactive list. מגבלות Meta: עד 10 שורות, כותרת ≤24 תווים,
-    description ≤72 — שם ארוך נחתך בכותרת והמלא עובר ל-description."""
+    description ≤72. סניפים של אותה רשת חולקים רישא ("התאילנדית …") — חיתוך ב-24
+    היה מעלים את המיקום, המבדיל האמיתי בין השורות. לכן הכותרת היא החלק המבדיל
+    (הזנב אחרי הרישא המשותפת = המיקום) והשם המלא עובר ל-description."""
+    opts = options[:10]
+    strip = 0
+    if len(opts) > 1:
+        for words in zip(*(o.split() for o in opts)):
+            if len(set(words)) != 1:
+                break
+            strip += 1
     rows = []
-    for i, opt in enumerate(options[:10]):
-        row = {"id": str(i), "title": opt[:24]}
-        if len(opt) > 24:
+    for i, opt in enumerate(opts):
+        tail = " ".join(opt.split()[strip:])
+        title = (tail or opt)[:24]
+        row = {"id": str(i), "title": title}
+        if title != opt:
             row["description"] = opt[:72]
         rows.append(row)
     return rows

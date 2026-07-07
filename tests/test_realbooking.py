@@ -482,6 +482,25 @@ def test_list_rows_respects_meta_limits():
     assert "description" not in rows[1]  # שם קצר — בלי כפילות
 
 
+def test_list_rows_titles_show_distinguishing_location():
+    """סניפי רשת חולקים רישא — חיתוך ל-24 העלים את המיקום והשורות נראו זהות.
+    הכותרת = החלק המבדיל (המיקום), השם המלא ב-description."""
+    from app.whatsapp.client import _list_rows
+
+    rows = _list_rows(
+        [
+            "התאילנדית בסמטת סיני תל אביב-יפו",
+            "התאילנדית רמת החייל",
+            "התאילנדית הרצליה",
+        ]
+    )
+    assert [r["title"] for r in rows] == ["בסמטת סיני תל אביב-יפו", "רמת החייל", "הרצליה"]
+    assert rows[0]["description"] == "התאילנדית בסמטת סיני תל אביב-יפו"  # המלא נשמר לטאפ
+    # רישא משותפת שהיא כל האופציה — לא נשארים עם כותרת ריקה
+    rows = _list_rows(["AKA", "AKA הרצליה"])
+    assert rows[0]["title"] == "AKA" and rows[1]["title"] == "הרצליה"
+
+
 def test_webhook_routes_list_reply_as_text():
     """בחירה מהרשימה חוזרת ב-webhook כ-interactive → נכנסת לשיחה כטקסט (השם המלא)."""
     import app.main as main_mod
