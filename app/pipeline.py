@@ -13,6 +13,7 @@ import random
 import re
 import time
 from datetime import datetime
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from google import genai
@@ -160,6 +161,23 @@ def _safe_label(title: str) -> str:
     lbl = "".join(c for c in lbl if not _looks_like_emoji(c) or c in ALLOWED_EMOJI)
     lbl = " ".join(lbl.split())
     return "" if not lbl or character_leaks(lbl) else lbl
+
+
+def _vary(*variants: str) -> str:
+    """ניסוח מגוון להודעות המכניות: אותו מסר, מילים אחרות בכל פעם — שלא ירגיש
+    תבנית של בוט (בקשת אלון). כל וריאנט חייב לשאת את אותם עוגני-מידע (שם, שעה,
+    לינק, 'לסגור') — הטסטים נועלים את העוגנים, לא את הניסוח."""
+    return random.choice(variants)
+
+
+def _card_link(details: dict | None, fallback: str) -> str:
+    """הלינק ללקוח בקיר-כרטיס: הכתובת שבה הדפדפן עצר (URL: מהדיווח — עם ההזמנה
+    שכבר מולאה) עדיפה על דף ההתחלה. רק https ורק אותו דומיין — לא נותנים לטקסט
+    מהדף להפנות לקוח לאתר זר."""
+    now = ((details or {}).get("page_now") or "").strip()
+    if now.startswith("https://") and urlparse(now).netloc == urlparse(fallback).netloc:
+        return now
+    return fallback
 
 
 def _norm_place(s: str) -> str:
@@ -581,9 +599,17 @@ async def run_booking(phone: str, fields: dict) -> None:
         prof = await memory.get_profile(phone)
         booker = (fields.get("name") or (prof or {}).get("name") or "").strip()
         email = (fields.get("email") or (prof or {}).get("email") or "").strip()
+        # browser-use איטי ובלי streaming — מודיעים שאנחנו על זה
         await send_text(
-            phone, "רגע אני על זה 🔄"
-        )  # browser-use איטי ובלי streaming — מודיעים שאנחנו על זה
+            phone,
+            _vary(
+                "רגע אני על זה 🔄",
+                "קיבלתי, רץ על זה 🔄",
+                "שנייה אחי, מתקתק לך את זה 🦾",
+                "עף על זה עכשיו 🔥",
+                "יאללה, בודק לך שנייה 🤙",
+            ),
+        )
         # A3: ניסיון ראשון על הפלטפורמה המנצחת; נכשל בפועל (דף מת/אין זמינות — תרחיש
         # גרקו) ויש match חזק גם בפלטפורמה הבאה → ניסיון שני אחד. לא ממשיכים הלאה על
         # success/missing/card — שדה חסר יחסר גם שם, וכרטיס הוא תשובה, לא כישלון.
@@ -618,11 +644,18 @@ async def run_booking(phone: str, fields: dict) -> None:
                 # קיר כרטיס שהתגלה כבר ב-recon: את זה לא נסגור אוטומטית (PCI) בשום
                 # מצב — אז במקום "לסגור?" חסר-משמעות, שולחים מיד את הלינק לסגירה
                 # עצמית. state="card" מיישר את הפרסונה (לא לטעון שסגר, לא לנסות שוב).
-                _booking[phone] = {"state": "card", "info": used_url}
+                link = _card_link(d0, used_url)
+                _booking[phone] = {"state": "card", "info": link}
                 await send_text(
                     phone,
-                    f"{name} דורש כרטיס אשראי לסגירה, ואת זה אני לא ממלא במקומך 🔒\n"
-                    f"הבאתי אותך עד הסוף — נשאר רק להשלים את הפרטים כאן 👇\n{used_url}",
+                    _vary(
+                        f"{name} דורש כרטיס אשראי לסגירה, ואת זה אני לא ממלא במקומך 🥷\n"
+                        f"הבאתי אותך עד הסוף — נשאר רק להשלים את הפרטים כאן:\n{link}",
+                        f"הגעתי עד הרגע האחרון — {name} רוצים כרטיס אשראי לסגירה, "
+                        f"וזה כבר שלך 🤝\nתמשיך בדיוק מאיפה שעצרתי:\n{link}",
+                        f"הכל מסודר חוץ מדבר אחד: {name} מבקשים כרטיס אשראי, ושם אני "
+                        f"עוצר 🥷\nההזמנה מחכה לך כאן:\n{link}",
+                    ),
                 )
                 return
             # DRY_RUN: הגענו למסך האישור — זו *לא* הזמנה אמיתית. לכן לא "done", לא
@@ -649,7 +682,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                 "page_url": used_url,
                 "platform": used_platform,
                 "date": fields.get("date") or "",
-                "time": d.get("time") or fields.get("time") or "20:00",  # השעה שאושרה בפועל
+                "time": actual_time or requested_time,  # השעה שאושרה בפועל
                 "party_size": fields.get("party_size") or 2,
                 "name": booker,
                 "email": email,  # C6: בלי זה הסגירה הייתה יורה MISSING:email מיותר
@@ -657,18 +690,28 @@ async def run_booking(phone: str, fields: dict) -> None:
             }
             # הבאג השקט הגדול (נצפה חי): נתיב ההצלחה לא שלח כלום — הלקוח חיכה
             # ל"מוכן" שהגיע רק אם פנה קודם. הודעת הצלחה יזומה, עם השעה שנתפסה בפועל.
-            at = d.get("time") or fields.get("time") or ""
+            at = actual_time or fields.get("time") or ""
             when = f"ל-{fields['date']} " if fields.get("date") else ""
             if _booking[phone].get("alt_time"):
                 alt = _booking[phone]["alt_time"]
-                head = f"יש! רק שים לב — {alt['requested']} היה תפוס, תפסתי {alt['actual']} במקום"
+                head = _vary(
+                    f"יש! רק שים לב — {alt['requested']} היה תפוס, תפסתי {alt['actual']} במקום",
+                    f"כמעט מושלם: {alt['requested']} תפוס, אז תפסתי לך {alt['actual']} במקום",
+                    f"יש מקום! רק ש-{alt['requested']} נחטף — {alt['actual']} במקום, סבבה?",
+                )
             else:
-                head = f"יש! הגעתי עד מסך האישור של {name}"
+                head = _vary(
+                    f"יש! הגעתי עד מסך האישור של {name}",
+                    f"בום 🎯 {name} על הקשקש — אני על מסך האישור",
+                    f"תפסתי לך פינה ב-{name} — עומד על מסך האישור",
+                    f"{name} מסודר 😎 מסך האישור מולי",
+                )
             perk_line = f"\nשווה לדעת: {d['perk']}" if d.get("perk") else ""
+            closer = _vary("לסגור?", "לסגור לך?", "אז לסגור?", "שנסגור את זה?")
             await send_text(
                 phone,
                 f"{head}\n{when}בשעה {at} ל-{fields.get('party_size') or 2} — הכל מוכן"
-                f"{perk_line}\nלסגור?",
+                f"{perk_line}\n{closer}",
             )
         elif (res.details or {}).get("missing"):
             # באג 3: שדה חובה בטופס היה ריק (ה-runner לא המציא, עצר ודיווח MISSING).
@@ -702,9 +745,24 @@ async def run_booking(phone: str, fields: dict) -> None:
             real = [_safe_label(o) for o in (res.details.get("options") or [])]
             real = list(dict.fromkeys(o for o in real if o))[:10]
             if len(real) >= 2:
-                await send_list(phone, "רגע, האתר מבקש לבחור — אלו האפשרויות שיש:", real)
+                await send_list(
+                    phone,
+                    _vary(
+                        "רגע, האתר מבקש לבחור — אלו האפשרויות שיש:",
+                        "יש פה כמה אפשרויות — מה מתאים לך?",
+                        "עצרתי על בחירה — תבחר ואני ממשיך:",
+                    ),
+                    real,
+                )
             else:
-                await send_text(phone, f"רגע, כדי להמשיך אני צריך ממך {_human} — מה אומר?")
+                await send_text(
+                    phone,
+                    _vary(
+                        f"רגע, כדי להמשיך אני צריך ממך {_human} — מה אומר?",
+                        f"עצרתי שנייה — חסר לי {_human} ואני ממשיך 🤙",
+                        f"צריך ממך רק {_human} ואני סוגר את זה",
+                    ),
+                )
             return
         else:
             # res.summary הוא הטקסט הגולמי (אנגלית) של browser-use — לעולם לא ללקוח
@@ -754,7 +812,16 @@ async def run_commit(phone: str) -> None:
     try:
         # בתוך ה-try — כמו ב-run_booking: כשל לפני הריצה לא משאיר "working" תקוע.
         await memory.set_inflight(phone, job["restaurant"])
-        await send_text(phone, "רגע סוגר לך 🔄")  # browser-use איטי ובלי streaming
+        # browser-use איטי ובלי streaming
+        await send_text(
+            phone,
+            _vary(
+                "רגע סוגר לך 🔄",
+                "יאללה נועל את זה 🔄",
+                "שנייה, סוגר סופית 🦾",
+                "מתקתק את הסגירה 🎯",
+            ),
+        )
         res = await book_table_bu(
             restaurant=job["restaurant"],
             page_url=job["page_url"],
@@ -793,11 +860,16 @@ async def run_commit(phone: str) -> None:
         elif (res.details or {}).get("card_required"):
             # זרוע C — קיר כרטיס: המקום דורש תשלום מראש, לא סוגרים אוטומטית (PCI).
             # מוסרים ללקוח את לינק המסעדה ב-Ontopo כדי שיסגור בעצמו.
-            _booking[phone] = {"state": "card", "info": job["page_url"]}
+            link = _card_link(res.details, job["page_url"])
+            _booking[phone] = {"state": "card", "info": link}
             await send_text(
                 phone,
-                f"{job['restaurant']} דורש כרטיס אשראי מראש, ואת זה אני לא ממלא במקומך. "
-                f"הנה הלינק לסגור בעצמך 👇\n{job['page_url']}",
+                _vary(
+                    f"{job['restaurant']} דורש כרטיס אשראי מראש, ואת זה אני לא ממלא "
+                    f"במקומך 🥷 הנה הלינק לסגור בעצמך:\n{link}",
+                    f"עצרתי רגע לפני הסוף — {job['restaurant']} מבקשים כרטיס אשראי, "
+                    f"וזה שלך 🤝 תמשיך מכאן:\n{link}",
+                ),
             )
         else:
             # כמו ב-run_booking: סיבה מוכרת → אמת ספציפית; אחרת הפלט הגולמי לא

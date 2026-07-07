@@ -235,6 +235,7 @@ async def book_table_bu(
             "summary_reached": r.get("summary_reached"),
             "missing": r.get("missing"),
             "options": r.get("options") or [],
+            "page_now": r.get("page_now") or "",
             "failed": r.get("failed"),
             "time": r.get("time"),
             "perk": r.get("perk"),

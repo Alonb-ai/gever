@@ -47,6 +47,26 @@ async def send_typing(message_id: str | None) -> None:
         log.warning("send_typing failed: %s", exc)
 
 
+# כותרת שורה מוגבלת ל-24 תווים — קיצור מוכר עדיף על מילה חתוכה באמצע.
+_ABBREV = [("תל אביב-יפו", "ת״א"), ("תל אביב יפו", "ת״א"), ("תל אביב", "ת״א"), ("ירושלים", "י-ם")]
+
+
+def _fit_title(text: str, limit: int = 24) -> str:
+    """התאמת כותרת למגבלה בלי לחתוך מילה באמצע: קודם ראשי תיבות מוכרים (ת״א),
+    ואם עדיין ארוך — משמיטים מילים שלמות מהסוף. השם המלא ממילא ב-description."""
+    if len(text) <= limit:
+        return text
+    for full, ab in _ABBREV:
+        if full in text:
+            text = text.replace(full, ab)
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    if " " in cut:
+        cut = cut[: cut.rfind(" ")]
+    return cut.strip() or text[:limit]
+
+
 def _list_rows(options: list[str]) -> list[dict]:
     """אופציות → שורות interactive list. מגבלות Meta: עד 10 שורות, כותרת ≤24 תווים,
     description ≤72. סניפים של אותה רשת חולקים רישא ("התאילנדית …") — חיתוך ב-24
@@ -62,7 +82,7 @@ def _list_rows(options: list[str]) -> list[dict]:
     rows = []
     for i, opt in enumerate(opts):
         tail = " ".join(opt.split()[strip:])
-        title = (tail or opt)[:24]
+        title = _fit_title(tail or opt)
         row = {"id": str(i), "title": title}
         if title != opt:
             row["description"] = opt[:72]

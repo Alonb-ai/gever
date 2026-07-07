@@ -109,7 +109,9 @@ SUMMARY_REACHED / CARD_REQUIRED / BOOKED <אישור> / MISSING:<שדה> / FAILE
 
 כשהגעת למסך הסיכום, סיים את הדיווח במילה SUMMARY_REACHED ואחריה השעה שנבחרה
 בפועל (למשל: SUMMARY_REACHED 21:00). אם המסך דורש פרטי כרטיס אשראי כדי לסיים —
-הוסף גם את המילה CARD_REQUIRED."""
+הוסף גם את המילה CARD_REQUIRED, ובשורה שלפני שורת הסיום הוסף:
+URL: <הכתובת המלאה שבשורת הכתובת של הדפדפן עכשיו> — כדי שהלקוח יקבל לינק
+שמחזיר אותו בדיוק לנקודה שבה עצרת, לא לדף ההתחלה."""
     else:
         tail = """
 *** חוק ברזל — כרטיס אשראי: אם בשלב כלשהו האתר דורש פרטי כרטיס אשראי / תשלום מראש,
@@ -157,6 +159,11 @@ def _parse_result(final: str, *, commit: bool) -> dict:
         if ln.strip().startswith("OPTIONS:"):
             options = [o.strip()[:60] for o in ln.split("OPTIONS:", 1)[1].split("|") if o.strip()]
     options = options[:10]
+    # URL: הכתובת שבה הדפדפן עצר (קיר כרטיס) — לינק שמחזיר את הלקוח לנקודת העצירה.
+    page_now = ""
+    for ln in final.splitlines():
+        if ln.strip().startswith("URL:"):
+            page_now = ln.strip()[4:].strip()[:300]
     if commit:
         # BOOKED <אישור> = נסגר באמת; כרטיס/שדה-חסר/כישלון גוברים — לא נרשמת הזמנה.
         booked = "BOOKED" in last and not card and not missing and not failed
@@ -174,6 +181,7 @@ def _parse_result(final: str, *, commit: bool) -> dict:
             "time": chosen_time,
             "perk": perk,
             "options": options,
+            "page_now": page_now,
             "message": final,
         }
     # recon (dry_run): הצלחה = הגענו למסך הסיכום (SUMMARY_REACHED), בלי סגירה אמיתית.
@@ -190,6 +198,7 @@ def _parse_result(final: str, *, commit: bool) -> dict:
         "time": chosen_time,
         "perk": perk,
         "options": options,
+        "page_now": page_now,
         "message": final,
     }
 

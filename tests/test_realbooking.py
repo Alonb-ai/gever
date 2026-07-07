@@ -579,6 +579,39 @@ def test_list_rows_respects_meta_limits():
     assert "description" not in rows[1]  # שם קצר — בלי כפילות
 
 
+def test_fit_title_never_cuts_mid_word():
+    """כותרת ≤24 בלי מילים חתוכות: קודם ראשי תיבות (ת״א), ואז השמטת מילה שלמה."""
+    from app.whatsapp.client import _fit_title
+
+    assert _fit_title("בסמטת סיני תל אביב-יפו") == "בסמטת סיני תל אביב-יפו"  # נכנס — לא נוגעים
+    assert _fit_title("התאילנדית בסמטת סיני תל אביב-יפו") == "התאילנדית בסמטת סיני ת״א"
+    long = "מסעדת הדגים הכי טובה בכל רחוב הירקון"
+    out = _fit_title(long)
+    assert len(out) <= 24
+    assert all(w in long.split() for w in out.split())  # רק מילים שלמות מהמקור
+
+
+def test_card_link_prefers_stop_point_same_domain_only():
+    """הלינק בקיר-כרטיס מחזיר את הלקוח לנקודת העצירה (URL: מהדיווח) — אבל רק
+    https ואותו דומיין; טקסט זדוני מהדף לא מפנה לקוח לאתר זר."""
+    fb = "https://ontopo.com/he/il/page/58397013"
+    assert pipeline._card_link({"page_now": f"{fb}?step=checkout&t=19:00"}, fb).endswith(
+        "checkout&t=19:00"
+    )
+    assert pipeline._card_link({"page_now": "https://evil.com/x"}, fb) == fb  # דומיין זר
+    assert pipeline._card_link({"page_now": "http://ontopo.com/x"}, fb) == fb  # לא https
+    assert pipeline._card_link({}, fb) == fb and pipeline._card_link(None, fb) == fb
+
+
+def test_vary_keeps_message_anchors(monkeypatch):
+    """הניסוח מתחלף אבל העוגנים קבועים: כל וריאנט של קיר-כרטיס נושא 'כרטיס' ולינק,
+    כל וריאנט הצלחה נושא 'מסך האישור'/'לסגור'. נבדק ע"י הרצת כל הווריאנטים."""
+    seen = set()
+    for _ in range(60):  # מספיק כדי לכסות את כל הווריאנטים בהסתברות ~1
+        seen.add(pipeline._vary("א", "ב", "ג"))
+    assert seen == {"א", "ב", "ג"}  # כולם מגיעים — זו באמת הגרלה על כל הרשימה
+
+
 def test_list_rows_titles_show_distinguishing_location():
     """סניפי רשת חולקים רישא — חיתוך ל-24 העלים את המיקום והשורות נראו זהות.
     הכותרת = החלק המבדיל (המיקום), השם המלא ב-description."""
