@@ -11,7 +11,8 @@ RUN python -m venv /opt/bu-venv && \
     /opt/bu-venv/bin/pip install --no-cache-dir browser-use==0.13.1
 ENV BU_VENV_PATH=/opt/bu-venv/bin/python
 
-# תלויות ה-app (שכבה נפרדת לקאשינג)
+# תלויות + קוד ה-app. COPY app לפני ה-install מבטל את קאש השכבה בכל דיפלוי —
+# מקובל כרגע (build של דקות); אם יציק, לפצל התקנת תלויות לשכבה משלה.
 COPY pyproject.toml ./
 COPY app ./app
 RUN pip install --no-cache-dir .

@@ -9,6 +9,7 @@ Ontopo עד שלב האשראי — כולל קיר ה'המשך'/התנאים ש
 
 import asyncio
 import os
+from datetime import date, timedelta
 
 from dotenv import load_dotenv
 
@@ -26,13 +27,16 @@ CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 URL = "https://ontopo.com/he/il/page/22512632"  # הדסון לילינבלום
 
+# שישי הקרוב — תאריך קפוא בעבר הרג את ה-spike (האתר לא מציע ימים שחלפו)
+_FRIDAY = date.today() + timedelta(days=(4 - date.today().weekday()) % 7 or 7)
+
 TASK = f"""
 לך לכתובת {URL} (אתר הזמנות מסעדה Ontopo, בעברית).
-המטרה: להזמין שולחן ל-2 אנשים ביום שישי, 26 ביוני, בשעה 21:30.
+המטרה: להזמין שולחן ל-2 אנשים ביום שישי, {_FRIDAY.day}.{_FRIDAY.month}, בשעה 21:30.
 
 עבור את כל שלבי הווידג'ט בעצמך:
 1. בחר 2 סועדים.
-2. פתח את בורר התאריך ובחר את היום 26 (גלול בלוח אם צריך).
+2. פתח את בורר התאריך ובחר את היום {_FRIDAY.day} (גלול בלוח אם צריך).
 3. פתח את בורר השעה ובחר 21:30 (הרשימה גלילה — גלול עד שתמצא אותה).
 4. לחץ על הכפתור "מצאו לי שולחן".
 5. בחר אחת השעות הזמינות שמופיעות.

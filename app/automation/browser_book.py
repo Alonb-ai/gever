@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import time as _time
+import uuid
 
 import httpx
 
@@ -33,24 +34,21 @@ async def _run_subprocess(job: dict) -> None:
         env["GOOGLE_API_KEY"] = settings.gemini_api_key
     # ה-reasoning של ה-agent (browser-use מדפיס כל צעד: הערכה, זיכרון, מטרה הבאה)
     # נכתב לקובץ במקום להיזרק — ניתן לקריאה live (tail) וגם אחרי timeout/kill.
-    steps = open(job["steps_path"], "wb") if job.get("steps_path") else asyncio.subprocess.PIPE
-    proc = await asyncio.create_subprocess_exec(
-        settings.bu_venv_path,
-        _RUNNER,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=steps,
-        stderr=steps,
-        env=env,
-    )
-    try:
-        await asyncio.wait_for(proc.communicate(json.dumps(job).encode()), timeout=BU_TIMEOUT_S)
-    except asyncio.TimeoutError:
-        proc.kill()  # ponytail: הורג את ה-runner; browser-use סוגר את Chrome ביציאה
-        await proc.wait()
-        raise
-    finally:
-        if steps is not asyncio.subprocess.PIPE:
-            steps.close()
+    with open(job["steps_path"], "wb") as steps:
+        proc = await asyncio.create_subprocess_exec(
+            settings.bu_venv_path,
+            _RUNNER,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=steps,
+            stderr=steps,
+            env=env,
+        )
+        try:
+            await asyncio.wait_for(proc.communicate(json.dumps(job).encode()), timeout=BU_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            proc.kill()  # ponytail: הורג את ה-runner; browser-use סוגר את Chrome ביציאה
+            await proc.wait()
+            raise
 
 
 def _steps_tail(path: str, n: int = 2500) -> str:
@@ -153,7 +151,8 @@ async def book_table_bu(
     pause-resume: ריצה שנעצרה על MISSING משאירה את סשן ה-Browserbase חי (keepAlive),
     ו-details.session_id חוזר כדי שה-pipeline ישמור אותו. כשהלקוח עונה — resume עם
     אותו session_id ממשיך מאותו מסך (שניות במקום ניווט מחדש). סשן מת → ריצה טרייה."""
-    run_id = str(int(_time.time() * 1000))
+    # uuid ולא רק timestamp: שתי הזמנות מקבילות באותה ms דרסו זו את תוצאת זו ב-/tmp
+    run_id = f"{int(_time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
     # record_dir ריק = בלי הקלטה בכלל (פרודקשן). הבאג הישן: fallback ל-/tmp הדליק
     # וידאו+GIF בטעות — יצירת GIF מריצה של דקות תקעה את ה-runner הרבה אחרי שהדפדפן
     # סיים (שרת 2 ליבות), והלקוח לא קיבל תשובה. קובץ התוצאה תמיד נכתב (גם בלי הקלטה).

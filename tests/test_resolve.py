@@ -8,7 +8,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.automation import resolve  # noqa: E402
-from app.automation.ontopo import _match_restaurant  # noqa: E402
+from app.automation.resolve import _match_restaurant  # noqa: E402
 from app.automation.resolve import (  # noqa: E402
     _PAGE,
     _TABIT,

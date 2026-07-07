@@ -171,7 +171,7 @@ ALLOWED_EMOJI = {
 def character_leaks(reply: str) -> list[str]:
     """תופס שבירת-דמות בלבד (חשיפת AI/הוראות, אמוג'י זר). רשימה ריקה = בסדר."""
     low = reply.lower()
-    hits = [p for p in CHARACTER_LEAKS if p.lower() in low]
+    hits = [p for p in CHARACTER_LEAKS if p in low]  # הרשימה כבר באותיות קטנות
     bad_emoji = sorted({c for c in reply if _looks_like_emoji(c) and c not in ALLOWED_EMOJI})
     if bad_emoji:
         hits.append("emoji:" + "".join(bad_emoji))
@@ -181,7 +181,7 @@ def character_leaks(reply: str) -> list[str]:
 def _looks_like_emoji(ch: str) -> bool:
     """היוריסטיקה: טווחי האמוג'י הנפוצים (לא מושלם, מספיק להגנה)."""
     cp = ord(ch)
-    return 0x1F300 <= cp <= 0x1FAFF or 0x2600 <= cp <= 0x27BF or cp in (0x2705,)
+    return 0x1F300 <= cp <= 0x1FAFF or 0x2600 <= cp <= 0x27BF  # 0x2705 (✅) כבר בטווח
 
 
 def gender_line(gender: str | None) -> str:

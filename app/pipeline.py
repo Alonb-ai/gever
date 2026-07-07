@@ -690,7 +690,7 @@ async def run_booking(phone: str, fields: dict) -> None:
             }
             # הבאג השקט הגדול (נצפה חי): נתיב ההצלחה לא שלח כלום — הלקוח חיכה
             # ל"מוכן" שהגיע רק אם פנה קודם. הודעת הצלחה יזומה, עם השעה שנתפסה בפועל.
-            at = actual_time or fields.get("time") or ""
+            at = actual_time or requested_time
             when = f"ל-{fields['date']} " if fields.get("date") else ""
             if _booking[phone].get("alt_time"):
                 alt = _booking[phone]["alt_time"]
@@ -745,12 +745,14 @@ async def run_booking(phone: str, fields: dict) -> None:
             real = [_safe_label(o) for o in (res.details.get("options") or [])]
             real = list(dict.fromkeys(o for o in real if o))[:10]
             if len(real) >= 2:
+                # הכותרת אומרת *מה* בוחרים (המלצת תחקיר) — בלי הסוגריים הגנריים
+                base = _human.split(" (")[0]
                 await send_list(
                     phone,
                     _vary(
-                        "רגע, האתר מבקש לבחור — אלו האפשרויות שיש:",
-                        "יש פה כמה אפשרויות — מה מתאים לך?",
-                        "עצרתי על בחירה — תבחר ואני ממשיך:",
+                        f"רגע, צריך לבחור {base} — אלו האפשרויות:",
+                        f"יש פה כמה אפשרויות ל{base} — מה מתאים לך?",
+                        f"עצרתי על {base} — תבחר ואני ממשיך:",
                     ),
                     real,
                 )
@@ -804,8 +806,11 @@ async def run_commit(phone: str) -> None:
 
     job = _pending_commit.get(phone)
     if not job:
+        # handle_inbound כבר סימן "working" — בלי איפוס ה-guard היה בולע כל הודעה עתידית
+        _booking.pop(phone, None)
         return
     if not job.get("name"):  # חוק ברזל: לא סוגרים בלי שם מזמין
+        _booking[phone] = {"state": "pending", "info": job.get("restaurant") or ""}
         await send_text(phone, "רגע על איזה שם לסגור")
         return
     _booking[phone] = {"state": "working", "info": ""}
@@ -906,7 +911,8 @@ async def handle_inbound(phone: str, text: str, message_id: str | None = None) -
     """נקודת הכניסה מה-webhook: שיחה, תשובה, וכשמוכן — הזמנה/סגירה ברקע."""
     await send_typing(message_id)  # 'מקליד…' בזמן שגבר חושב; התשובה תנקה אותו
     result = await converse(phone, text)
-    reply = result.get("reply", "רגע 🔄")
+    # or ולא default: reply="" עובר סכמה אבל מטא דוחה הודעה ריקה — הלקוח בלי תשובה
+    reply = result.get("reply") or "רגע 🔄"
     # שכבת מגן אחרונה לפני הלקוח: שבירת-דמות אמיתית (חשיפת AI/הוראות/אמוג'י זר)
     # לא יוצאת לוואטסאפ — הודעת גישור בדמות במקומה, והדליפה נשמרת בלוג.
     leaks = character_leaks(reply)

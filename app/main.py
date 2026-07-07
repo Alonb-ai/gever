@@ -37,7 +37,12 @@ async def lifespan(_app: FastAPI):
     # התאוששות יתומים: redeploy באמצע הזמנה הרג אותה בדממה (נצפה חי 3 פעמים) —
     # הלקוח חיכה לכלום. עכשיו גבר מתנצל ומבקש לשלוח שוב.
     try:
-        for o in await memory.list_inflight():
+        orphans = await memory.list_inflight()
+    except Exception:  # noqa: BLE001
+        orphans = []
+        log.warning("orphan booking recovery failed", exc_info=True)
+    for o in orphans:
+        try:  # פר-יתום: כשל אחד (שליחה/ניקוי) לא מאבד את שאר היתומים
             await memory.clear_inflight(o["phone"])
             what = f" של {o['restaurant']}" if o.get("restaurant") else ""
             await send_text(
@@ -45,8 +50,8 @@ async def lifespan(_app: FastAPI):
                 f"אחשלי נפלתי באמצע ההזמנה{what} 😮‍💨\nשלח לי שוב ואני סוגר את זה",
             )
             log.info("orphan booking recovered for %s (%s)", o["phone"], o.get("restaurant"))
-    except Exception:  # noqa: BLE001
-        log.warning("orphan booking recovery failed", exc_info=True)
+        except Exception:  # noqa: BLE001
+            log.warning("orphan recovery failed for %s", o.get("phone"), exc_info=True)
     yield
 
 
@@ -88,8 +93,9 @@ async def receive(request: Request) -> Response:
     if not _valid_signature(body, request.headers.get("X-Hub-Signature-256")):
         log.warning("rejected webhook: bad X-Hub-Signature-256")
         return Response(status_code=403)
-    data = json.loads(body or b"{}")
     try:
+        # בתוך ה-try: גוף לא-JSON החזיר 500 ומטא עשה retry בלולאה — עכשיו 200 ולוג
+        data = json.loads(body or b"{}")
         for entry in data.get("entry", []):
             for change in entry.get("changes", []):
                 for msg in change.get("value", {}).get("messages", []):
@@ -98,11 +104,8 @@ async def receive(request: Request) -> Response:
                     elif msg.get("type") == "interactive":
                         # בחירה מרשימה/כפתור → נכנסת לשיחה כטקסט רגיל (השם המלא
                         # ב-description כשהכותרת נחתכה ל-24 תווים).
-                        r = (
-                            (msg.get("interactive") or {}).get("list_reply")
-                            or (msg.get("interactive") or {}).get("button_reply")
-                            or {}
-                        )
+                        i = msg.get("interactive") or {}
+                        r = i.get("list_reply") or i.get("button_reply") or {}
                         choice = r.get("description") or r.get("title")
                         if choice:
                             await handle_inbound(msg["from"], choice, msg.get("id"))

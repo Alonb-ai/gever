@@ -15,7 +15,6 @@ import urllib.parse
 
 import httpx
 
-from app.automation.ontopo import _is_listing, _match_restaurant
 from app.config import settings
 
 BRAVE = "https://api.search.brave.com/res/v1/web/search"
@@ -35,6 +34,57 @@ _PLATFORMS: list[tuple[str, re.Pattern, str]] = [
 
 def _clean(t: str) -> str:
     return html.unescape(_TAG.sub("", t)).strip()
+
+
+# --- דיסאמביגואציה לפי כותרת (הועבר מ-ontopo.py — הצרכן היחיד הוא ה-resolver) ---
+
+
+def _norm(s: str) -> str:
+    return "".join(ch for ch in s.lower().strip() if ch.isalnum() or ch == " ")
+
+
+# מילות-מפתח שמסמנות דיל/רשימה/שובר ולא את דף ההזמנה האמיתי של המסעדה
+_LISTING_WORDS = ("ארוחת", "טעימות", "דיל", "מבצע", "כרטיס", "שובר", "חבילת", "זוגית", "גיפט")
+
+
+def _is_listing(title: str) -> bool:
+    """True אם הכותרת היא דיל/שובר/חבילה ולא דף הזמנה אמיתי של מסעדה."""
+    return any(w in title for w in _LISTING_WORDS)
+
+
+# מילות-רעש שאינן מבחינות בין סניפים (שם האתר וכו') — מותר שיופיעו בכותרת "נקייה".
+_NOISE_WORDS = {"ontopo"}
+
+
+def _is_clean_name(req: str, title: str) -> bool:
+    """True אם הכותרת היא השם המבוקש ללא מילים מבחינות — כלומר דף ההזמנה הראשי
+    ("<שם> - Ontopo"), להבדיל מסניף אמיתי ("הדסון לילינבלום") שמוסיף מילה.
+    req ו-title שניהם מנורמלים (_norm)."""
+    req_words = set(req.split())
+    extra = [w for w in title.split() if w not in req_words]
+    return all(w in _NOISE_WORDS for w in extra)
+
+
+def _match_restaurant(requested: str, candidates: list[str]) -> tuple[str, str | None, list[str]]:
+    """דיסאמביגואציה (שם->URL). status: one|many|none."""
+    req = _norm(requested)
+    req_words = [w for w in req.split() if len(w) >= 2]
+    good = []
+    for c in candidates:
+        nc = _norm(c)
+        if req and (req in nc or nc in req or (req_words and all(w in nc for w in req_words))):
+            good.append(c)
+    if len(good) == 1:
+        return "one", good[0], good
+    if len(good) > 1:
+        # מעדיפים את דף ההזמנה האמיתי: כותרת שהיא בדיוק השם המבוקש, או השם +
+        # רעש בלבד (כמו "Ontopo"). וריאציות עם מילים מבחינות (סניפים אמיתיים
+        # כמו "הדסון לילינבלום") אינן "נקיות" וישארו לשאלת הבהרה.
+        clean = [c for c in good if _is_clean_name(req, _norm(c))]
+        if len(clean) == 1:
+            return "one", clean[0], clean
+        return "many", None, good
+    return "none", None, good
 
 
 # og:title מופיע בדפי Ontopo גם כ-meta-tag וגם בתוך JSON מוטמע — הרגקס תופס את שניהם.
@@ -106,9 +156,9 @@ def _from_brave(data: dict) -> list[dict]:
     return out
 
 
-async def search_reservation(name: str, city: str = "") -> list[dict]:
+async def search_reservation(name: str) -> list[dict]:
     """[{title, url, platform}] של דפי הזמנה (Ontopo/Tabit) התואמים לשאילתה (deduped)."""
-    query = " ".join(p for p in [name, city, "הזמנת מקום"] if p)
+    query = f"{name} הזמנת מקום"
     if settings.brave_api_key:
         async with httpx.AsyncClient(timeout=20) as http:
             # בלי country: ישראל לא ב-enum של Brave (422, נבדק חי) — השאילתה העברית
@@ -130,14 +180,14 @@ async def search_reservation(name: str, city: str = "") -> list[dict]:
     return _parse_results(resp.text)
 
 
-async def resolve_reservation_url(name: str, city: str = "") -> dict:
+async def resolve_reservation_url(name: str) -> dict:
     """
     מחזיר {'status': one|many|none, 'url', 'platform', 'candidates', 'fallback'}.
     one → url מוכן, ו-fallback = match חזק מהפלטפורמה הבאה בתור (לניסיון שני אם
     ההזמנה נכשלת בפועל — תרחיש גרקו: דף Ontopo שפג עם כותרת מושלמת); many → לשאול
     את המשתמש; none → לא נמצא. הפלטפורמה הראשונה עם match חזק מכריעה.
     """
-    candidates = await search_reservation(name, city)
+    candidates = await search_reservation(name)
     await _real_titles(candidates)  # כותרות-URL → השם האמיתי מהדף, לפני כל התאמה
     primary, fallback = None, None
     for platform, _, _ in _PLATFORMS:
