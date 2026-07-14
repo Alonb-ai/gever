@@ -47,7 +47,7 @@ async def lifespan(_app: FastAPI):
             what = f" של {o['restaurant']}" if o.get("restaurant") else ""
             await send_text(
                 o["phone"],
-                f"אחשלי נפלתי באמצע ההזמנה{what} 😮‍💨\nשלח לי שוב ואני סוגר את זה",
+                f"סורי נפלתי באמצע ההזמנה{what} 😮‍💨\nעוד הודעה אחת ממך ואני סוגר את זה",
             )
             log.info("orphan booking recovered for %s (%s)", o["phone"], o.get("restaurant"))
         except Exception:  # noqa: BLE001
