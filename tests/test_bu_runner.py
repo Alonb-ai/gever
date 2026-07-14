@@ -259,6 +259,18 @@ def test_parse_result_seats_with_card_wall_marker():
     assert r["page_now"] == "https://x/checkout"
 
 
+def test_parse_result_mixed_markers_live_iter1_regression():
+    """רגרסיה חיה (איטרציה 1, פלאנט ראשל"צ): ה-agent ערבב שני markers בשורת הסיום —
+    'SUMMARY_REACHED 19:30 | שורה 5 מושבים 7,8 / MISSING:last_name'. MISSING חייב
+    לנצח (success=False, השדה נקלט), וה-seats נחלץ נקי בלי זנב ה-marker."""
+    final = "הגעתי לטופס הפרטים.\nSUMMARY_REACHED 19:30 | שורה 5 מושבים 7,8 / MISSING:last_name"
+    r = _parse_result(final, commit=False)
+    assert r["success"] is False
+    assert r["missing"] == "last_name"
+    assert r["time"] == "19:30"
+    assert r["seats"] == "שורה 5 מושבים 7,8"
+
+
 def test_parse_result_no_pipe_means_no_seats_restaurant_regression():
     """מסעדות לא פולטות | בשורת הסיום — seats ריק, שום שדה אחר לא זז."""
     r = _parse_result("SUMMARY_REACHED 21:00", commit=False)

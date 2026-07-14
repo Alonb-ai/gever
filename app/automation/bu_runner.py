@@ -190,10 +190,12 @@ MISSING:<שם הבחירה באנגלית>, למשל MISSING:format / MISSING:la
 {_PERK_BLOCK}
 
 בסוף הדיווח ציין מה נבחר בפועל (סניף, הקרנה, פורמט, מושבים), ואז את שורת הסיום —
-תמיד השורה האחרונה של הדיווח, באותיות גדולות בדיוק:
-SUMMARY_REACHED <שעת ההקרנה שנבחרה> | <תיאור מושבים קצר> / CARD_REQUIRED /
-BOOKED <אישור> / MISSING:<שדה> / FAILED:<סיבה>. למשל:
-SUMMARY_REACHED 21:30 | שורה 7 מושבים 11,12
+תמיד השורה האחרונה של הדיווח, באותיות גדולות בדיוק, ובה *אחת בלבד* מהצורות:
+SUMMARY_REACHED <שעת ההקרנה שנבחרה> | <תיאור מושבים קצר> (למשל:
+SUMMARY_REACHED 21:30 | שורה 7 מושבים 11,12), או CARD_REQUIRED, או
+BOOKED <אישור>, או MISSING:<שדה>, או FAILED:<סיבה>.
+עצרת על שדה חסר או כישלון — שורת הסיום היא MISSING:<שדה> או FAILED:<סיבה>
+לבדה, בלי SUMMARY_REACHED לפניה, גם אם כבר הגעת למסך מתקדם.
 אל תשתמש במילים האלה בשום מקום אחר בדיווח.
 """
     # בקולנוע קיר התשלום הוא הסוף הטבעי תמיד — מסך התשלום הוא מסך הסיכום.
@@ -223,11 +225,14 @@ def _parse_result(final: str, *, commit: bool) -> dict:
     m = re.search(r"\b(\d{1,2}:\d{2})\b", last)
     chosen_time = m.group(1) if m else ""
     # קולנוע: תיאור המושבים אחרי | בשורת הסיום (SUMMARY_REACHED 21:30 | שורה 7 ...).
-    # CARD_REQUIRED יכול להופיע אחרי המושבים באותה שורה (חוזה ה-recon) — מנקים אותו.
+    # כל marker שהודבק אחרי המושבים נחתך: CARD_REQUIRED לפי חוזה ה-recon, ו-MISSING/
+    # FAILED/BOOKED כהגנה על agent שערבב markers בשורה אחת (נצפה חי באיטרציה 1:
+    # "... | שורה 5 מושבים 7,8 / MISSING:last_name") — התיאור ללקוח נשאר נקי.
     # מסעדות לא פולטות | בשורת הסיום — נשאר ריק, אין רגרסיה.
     seats = ""
     if "|" in last:
-        seats = last.split("|", 1)[1].replace("CARD_REQUIRED", "").strip(" :–-.")[:120]
+        seats = re.split(r"CARD_REQUIRED|MISSING:|FAILED:|BOOKED", last.split("|", 1)[1])[0]
+        seats = seats.strip(" :–-./")[:120]
     # PERK: פרטים ששווים ללקוח (הנחה/מבצע/מגבלה) שה-agent ראה בדף — עוברים להודעה.
     perks = [
         ln.split("PERK:", 1)[1].strip().replace("[", "").replace("]", "")[:120]
