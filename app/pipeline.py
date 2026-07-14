@@ -164,14 +164,19 @@ def _option_label(title: str) -> str:
     return max(parts, key=len) if parts else ""
 
 
-def _safe_label(title: str) -> str:
-    """תווית ללקוח מכותרת של אתר צד-שלישי — עוברת את חוקי הדמות לפני שליחה:
-    בלי סוגריים מרובעים (חיקוי בלוק האמת), בלי אימוג'י מחוץ לפלטה (מסולק),
-    ובלי טקסט חושף-אוטומציה (character_leaks) — תווית כזאת נפסלת ("")."""
-    lbl = _option_label(title).replace("[", "").replace("]", "")
+def _safe_option(s: str) -> str:
+    """אכיפת חוקי הדמות על טקסט מהדף לפני שליחה ללקוח: בלי סוגריים מרובעים (חיקוי
+    בלוק האמת), בלי אימוג'י מחוץ לפלטה, ובלי טקסט חושף-אוטומציה — נפסל ("").
+    בלי פירוק-כותרת: פיצול על ':' הפך '19:30' ל-'19' (נתפס בטסט החלופות)."""
+    lbl = s.replace("[", "").replace("]", "")
     lbl = "".join(c for c in lbl if not _looks_like_emoji(c) or c in ALLOWED_EMOJI)
     lbl = " ".join(lbl.split())
     return "" if not lbl or character_leaks(lbl) else lbl
+
+
+def _safe_label(title: str) -> str:
+    """תווית ללקוח מכותרת תוצאת-חיפוש: פירוק רעשי פלטפורמה + חוקי הדמות."""
+    return _safe_option(_option_label(title))
 
 
 def _vary(*variants: str) -> str:
@@ -882,11 +887,39 @@ async def run_booking(phone: str, fields: dict) -> None:
                 # נצפה חי (replay): האתר כפה בחירת אזור ישיבה — לא בוחרים בשביל הלקוח
                 "seating_area": "העדפת ישיבה (בפנים / בחוץ / בר)",
                 "seating": "העדפת ישיבה (בפנים / בחוץ / בר)",
+                # השעה המבוקשת תפוסה והדף מציע אחרות — הצעה במקום "לא מצאתי" (בקשת אלון)
+                "time": "שעה",
             }.get(field, field)
             # UX (בקשת אלון): האופציות *האמיתיות* מהדף במקום שאלה גנרית — רשימת
             # בחירה בטאפ; התשובה חוזרת כטקסט מדויק שה-agent ימצא בדף אחד-לאחד.
-            real = [_safe_label(o) for o in (res.details.get("options") or [])]
+            # _safe_option ולא _safe_label — אופציה היא טקסט-דף, לא כותרת חיפוש.
+            real = [_safe_option(o) for o in (res.details.get("options") or [])]
             real = list(dict.fromkeys(o for o in real if o))[:10]
+            requested_time = (fields.get("time") or "").strip()
+            if field == "time" and real and requested_time:
+                # השעה שביקש תפוסה אבל יש חלופות אמיתיות — מציעים לסגור, לא "נכשלתי":
+                # חלופה אחת = שאלת סגירה ישירה; כמה = רשימת טאפ. עוגנים: השעה המבוקשת,
+                # החלופות, ו"לסגור". הבחירה חוזרת כטקסט וממשיכה באותו סשן (resume).
+                if len(real) == 1:
+                    await _send_and_record(
+                        phone,
+                        _vary(
+                            f"ה-{requested_time} תפוס, אבל {real[0]} פנוי — לסגור?",
+                            f"אין {requested_time} 😮‍💨 יש {real[0]} — לסגור לך?",
+                            f"{requested_time} נחטף, {real[0]} כן פנוי. לסגור אותו?",
+                        ),
+                    )
+                else:
+                    await _send_list_and_record(
+                        phone,
+                        _vary(
+                            f"ה-{requested_time} תפוס 😮‍💨 אלו השעות שכן פנויות — לסגור אחת?",
+                            f"אין {requested_time}, אבל יש חלופות פנויות — איזו לסגור?",
+                            f"{requested_time} נחטף. מה שכן פנוי — בחירה שלך ואני סוגר:",
+                        ),
+                        real,
+                    )
+                return
             if len(real) >= 2:
                 # הכותרת אומרת *מה* בוחרים (המלצת תחקיר) — בלי הסוגריים הגנריים
                 base = _human.split(" (")[0]
