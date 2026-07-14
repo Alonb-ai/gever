@@ -254,20 +254,40 @@ def _failure_reply(reason: str | None, name: str) -> tuple[str, str] | None:
     """FAILED:<סיבה> מה-agent → (info ל-truth_note, הודעה ללקוח עם המלצת המשך).
     רק סיבות מוכרות — לא טקסט חופשי של ה-agent לבלוק האמת. משותף ל-booking ול-commit."""
     reason = (reason or "").lower()
+    # ה-info (הצד השמאלי) קבוע — הוא נכנס ל-truth_note; רק ההודעה ללקוח מגוונת.
     table = {
         "no_availability": (
             "אין מקום פנוי במועד שביקש",
-            f"בדקתי — ל'{name}' אין מקום פנוי במועד הזה 🔄\n"
-            "יום או שעה אחרת? או שאמצא משהו אחר באזור",
+            _vary(
+                f"בדקתי — ל'{name}' אין מקום פנוי במועד הזה 🔄\n"
+                "יום או שעה אחרת? או שאמצא משהו אחר באזור",
+                f"חיפשתי, אבל ב'{name}' אין מקום פנוי במועד הזה 🫠\n"
+                "משנים שעה או יום? או שאציע משהו דומה באזור",
+                f"'{name}' מפוצץ — אין מקום פנוי בזמן הזה 😮‍💨\n"
+                "רוצה לנסות מועד אחר, או שאמצא מקום אחר?",
+            ),
         ),
         "closed": (
             "המקום סגור / לא פעיל",
-            f"נראה ש'{name}' סגור — האתר לא מקבל הזמנות בכלל\nרוצה שאבדוק סניף אחר או מקום אחר?",
+            _vary(
+                f"נראה ש'{name}' סגור — האתר לא מקבל הזמנות בכלל\n"
+                "רוצה שאבדוק סניף אחר או מקום אחר?",
+                f"חדשות פחות טובות: '{name}' סגור לפי מה שאני רואה, אין שם הזמנות\n"
+                "בודק סניף אחר? או משהו אחר באזור?",
+                f"'{name}' סגור כרגע — המערכת שלהם לא מקבלת הזמנות\n"
+                "יש סניף אחר שמתאים, או שנלך על מקום אחר?",
+            ),
         ),
         "no_online_booking": (
             "המקום לא מקבל הזמנות אונליין",
-            f"'{name}' לא מקבלים הזמנות אונליין\n"
-            "שווה להתקשר אליהם ישירות, או שאמצא מקום שכן נסגר אונליין",
+            _vary(
+                f"'{name}' לא מקבלים הזמנות אונליין\n"
+                "שווה להתקשר אליהם ישירות, או שאמצא מקום שכן נסגר אונליין",
+                f"אין ל'{name}' הזמנות אונליין — אצלם זה רק בטלפון\n"
+                "אפשר להתקשר אליהם, או שאחפש מקום שכן סוגרים אונליין",
+                f"'{name}' מהאסכולה הישנה — בלי אונליין בכלל\n"
+                "טלפון אליהם יעבוד, או שאמצא מקום שנסגר אונליין",
+            ),
         ),
     }
     for key, pair in table.items():
@@ -538,12 +558,26 @@ async def run_booking(phone: str, fields: dict) -> None:
     task_type = fields.get("task_type") or "restaurant"
     if task_type != "restaurant":
         _booking[phone] = {"state": "failed", "info": "לא נתמך עדיין"}
-        await _send_and_record(phone, "זה לא משהו שאני סוגר אוטומטית עדיין, אבל אני פה.")
+        await _send_and_record(
+            phone,
+            _vary(
+                "זה לא משהו שאני סוגר אוטומטית עדיין, אבל אני פה.",
+                "את זה אני עדיין לא סוגר לבד — אבל לכל השאר אני פה.",
+                "עדיין לא הגעתי לסגור דברים כאלה, אבל אני איתך על כל השאר.",
+            ),
+        )
         return
     if not name:
         # הגנה: המודל ירה ready=True בלי שם מסעדה (קצה) — לא יורים הזמנה ריקה
         _booking.pop(phone, None)
-        await _send_and_record(phone, "רגע לאיזו מסעדה אנחנו סוגרים")
+        await _send_and_record(
+            phone,
+            _vary(
+                "רגע לאיזו מסעדה אנחנו סוגרים",
+                "רגע, פספסתי — לאיזו מסעדה?",
+                "רק חסר לי שם של מסעדה ואני יוצא לדרך",
+            ),
+        )
         return
     _booking[phone] = {"state": "working", "info": name}
     log.info(
@@ -621,7 +655,14 @@ async def run_booking(phone: str, fields: dict) -> None:
                 }
         if found["status"] == "none":
             _booking[phone] = {"state": "none", "info": name}
-            await _send_and_record(phone, f"לא מצאתי איפה מזמינים מקום ל'{name}'. יש שם אחר?")
+            await _send_and_record(
+                phone,
+                _vary(
+                    f"לא מצאתי איפה מזמינים מקום ל'{name}' — יש אולי שם אחר או איות אחר?",
+                    f"חיפשתי ולא מצאתי איפה סוגרים ל'{name}'. אולי זה כתוב קצת אחרת?",
+                    f"'{name}' לא עולה לי בשום מקום — לא מצאתי איפה מזמינים. שם מדויק יותר?",
+                ),
+            )
             return
         if found["status"] == "many":
             # תוויות נקיות (בלי רעשי פלטפורמה ובלי חיתוך באמצע מילה); סוגריים
@@ -636,12 +677,34 @@ async def run_booking(phone: str, fields: dict) -> None:
             _booking[phone] = {"state": "ambiguous", "info": " / ".join(labels)}
             if len(labels) >= 2:
                 # רשימת בחירה אמיתית של וואטסאפ — טאפ אחד במקום להקליד שם סניף
-                await _send_list_and_record(phone, "יש כמה כאלה — איזה מהם?", labels)
+                await _send_list_and_record(
+                    phone,
+                    _vary(
+                        "יש כמה כאלה — איזה מהם?",
+                        "מצאתי כמה כאלה — מה הכיוון?",
+                        "יש פה כמה אופציות כאלה — איזו בדיוק?",
+                    ),
+                    labels,
+                )
             elif labels:
-                await _send_and_record(phone, f"יש כמה כאלה — לאיזה? {labels[0]}")
+                await _send_and_record(
+                    phone,
+                    _vary(
+                        f"יש כמה כאלה — לאיזה? {labels[0]}",
+                        f"מצאתי כמה, הכי קרוב זה {labels[0]} — זה?",
+                        f"עלו כמה תוצאות — הכוונה ל{labels[0]}?",
+                    ),
+                )
             else:
                 # כל הכותרות היו URL-ים (אין שם אנושי להציג) — שאלה חופשית במקום רשימת זבל
-                await _send_and_record(phone, f"יש כמה סניפים של {name} — איזה סניף או איזו עיר?")
+                await _send_and_record(
+                    phone,
+                    _vary(
+                        f"יש כמה סניפים של {name} — איזה סניף או איזו עיר?",
+                        f"ל{name} יש כמה סניפים — איזה מהם, או לפחות באיזו עיר?",
+                        f"{name} זה כמה סניפים — איזה סניף מתאים, או איזו עיר?",
+                    ),
+                )
             return
 
         # פרטי קשר: מהשיחה, ואם אין — מהפרופיל. הטלפון = הוואטסאפ בפורמט ישראלי (0...).
@@ -670,7 +733,14 @@ async def run_booking(phone: str, fields: dict) -> None:
         res = None
         for i, (url, plat) in enumerate(attempts):
             if i:
-                await _send_and_record(phone, "הנתיב הראשון לא הלך, מנסה דרך אחרת 🔄")
+                await _send_and_record(
+                    phone,
+                    _vary(
+                        "הנתיב הראשון לא הלך, מנסה דרך אחרת 🔄",
+                        "הכיוון הראשון נסתם — הולך על דרך אחרת 🔄",
+                        "זה לא תפס שם, מנסה דרך אחרת 🔄",
+                    ),
+                )
             used_url, used_platform = url, plat
             res = await book_table_bu(
                 restaurant=name,
@@ -759,10 +829,11 @@ async def run_booking(phone: str, fields: dict) -> None:
                     f"{name} מסודר 😎 מסך האישור מולי",
                 )
             perk_line = f"\nשווה לדעת: {d['perk']}" if d.get("perk") else ""
+            ready_word = _vary("הכל מוכן", "מוכן אצלי", "הכל ערוך ומוכן")
             closer = _vary("לסגור?", "לסגור לך?", "אז לסגור?", "שנסגור את זה?")
             await _send_and_record(
                 phone,
-                f"{head}\n{when}בשעה {at} ל-{fields.get('party_size') or 2} — הכל מוכן"
+                f"{head}\n{when}בשעה {at} ל-{fields.get('party_size') or 2} — {ready_word}"
                 f"{perk_line}\n{closer}",
             )
         elif (res.details or {}).get("missing"):
@@ -831,7 +902,11 @@ async def run_booking(phone: str, fields: dict) -> None:
             _booking[phone] = {"state": "failed", "info": "", "debug": res.summary}
             await _send_and_record(
                 phone,
-                f"לא הצלחתי לסגור את '{name}' כרגע 🔄 רוצה שאנסה שוב או שנלך על מקום אחר?"
+                _vary(
+                    f"לא הצלחתי לסגור את '{name}' כרגע 🔄 רוצה שאנסה שוב או שנלך על מקום אחר?",
+                    f"'{name}' לא הסתדר לי הפעם 🫠 עוד ניסיון, או שמחליפים מקום?",
+                    f"משהו שם לא זרם — לא סגרתי את '{name}' 🔄 מנסה שוב או הולכים על כיוון אחר?",
+                )
                 + _error_detail(d.get("error"), session_id=d.get("session_id")),
             )
     except asyncio.TimeoutError:
@@ -839,12 +914,25 @@ async def run_booking(phone: str, fields: dict) -> None:
         _booking[phone] = {"state": "failed", "info": "נתקע (timeout)"}
         await _send_and_record(
             phone,
-            "זה נתקע לי, לקח יותר מדי. ננסה שוב?" + _error_detail(f"timeout אחרי {BU_TIMEOUT_S}s"),
+            _vary(
+                "זה נתקע לי, לקח יותר מדי זמן 🫠 ננסה שוב?",
+                "נתקע לי באמצע — יותר מדי זמן בלי תזוזה. עוד ניסיון?",
+                "האתר נתקע לי והזמן ברח 😮‍💨 ננסה עוד פעם?",
+            )
+            + _error_detail(f"timeout אחרי {BU_TIMEOUT_S}s"),
         )
     except Exception as e:
         log.exception("booking failed for %s", phone)
         _booking[phone] = {"state": "failed", "info": "חריגה באמצע"}
-        await _send_and_record(phone, "נתקעתי באמצע, לא הצלחתי לסגור. ננסה שוב?" + _error_detail(e))
+        await _send_and_record(
+            phone,
+            _vary(
+                "נתקעתי באמצע, לא הצלחתי לסגור. ננסה שוב?",
+                "נתקעתי שם ולא סגרתי 🫠 עוד ניסיון?",
+                "משהו השתבש לי באמצע — נתקעתי בלי לסגור. ננסה שוב?",
+            )
+            + _error_detail(e),
+        )
     finally:
         await memory.clear_inflight(phone)
         log.info("run_booking done: %s -> state=%s", phone, _booking.get(phone, {}).get("state"))
@@ -862,7 +950,14 @@ async def run_commit(phone: str) -> None:
         return
     if not job.get("name"):  # חוק ברזל: לא סוגרים בלי שם מזמין
         _booking[phone] = {"state": "pending", "info": job.get("restaurant") or ""}
-        await _send_and_record(phone, "רגע על איזה שם לסגור")
+        await _send_and_record(
+            phone,
+            _vary(
+                "רגע על איזה שם לסגור",
+                "רק חסר לי שם להזמנה — על מי לרשום?",
+                "על איזה שם אני סוגר את זה?",
+            ),
+        )
         return
     _booking[phone] = {"state": "working", "info": ""}
     try:
@@ -906,12 +1001,16 @@ async def run_commit(phone: str) -> None:
             _reset_next.add(phone)  # ההזמנה נסגרה — ההודעה הבאה פותחת דף חדש
             when = f"ל-{job['date']} " if job.get("date") else ""
             at_time = d.get("time") or job["time"]  # D6: השעה שנסגרה בפועל, לא המבוקשת
-            msg = (
+            msg = _vary(
                 f"סגור ✅ {job['restaurant']} {when}בשעה {at_time} "
-                f"ל-{job['party_size']} סועדים.\nאישור יגיע אליך ב-SMS מהמסעדה 🤙"
+                f"ל-{job['party_size']} סועדים.\nאישור יגיע אליך ב-SMS מהמסעדה 🤙",
+                f"סגור ✅ יש לך שולחן ב-{job['restaurant']} {when}בשעה {at_time} "
+                f"ל-{job['party_size']} סועדים.\nה-SMS עם האישור בדרך מהמסעדה 🤙",
+                f"סגור ✅ {job['restaurant']}, {when}בשעה {at_time}, "
+                f"{job['party_size']} סועדים — הכל נעול.\nהמסעדה תשלח אישור ב-SMS 🤙",
             )
             if conf:
-                msg += f"\nמספר אישור: {conf}"
+                msg += "\n" + _vary(f"מספר אישור: {conf}", f"מספר האישור שלך: {conf}")
             await _send_and_record(phone, msg)
         elif (res.details or {}).get("card_required"):
             # זרוע C — קיר כרטיס: המקום דורש תשלום מראש, לא סוגרים אוטומטית (PCI).
@@ -940,7 +1039,11 @@ async def run_commit(phone: str) -> None:
                 _booking[phone] = {"state": "failed", "info": "", "debug": res.summary}
                 await _send_and_record(
                     phone,
-                    f"נתקעתי בסגירה של '{job['restaurant']}', לא סגרתי 🔄 ננסה שוב?"
+                    _vary(
+                        f"נתקעתי בסגירה של '{job['restaurant']}', לא סגרתי 🔄 ננסה שוב?",
+                        f"הסגירה של '{job['restaurant']}' נתקעה לי — עוד לא סגור 🫠 עוד ניסיון?",
+                        f"משהו נתקע לי בסגירה של '{job['restaurant']}' וזה לא הושלם 🔄 מנסה שוב?",
+                    )
                     + _error_detail(d.get("error"), session_id=d.get("session_id")),
                 )
     except asyncio.TimeoutError:
@@ -948,12 +1051,25 @@ async def run_commit(phone: str) -> None:
         _booking[phone] = {"state": "failed", "info": "נתקע (timeout)"}
         await _send_and_record(
             phone,
-            "זה נתקע לי באישור, ננסה שוב?" + _error_detail(f"timeout אחרי {BU_TIMEOUT_S}s"),
+            _vary(
+                "זה נתקע לי באישור, לקח יותר מדי 🫠 ננסה שוב?",
+                "שלב האישור נתקע לי באמצע — עוד ניסיון?",
+                "האישור נתקע לי והזמן נגמר 😮‍💨 ננסה עוד פעם?",
+            )
+            + _error_detail(f"timeout אחרי {BU_TIMEOUT_S}s"),
         )
     except Exception as e:
         log.exception("commit failed for %s", phone)
         _booking[phone] = {"state": "failed", "info": "חריגה באישור"}
-        await _send_and_record(phone, "נתקעתי באישור, לא סגרתי. ננסה שוב?" + _error_detail(e))
+        await _send_and_record(
+            phone,
+            _vary(
+                "נתקעתי באישור, לא סגרתי. ננסה שוב?",
+                "נתקעתי רגע לפני הסוף — זה לא נסגר 🫠 עוד ניסיון?",
+                "נתקעתי בשלב האישור ולא סגרתי. ננסה שוב?",
+            )
+            + _error_detail(e),
+        )
     finally:
         await memory.clear_inflight(phone)
         _pending_commit.pop(phone, None)
@@ -964,13 +1080,17 @@ async def handle_inbound(phone: str, text: str, message_id: str | None = None) -
     await send_typing(message_id)  # 'מקליד…' בזמן שגבר חושב; התשובה תנקה אותו
     result = await converse(phone, text)
     # or ולא default: reply="" עובר סכמה אבל מטא דוחה הודעה ריקה — הלקוח בלי תשובה
-    reply = result.get("reply") or "רגע 🔄"
+    reply = result.get("reply") or _vary("רגע 🔄", "רגע איתי 🔄", "עוד רגע אני פה 🔄")
     # שכבת מגן אחרונה לפני הלקוח: שבירת-דמות אמיתית (חשיפת AI/הוראות/אמוג'י זר)
     # לא יוצאת לוואטסאפ — הודעת גישור בדמות במקומה, והדליפה נשמרת בלוג.
     leaks = character_leaks(reply)
     if leaks:
         log.warning("character leak suppressed for %s: %s", phone, leaks)
-        reply = "שניה אני על משהו חוזר אליך עוד רגע 🔄"
+        reply = _vary(
+            "רגע, אני על משהו — חוזר אליך עוד רגע 🔄",
+            "תפוס רגע על משהו, תכף חוזר אליך 🔄",
+            "אני באמצע משהו קטן, עוד רגע אצלך 🔄",
+        )
     # וואטסאפ אמיתי = כמה הודעות קצרות, לא פסקה: כל שורה ב-reply נשלחת כהודעה
     # נפרדת (הפרסונה מונחית לכתוב ככה). מעל 4 שורות — השאר מתאחד לאחרונה.
     # בין הודעות: 'מקליד…' + השהיה לפי אורך ההודעה הבאה — פרץ הודעות באותה שנייה

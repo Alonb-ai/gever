@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request, Response
 from app.automation.browser_book import sweep_orphan_sessions
 from app.config import settings
 from app.db import memory
-from app.pipeline import handle_inbound
+from app.pipeline import _vary, handle_inbound
 from app.whatsapp.client import send_text
 
 log = logging.getLogger("gever")
@@ -47,7 +47,11 @@ async def lifespan(_app: FastAPI):
             what = f" של {o['restaurant']}" if o.get("restaurant") else ""
             await send_text(
                 o["phone"],
-                f"סורי נפלתי באמצע ההזמנה{what} 😮‍💨\nעוד הודעה אחת ממך ואני סוגר את זה",
+                _vary(
+                    f"סורי נפלתי באמצע ההזמנה{what} 😮‍💨\nעוד הודעה אחת ממך ואני סוגר את זה",
+                    f"נפלתי באמצע ההזמנה{what}, סליחה על זה 🫠\nרק לכתוב לי שוב מה רצית ואני עליה",
+                    f"אוף, נפלתי באמצע ההזמנה{what} 😮‍💨\nאם זה עדיין רלוונטי — הודעה ואני סוגר",
+                ),
             )
             log.info("orphan booking recovered for %s (%s)", o["phone"], o.get("restaurant"))
         except Exception:  # noqa: BLE001
