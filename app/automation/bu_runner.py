@@ -235,7 +235,20 @@ async def _run(job: dict) -> dict:
     # בלי fallback מקודד — המודל מגיע תמיד מה-job (settings.model_name); שם מיושן
     # כאן היה נשלף בשקט בדיבוג ידני ומסתיר את הקונפיגורציה האמיתית.
     llm = ChatGoogle(model=job["model"])
-    agent_kwargs: dict = {"task": _build_task(job), "llm": llm, "browser_profile": profile}
+    agent_kwargs: dict = {
+        "task": _build_task(job),
+        "llm": llm,
+        "browser_profile": profile,
+        # דגלי מהירות — A/B חי מול Ontopo (poc/spike_speed.py, 15.7.26): ‎~34%‎ פחות זמן
+        # ריצה, זמן-לצעד ירד מ-24-35 שנ' ל-17.5 שנ', אותה איכות עצירה (MISSING נכון,
+        # פרטים נכונים, בלי לופים, PERK עדיין מדווח).
+        # flash_mode: משמיט thinking/evaluation_previous_goal/next_goal/planning מסכמת
+        # הפלט של כל צעד (prompt מערכת קצר יותר) — פחות טוקנים = צעד מהיר יותר.
+        "flash_mode": True,
+        # use_judge=False: מדלג על קריאת LLM-שופט נוספת בסוף הריצה — ה-markers של
+        # _parse_result הם השופט שלנו ממילא.
+        "use_judge": False,
+    }
     if job.get("resume"):
         # ברירת המחדל של browser-use מנווטת אוטומטית לכל URL שמופיע ב-task —
         # ב-resume זה היה הורס את המסך הקפוא. חובה לכבות.
