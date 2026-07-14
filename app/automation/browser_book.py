@@ -159,6 +159,7 @@ async def book_table_bu(
     notes: str = "",  # העדפות ביצוע מהלקוח (אזור ישיבה וכו') — מוזרק ל-task
     dry_run: bool = True,
     resume: dict | None = None,  # {"session_id","recap"} — המשך סשן חי מאותו מסך (pause-resume)
+    keep_on_summary: bool = False,  # השאר סשן חי גם על SUMMARY_REACHED — לסגירה-באותו-סשן
 ) -> ActionResult:
     """מזמין (Ontopo/Tabit) דרך browser-use agent אוטונומי. עוצר בשלב הכרטיס (שער בטיחות).
 
@@ -231,11 +232,20 @@ async def book_table_bu(
             details={"stage": "error", "error": str(e)},
         )
 
-    # הסשן נשאר חי בשתי עצירות-על-הלקוח: שדה חסר (pause-resume) וקיר-כרטיס
+    # הסשן נשאר חי בעצירות שמחכות ללקוח: שדה חסר (pause-resume), קיר-כרטיס
     # (הלקוח מקבל Live View וממשיך בעצמו מאותו מסך — Ontopo הוא SPA, לינק רגיל
-    # מאבד את כל מה שמולא). כל תוצאה אחרת — משחררים מיד, keepAlive מחויב גם באידל.
-    # סשן כרטיס נטוש נסגר לבד ב-timeout של הסשן (1800s) או ב-sweeper בעלייה.
-    waiting = bool(r.get("missing") or r.get("card_required")) and session_id is not None
+    # מאבד את כל מה שמולא), ומסך סיכום כשהקורא ביקש keep_on_summary — אז "מאשר"
+    # של הלקוח נסגר בקליק באותו סשן במקום ניווט מלא מחדש (חוסך דקות מהלופ).
+    # כל תוצאה אחרת — משחררים מיד, keepAlive מחויב גם באידל. סשן ממתין נטוש
+    # נסגר לבד ב-timeout של הסשן (1800s) או ב-sweeper בעלייה.
+    waiting = (
+        bool(
+            r.get("missing")
+            or r.get("card_required")
+            or (keep_on_summary and r.get("summary_reached"))
+        )
+        and session_id is not None
+    )
     if not waiting:
         await release_session(session_id)
 

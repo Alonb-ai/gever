@@ -125,6 +125,10 @@ _resolved: dict = {}
 # רשימת הבהרה שנשלחה ומחכה לבחירה: phone -> {label: (url, platform)}. בלעדיה כל
 # תשובה ("כן בול" / טאפ) עברה resolve מחדש ושלחה את הרשימה שוב ושוב (נצפה חי).
 _pending_pick: dict = {}
+# pre-resolve: השם ידוע אבל הבקשה עוד לא שלמה (ready=false) — ה-resolve רץ ברקע
+# בזמן שהלקוח עונה על שעה/כמות, ו-run_booking קוטף תוצאה מוכנה במקום לחכות לה.
+# phone -> {"name": str, "task": asyncio.Task[found]}
+_preresolve: dict = {}
 
 # פער שאחריו פותחים "דף חדש": שיחה טרייה במקום לגרור את ההיסטוריה הישנה.
 SESSION_GAP_S = 3 * 60 * 60  # ~3 שעות
@@ -646,7 +650,17 @@ async def run_booking(phone: str, fields: dict) -> None:
             found = _one(cached["url"], cached["platform"])
         else:
             _pending_pick.pop(phone, None)  # מסעדה אחרת — הרשימה הישנה לא רלוונטית
-            found = await resolve_reservation_url(name)
+            found = None
+            pr = _preresolve.pop(phone, None)
+            if pr and _same_place(pr["name"], name):
+                try:
+                    found = await pr["task"]  # כבר מוכן/רץ מהשיחה — לא מחכים ל-Brave מאפס
+                except Exception:  # noqa: BLE001 — pre-resolve נכשל → resolve רגיל במקומו
+                    found = None
+            elif pr:
+                pr["task"].cancel()  # שם אחר — התוצאה הישנה לא רלוונטית
+            if found is None:
+                found = await resolve_reservation_url(name)
             if found["status"] == "one":
                 _resolved[phone] = {
                     "name": name,
@@ -755,6 +769,9 @@ async def run_booking(phone: str, fields: dict) -> None:
                 notes=fields.get("notes") or "",
                 dry_run=True,
                 resume=resume_arg if i == 0 else None,  # resume רלוונטי רק לנתיב המקורי
+                # במצב אמת הסשן נשאר על מסך הסיכום — "מאשר" סוגר בקליק באותו סשן.
+                # ב-DRY_RUN אין commit בכלל, אז לא משאירים סשן לחכות סתם.
+                keep_on_summary=not settings.dry_run,
             )
             if res.success or (res.details or {}).get("missing"):
                 break
@@ -809,6 +826,9 @@ async def run_booking(phone: str, fields: dict) -> None:
                 "name": booker,
                 "email": email,  # C6: בלי זה הסגירה הייתה יורה MISSING:email מיותר
                 "notes": fields.get("notes") or "",
+                # הסשן החי שעומד על מסך הסיכום (רק כשמצב אמת ביקש keep_on_summary) —
+                # הסגירה תמשיך ממנו בקליק במקום ניווט מלא מחדש.
+                "session_id": d.get("session_id"),
             }
             # הבאג השקט הגדול (נצפה חי): נתיב ההצלחה לא שלח כלום — הלקוח חיכה
             # ל"מוכן" שהגיע רק אם פנה קודם. הודעת הצלחה יזומה, עם השעה שנתפסה בפועל.
@@ -973,6 +993,15 @@ async def run_commit(phone: str) -> None:
                 "מתקתק את הסגירה 🎯",
             ),
         )
+        # סגירה באותו סשן: ה-recon השאיר את הדפדפן חי על מסך הסיכום — הסגירה היא
+        # אישור של שניות במקום ניווט מלא מחדש. סשן מת → book_table_bu נופל לבד
+        # לריצה טרייה (אותו fallback שקוף של pause-resume).
+        resume_arg = None
+        if job.get("session_id"):
+            resume_arg = {
+                "session_id": job["session_id"],
+                "recap": f"אתה כבר על מסך הסיכום של {job['restaurant']} — נשאר רק לאשר סופית",
+            }
         res = await book_table_bu(
             restaurant=job["restaurant"],
             page_url=job["page_url"],
@@ -985,6 +1014,7 @@ async def run_commit(phone: str) -> None:
             phone=_il_phone(phone),
             notes=job.get("notes") or "",
             dry_run=False,  # סגירה אמיתית (כיום ה-runner עדיין עוצר בכרטיס; commit מלא = עתידי)
+            resume=resume_arg,
         )
         if res.success:
             d = res.details or {}
@@ -1117,7 +1147,26 @@ async def handle_inbound(phone: str, text: str, message_id: str | None = None) -
         _booking[phone] = {"state": "working", "info": ""}
         _spawn(run_commit(phone))  # 'מאשר' על הזמנה ממתינה → סגירה אמיתית
     elif result.get("ready"):
-        _pending_commit.pop(phone, None)  # התחלת/שינוי הזמנה — נוטשים gate ישן
+        stale = _pending_commit.pop(phone, None)  # התחלת/שינוי הזמנה — נוטשים gate ישן
+        if stale and stale.get("session_id"):
+            # ה-gate הישן החזיק סשן חי על מסך סיכום — משחררים, לא מדליפים דקות דפדפן
+            _spawn(release_session(stale["session_id"]))
         # info = שם המסעדה בתהליך, כדי שה-truth_note ינקוב בה אם תגיע בקשה אחרת בזמן ריצה.
         _booking[phone] = {"state": "working", "info": (result.get("restaurant") or "").strip()}
         _spawn(run_booking(phone, result))
+    else:
+        # pre-resolve: יש שם מסעדה אבל הבקשה עוד לא שלמה — Brave רץ ברקע בזמן
+        # שהלקוח משלים שעה/כמות, ו-run_booking יקטוף תוצאה מוכנה (חוסך ~10-15 שנ').
+        hint = (result.get("restaurant") or "").strip()
+        if hint and (result.get("task_type") or "restaurant") == "restaurant":
+            pr = _preresolve.get(phone)
+            cached = _resolved.get(phone)
+            covered = (pr and _same_place(pr["name"], hint)) or (
+                cached and _same_place(cached["name"], hint)
+            )
+            if not covered:
+                task = asyncio.create_task(resolve_reservation_url(hint))
+                # שליפת החריגה מונעת "exception never retrieved"; הכשל עצמו לא מזיק —
+                # run_booking פשוט יריץ resolve רגיל.
+                task.add_done_callback(lambda t: t.cancelled() or t.exception())
+                _preresolve[phone] = {"name": hint, "task": task}
