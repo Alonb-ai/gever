@@ -117,6 +117,20 @@ async def sweep_orphan_sessions() -> int:
     return len(sessions)
 
 
+async def live_view_url(session_id: str | None) -> str | None:
+    """לינק Live View אינטראקטיבי לסשן חי (debuggerFullscreenUrl) — הלקוח פותח אותו
+    ורואה את הדפדפן בדיוק בנקודת העצירה, עם כל מה שכבר מולא, ומשלים את הכרטיס בעצמו
+    (אנחנו לא נוגעים בכרטיס — PCI). None אם אין סשן/כשל → הקורא נופל ללינק דף רגיל."""
+    if not session_id:
+        return None
+    try:
+        data = await _bb("GET", f"/sessions/{session_id}/debug")
+        return data.get("debuggerFullscreenUrl") or None
+    except Exception as exc:  # noqa: BLE001 — אין live view זה downgrade, לא כשל
+        log.warning("bb live view failed (%s): %s", session_id, exc)
+        return None
+
+
 async def release_session(session_id: str | None) -> None:
     """שחרור סשן keepAlive — בלעדיו דקות-דפדפן נצברות באידל עד ה-timeout. best-effort."""
     if not session_id:
@@ -217,9 +231,11 @@ async def book_table_bu(
             details={"stage": "error", "error": str(e)},
         )
 
-    # pause-resume: רק עצירה על שדה חסר משאירה את הסשן חי (מחכה לתשובת הלקוח).
-    # כל תוצאה אחרת — משחררים מיד, keepAlive מחויב גם באידל.
-    waiting = bool(r.get("missing")) and session_id is not None
+    # הסשן נשאר חי בשתי עצירות-על-הלקוח: שדה חסר (pause-resume) וקיר-כרטיס
+    # (הלקוח מקבל Live View וממשיך בעצמו מאותו מסך — Ontopo הוא SPA, לינק רגיל
+    # מאבד את כל מה שמולא). כל תוצאה אחרת — משחררים מיד, keepAlive מחויב גם באידל.
+    # סשן כרטיס נטוש נסגר לבד ב-timeout של הסשן (1800s) או ב-sweeper בעלייה.
+    waiting = bool(r.get("missing") or r.get("card_required")) and session_id is not None
     if not waiting:
         await release_session(session_id)
 

@@ -19,7 +19,12 @@ from zoneinfo import ZoneInfo
 from google import genai
 from google.genai import types
 
-from app.automation.browser_book import BU_TIMEOUT_S, book_table_bu, release_session
+from app.automation.browser_book import (
+    BU_TIMEOUT_S,
+    book_table_bu,
+    live_view_url,
+    release_session,
+)
 from app.automation.resolve import resolve_reservation_url
 from app.config import settings
 from app.db import memory
@@ -687,9 +692,11 @@ async def run_booking(phone: str, fields: dict) -> None:
             d0 = res.details or {}
             if d0.get("card_required"):
                 # קיר כרטיס שהתגלה כבר ב-recon: את זה לא נסגור אוטומטית (PCI) בשום
-                # מצב — אז במקום "לסגור?" חסר-משמעות, שולחים מיד את הלינק לסגירה
-                # עצמית. state="card" מיישר את הפרסונה (לא לטעון שסגר, לא לנסות שוב).
-                link = _card_link(d0, used_url)
+                # מצב — אז במקום "לסגור?" חסר-משמעות, שולחים מיד לינק לסגירה עצמית.
+                # עדיפות ל-Live View של הסשן החי: הלקוח נוחת בדיוק על מסך הכרטיס עם
+                # כל מה שכבר מולא (לינק דף רגיל = SPA מאופסת). state="card" מיישר את
+                # הפרסונה (לא לטעון שסגר, לא לנסות שוב).
+                link = await live_view_url(d0.get("session_id")) or _card_link(d0, used_url)
                 _booking[phone] = {"state": "card", "info": link}
                 await _send_and_record(
                     phone,
@@ -908,8 +915,9 @@ async def run_commit(phone: str) -> None:
             await _send_and_record(phone, msg)
         elif (res.details or {}).get("card_required"):
             # זרוע C — קיר כרטיס: המקום דורש תשלום מראש, לא סוגרים אוטומטית (PCI).
-            # מוסרים ללקוח את לינק המסעדה ב-Ontopo כדי שיסגור בעצמו.
-            link = _card_link(res.details, job["page_url"])
+            # Live View של הסשן החי קודם (ממשיך מאותו מסך); אין → לינק דף רגיל.
+            d = res.details or {}
+            link = await live_view_url(d.get("session_id")) or _card_link(d, job["page_url"])
             _booking[phone] = {"state": "card", "info": link}
             await _send_and_record(
                 phone,
