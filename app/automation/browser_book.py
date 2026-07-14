@@ -159,6 +159,9 @@ async def book_table_bu(
     notes: str = "",  # העדפות ביצוע מהלקוח (אזור ישיבה וכו') — מוזרק ל-task
     dry_run: bool = True,
     resume: dict | None = None,  # {"session_id","recap"} — המשך סשן חי מאותו מסך (pause-resume)
+    task_type: str = "restaurant",  # "restaurant" | "cinema" — בורר את ה-task ב-bu_runner
+    movie: str = "",  # קולנוע: שם הסרט (נכנס ל-task)
+    city: str = "",  # קולנוע: העיר/הסניף — בחירת בית הקולנוע קורית בתוך זרימת הרכישה
 ) -> ActionResult:
     """מזמין (Ontopo/Tabit) דרך browser-use agent אוטונומי. עוצר בשלב הכרטיס (שער בטיחות).
 
@@ -177,6 +180,9 @@ async def book_table_bu(
     job = {
         "url": page_url,
         "platform": platform,
+        "task_type": task_type,
+        "movie": movie,
+        "city": city,
         "date": date,
         "time": time,
         "party_size": party_size,
@@ -253,6 +259,7 @@ async def book_table_bu(
             "page_now": r.get("page_now") or "",
             "failed": r.get("failed"),
             "time": r.get("time"),
+            "seats": r.get("seats") or "",
             "perk": r.get("perk"),
             "restaurant": restaurant,
             "record_dir": record_dir,

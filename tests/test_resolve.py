@@ -269,6 +269,132 @@ def test_resolve_url_title_enriched_from_page(monkeypatch):
     assert "A.K.A" in res["candidates"][0]["title"]
 
 
+# --- קולנוע: _CINEMA_PLATFORMS + resolve_cinema_url (אותו חוזה החזרה) ---
+
+_PLANET_RE = resolve._CINEMA_PLATFORMS[0][1]
+_RAVHEN_RE = resolve._CINEMA_PLATFORMS[1][1]
+_CC_RE = resolve._CINEMA_PLATFORMS[2][1]
+
+
+def test_cinema_regexes_match_live_url_shapes():
+    """הצורות שאומתו חיות (14.07.26): פלאנט slug+id, רב-חן זהה, סינמה סיטי מספרי."""
+    m = _PLANET_RE.search("https://www.planetcinema.co.il/films/the-odyssey/7460s2r")
+    assert m and m.group(1) == "the-odyssey/7460s2r"
+    # yesplanet legacy (302 → planetcinema) — Brave עלול עוד להחזיר את הדומיין הישן
+    m = _PLANET_RE.search("https://www.yesplanet.co.il/films/the-odyssey/7460s2r")
+    assert m and m.group(1) == "the-odyssey/7460s2r"
+    m = _RAVHEN_RE.search("https://www.rav-hen.co.il/films/the-odyssey/7460s2r")
+    assert m and m.group(1) == "the-odyssey/7460s2r"
+    m = _CC_RE.search("https://www.cinema-city.co.il/movie/6031")
+    assert m and m.group(1) == "6031"
+    # דפים שאינם דף סרט — לא נתפסים
+    assert _PLANET_RE.search("https://www.planetcinema.co.il/cinemas/Rishon_Letziyon/1072") is None
+    assert _CC_RE.search("https://www.cinema-city.co.il/branches") is None
+
+
+def test_from_brave_cinema_canonicalizes_and_keeps_planet_ravhen_apart():
+    """yesplanet → URL קנוני planetcinema; אותו movie id בפלאנט וברב-חן = שתי רשומות
+    בכוונה (רב-חן היא ה-fallback כשבעיר אין פלאנט); כפילות באותה פלטפורמה מסוננת."""
+    data = {
+        "web": {
+            "results": [
+                {
+                    "url": "https://www.yesplanet.co.il/films/the-odyssey/7460s2r",
+                    "title": "האודיסאה",
+                },
+                {
+                    "url": "https://www.rav-hen.co.il/films/the-odyssey/7460s2r",
+                    "title": "האודיסאה — להזמנת כרטיסים באתר יס פלאנט",
+                },
+                {
+                    "url": "https://www.planetcinema.co.il/films/the-odyssey/7460s2r",
+                    "title": "כפול — לא נספר",
+                },
+                {"url": "https://www.cinema-city.co.il/movie/6031", "title": "האודיסאה סינמה סיטי"},
+                {"url": "https://www.lev.co.il/movies/odyssey/", "title": "לב — מחוץ לאבטיפוס"},
+            ]
+        }
+    }
+    out = _from_brave(data, resolve._CINEMA_PLATFORMS)
+    assert [c["platform"] for c in out] == ["planet", "rav-hen", "cinema-city"]
+    assert out[0]["url"] == "https://www.planetcinema.co.il/films/the-odyssey/7460s2r"  # קנוני
+    assert out[1]["url"] == "https://www.rav-hen.co.il/films/the-odyssey/7460s2r"
+    assert out[2]["url"] == "https://www.cinema-city.co.il/movie/6031"
+
+
+def test_resolve_cinema_prefers_planet_with_ravhen_fallback(monkeypatch):
+    """פלאנט ורב-חן שתיהן match חזק → פלאנט מנצחת ורב-חן נשמרת כ-fallback
+    (תרחיש גרקו של קולנוע: אין סניף פלאנט בעיר → הניסיון השני רץ לבד)."""
+    monkeypatch.setattr(
+        resolve,
+        "search_cinema",
+        _fake_search(
+            [
+                {
+                    "title": "האודיסאה",
+                    "url": "https://www.planetcinema.co.il/films/the-odyssey/7460s2r",
+                    "platform": "planet",
+                },
+                {
+                    "title": "האודיסאה — רב חן",
+                    "url": "https://www.rav-hen.co.il/films/the-odyssey/7460s2r",
+                    "platform": "rav-hen",
+                },
+            ]
+        ),
+    )
+    res = asyncio.run(resolve.resolve_cinema_url("האודיסאה"))
+    assert res["status"] == "one"
+    assert res["platform"] == "planet"
+    assert res["url"] == "https://www.planetcinema.co.il/films/the-odyssey/7460s2r"
+    assert res["fallback"] == {
+        "url": "https://www.rav-hen.co.il/films/the-odyssey/7460s2r",
+        "platform": "rav-hen",
+    }
+
+
+def test_resolve_cinema_never_picks_ambiguous_movie(monkeypatch):
+    """כלל הברזל נשמר גם בקולנוע: אין match חזק (שם דו-משמעי / גרסה מחודשת) →
+    many/none, לעולם לא בוחרים סרט לבד."""
+    monkeypatch.setattr(
+        resolve,
+        "search_cinema",
+        _fake_search(
+            [
+                {"title": "סרט אחר לגמרי", "url": "u1", "platform": "planet"},
+                {"title": "עוד סרט זר", "url": "u2", "platform": "cinema-city"},
+            ]
+        ),
+    )
+    res = asyncio.run(resolve.resolve_cinema_url("האודיסאה"))
+    assert res["status"] in ("many", "none") and res["status"] != "one"
+    assert res["url"] is None
+
+    monkeypatch.setattr(resolve, "search_cinema", _fake_search([]))
+    res = asyncio.run(resolve.resolve_cinema_url("האודיסאה"))
+    assert res["status"] == "none" and res["platform"] is None
+
+
+def test_resolve_cinema_city_only_no_fallback(monkeypatch):
+    """רק סינמה סיטי עם match → one בלי fallback (אין פלטפורמה נוספת בתור)."""
+    monkeypatch.setattr(
+        resolve,
+        "search_cinema",
+        _fake_search(
+            [
+                {
+                    "title": "האודיסאה — הזמנת כרטיסים",
+                    "url": "https://www.cinema-city.co.il/movie/6031",
+                    "platform": "cinema-city",
+                }
+            ]
+        ),
+    )
+    res = asyncio.run(resolve.resolve_cinema_url("האודיסאה"))
+    assert res["status"] == "one" and res["platform"] == "cinema-city"
+    assert res["fallback"] is None
+
+
 def test_real_titles_leaves_textual_titles_and_survives_fetch_error(monkeypatch):
     """כותרת טקסטואלית לא נוגעים בה (בלי GET מיותר); כשל fetch לא מפיל את ה-resolve."""
 
