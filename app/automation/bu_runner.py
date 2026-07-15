@@ -259,6 +259,11 @@ def _parse_result(final: str, *, commit: bool) -> dict:
     missing_fields = [f for f in raw_missing.split("|") if f][:12]
     missing = missing_fields[0] if missing_fields else ""
     failed = _marker_arg(last, "FAILED:") if "FAILED:" in last else ""
+    # ריצה שמתה בלי שום דיווח סיום (נצפה חי 15.7, ריצת ביטוח 1: נפילת רשת מקומית —
+    # CDP נותק + LLM timeout בו-זמנית, ה-agent נעצר אחרי 5 כשלונות רצופים) —
+    # כישלון תשתית מפורש במקום תוצאה ריקה אילמת שאי אפשר לאבחן.
+    if not lines:
+        failed = "infra"
     # השעה שנבחרה בפועל (החוזה: אחרי SUMMARY_REACHED) — כדי שגבר יציע חלופה ללקוח
     # ("יש 21:00 במקום 20:30, מתאים?") לפני הסגירה, וה-commit יסגור את מה שאושר.
     m = re.search(r"\b(\d{1,2}:\d{2})\b", last)

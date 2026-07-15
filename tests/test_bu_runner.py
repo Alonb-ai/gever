@@ -175,6 +175,18 @@ def test_commit_missing_field_is_not_a_booking():
     assert r["missing"] == "email"
 
 
+def test_empty_final_is_explicit_infra_failure():
+    # ריצה שמתה בלי שום דיווח סיום (ניתוק CDP + LLM timeout — ריצת ביטוח חיה 1,
+    # 15.7): failed="infra" מפורש בשני המצבים, לא תוצאה ריקה שאי אפשר לאבחן.
+    for commit in (False, True):
+        r = _parse_result("", commit=commit)
+        assert r["success"] is False
+        assert r["booked"] is False
+        assert r["failed"] == "infra"
+    # דיווח קיים בלי markers — לא נוגעים בו (לא infra): ה-agent כן ענה, רק בלי שורת סיום.
+    assert _parse_result("נתקעתי בבורר השעה", commit=True)["failed"] == ""
+
+
 if __name__ == "__main__":
     import pytest
 

@@ -141,17 +141,23 @@ async def live_view_url(session_id: str | None) -> str | None:
 
 
 async def release_session(session_id: str | None) -> None:
-    """שחרור סשן keepAlive — בלעדיו דקות-דפדפן נצברות באידל עד ה-timeout. best-effort."""
+    """שחרור סשן keepAlive — בלעדיו דקות-דפדפן נצברות באידל עד ה-timeout. best-effort,
+    3 ניסיונות: ב-15.7 (ריצת ביטוח 1) נפילת רשת רגעית הפילה גם את השחרור היחיד,
+    והסשן נשאר RUNNING ומחויב באידל עד שחרור ידני."""
     if not session_id:
         return
-    try:
-        await _bb(
-            "POST",
-            f"/sessions/{session_id}",
-            {"projectId": settings.browserbase_project_id, "status": "REQUEST_RELEASE"},
-        )
-    except Exception as exc:  # noqa: BLE001 — ה-timeout של הסשן הוא רשת הביטחון
-        log.warning("bb session release failed (%s): %s", session_id, exc)
+    for attempt in range(3):
+        try:
+            await _bb(
+                "POST",
+                f"/sessions/{session_id}",
+                {"projectId": settings.browserbase_project_id, "status": "REQUEST_RELEASE"},
+            )
+            return
+        except Exception as exc:  # noqa: BLE001 — ה-timeout של הסשן הוא רשת הביטחון
+            log.warning("bb session release failed (%s, %d/3): %s", session_id, attempt + 1, exc)
+            if attempt < 2:
+                await asyncio.sleep(2 * (attempt + 1))
 
 
 async def book_table_bu(
