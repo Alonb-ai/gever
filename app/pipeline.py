@@ -26,7 +26,7 @@ from app.automation.browser_book import (
     release_session,
 )
 from app import live_link
-from app.automation.resolve import resolve_reservation_url
+from app.automation.resolve import resolve_insurance_url, resolve_reservation_url
 from app.config import settings
 from app.db import memory
 from app.llm.intent import (
@@ -58,8 +58,22 @@ _EXTRACT = (
     "· צימוד מוחלט בין דיבור למעשה: אמרת ללקוח שאתה על זה או שתעדכן אותו ⇔ סימנת "
     "דגל באותו JSON. בלי דגל — אין הבטחה ואין 'שנייה', יש שאלה; וגם עם דגל הביצוע "
     "לוקח כמה דקות — תדבר בהתאם.\n"
-    "· task_type: 'restaurant' (וגם ברירת המחדל) או 'other'. ב-other לעולם אין "
-    "ready — אין עדיין מי שיבצע, אתה רק עונה בכנות.\n"
+    "· task_type: 'restaurant' (וגם ברירת המחדל), 'insurance' (ביטוח נסיעות לחו\"ל) "
+    "או 'other'. ב-other לעולם אין ready — אין עדיין מי שיבצע, אתה רק עונה בכנות.\n"
+    "· בביטוח נסיעות לחו\"ל (task_type='insurance') ready=true רק כשכל אלה מלאים "
+    "וחד-משמעיים: destination (מדינה או אזור), date (תאריך יציאה DD.MM), return_date "
+    "(תאריך חזרה DD.MM), travelers_birth_dates (תאריך לידה מלא DD.MM.YYYY לכל נוסע — "
+    "מספר הנוסעים נגזר מכאן), health_issues. את health_issues אתה ממלא רק אחרי ששאלת "
+    "במפורש שאלה אחת מרוכזת: האם מישהו מהנוסעים אובחן או טופל במחלה קשה (סרטן, לב, "
+    "ריאות, כליות וכדומה), חולה במחלה כרונית או נוטל תרופות קבועות, או טופל / צפוי "
+    "טיפול בחצי השנה האחרונה — תשובה שלילית לכולן ⇒ 'אין'; אחרת תמצית קצרה של מה "
+    "שנאמר. addons — הרחבות שהלקוח ביקש במפורש (ביטול נסיעה, כבודה, סקי, ספורט "
+    "אתגרי, הריון, מכשיר נייד); שאל פעם אחת אם רוצים הרחבה, לא ביקשו ⇒ ריק. "
+    "תאריך לידה, תעודת זהות ותשובות בריאות לעולם אינם מנוחשים — רק מהלקוח.\n"
+    "· answers: כשאמת-למערכת מפרטת שדות חסרים מהטופס (מפתח באנגלית + תווית בעברית) — "
+    'כל פרט שהלקוח מסר נכנס כפריט "<מפתח>: <ערך>" עם המפתח המדויק מהרשימה, גם אם ענה '
+    "רק על חלק, וגם על פני כמה הודעות. אל תמציא ערך לשדה שלא נענה, ואל תסמן ready — "
+    "המערכת ממשיכה לבד כשהכל נאסף.\n"
     "· notes: העדפות ביצוע שהלקוח נתן (אזור ישיבה, אירוע, בקשה מיוחדת) — טקסט קצר, "
     "כולל הסיבה אם נתן אחת ('בחוץ — מעשנים', לא רק 'בחוץ'; הסיבה משנה את הבחירה בטופס); "
     "מגיע למי שמבצע. השלמה של שדה שביקשת (שם משפחה) הולכת לשדה עצמו, לא לכאן.\n"
@@ -75,8 +89,14 @@ _SCHEMA = {
         "reply": {"type": "string"},
         "ready": {"type": "boolean"},
         "confirm": {"type": "boolean"},
-        "task_type": {"type": "string", "enum": ["restaurant", "other"]},
+        "task_type": {"type": "string", "enum": ["restaurant", "insurance", "other"]},
         "restaurant": {"type": "string"},
+        "destination": {"type": "string"},
+        "return_date": {"type": "string"},
+        "travelers_birth_dates": {"type": "array", "items": {"type": "string"}},
+        "health_issues": {"type": "string"},
+        "addons": {"type": "string"},
+        "answers": {"type": "array", "items": {"type": "string"}},
         "date": {"type": "string"},
         "time": {"type": "string"},
         "party_size": {"type": "integer"},
@@ -360,9 +380,59 @@ def _same_place(a: str, b: str) -> bool:
     return len(fa) >= 3 and len(fb) >= 3 and (fa in fb or fb in fa)
 
 
-def _failure_reply(reason: str | None, name: str) -> tuple[str, str] | None:
+def _human_field(key: str, from_page: dict) -> str:
+    """שם עברי לשדה: המילון שלנו › התווית שה-agent קרא מהדף (מסוננת) › המפתח עצמו."""
+    known = {
+        "id_number": "מספר תעודת זהות",
+        "birth_date": "תאריך לידה",
+        "first_name": "שם פרטי",
+        "last_name": "שם משפחה",
+        "pickup_point": "נקודת איסוף הכרטיס",
+        "destination_region": "אזור היעד",
+        "email": "מייל",
+        "phone": "טלפון",
+        "name": "שם",
+    }
+    return known.get(key) or _safe_option(from_page.get(key, "")) or key
+
+
+def _multi_ask(labels: dict, opts: dict) -> str:
+    """הודעת האיסוף המרוכז: כל השדות החסרים בהודעה אחת, עם האופציות האמיתיות מהדף.
+    ניטרלי-מגדר; העוגנים = רשימת הפריטים עצמה."""
+    head = _vary(
+        "כדי להמשיך, הטופס צריך עוד כמה פרטים:",
+        "עצרתי רגע — חסרים לי כמה פרטים בטופס:",
+        "צריך ממך עוד כמה פרטים ואני ממשיך:",
+    )
+    lines = []
+    for k, lbl in labels.items():
+        ops = [_safe_option(o) for o in opts.get(k, [])]
+        ops = [o for o in ops if o][:6]
+        lines.append(f"· {lbl}" + (f" — {' / '.join(ops)}" if ops else ""))
+    tail = _vary("אפשר הכל בהודעה אחת 🤝", "הכל בהודעה אחת יעבוד מצוין", "אפשר לענות על הכל ביחד")
+    return head + "\n" + "\n".join(lines) + "\n" + tail
+
+
+def _ages(birth_dates: list) -> list[int]:
+    """גילאים (היום) מתאריכי לידה DD.MM.YYYY — לגארד גיל-85 לפני ריצה. תאריך
+    לא-פריק מדולג: הטופס יכריע עליו בעצמו."""
+    out = []
+    today = datetime.now(ZoneInfo("Asia/Jerusalem"))
+    for b in birth_dates or []:
+        try:
+            born = datetime.strptime(str(b).strip(), "%d.%m.%Y")
+        except ValueError:
+            continue
+        out.append(today.year - born.year - ((today.month, today.day) < (born.month, born.day)))
+    return out
+
+
+def _failure_reply(
+    reason: str | None, name: str, *, task_type: str = "restaurant"
+) -> tuple[str, str] | None:
     """FAILED:<סיבה> מה-agent → (info ל-truth_note, הודעה ללקוח עם המלצת המשך).
-    רק סיבות מוכרות — לא טקסט חופשי של ה-agent לבלוק האמת. משותף ל-booking ול-commit."""
+    רק סיבות מוכרות — לא טקסט חופשי של ה-agent לבלוק האמת. משותף ל-booking ול-commit.
+    task_type="insurance" מוסיף את הכישלונות הייחודיים של פספורטכארד (עוגן: *9912)."""
     reason = (reason or "").lower()
     # ה-info (הצד השמאלי) קבוע — הוא נכנס ל-truth_note; רק ההודעה ללקוח מגוונת.
     table = {
@@ -420,6 +490,35 @@ def _failure_reply(reason: str | None, name: str) -> tuple[str, str] | None:
             ),
         ),
     }
+    if task_type == "insurance":
+        table = {
+            **table,
+            "manual_underwriting": (
+                "נדרש חיתום טלפוני (הצהרת בריאות/גיל)",
+                _vary(
+                    "פספורטכארד עצרו את זה לאישור נציג — ככה הם עובדים כשיש הצהרת בריאות או "
+                    "גיל שדורש בדיקה 🫠\nהמוקד שלהם: *9912",
+                    "האתר דורש חיתום טלפוני להצעה הזאת — אונליין זה לא ממשיך\n"
+                    "אפשר להשלים מולם ב-*9912",
+                ),
+            ),
+            "phone_only": (
+                "האתר מפנה לנציג במקום הצעה אונליין",
+                _vary(
+                    "האתר לא נותן הצעה אונליין למקרה הזה — רק דרך נציג\nהמספר שלהם: *9912",
+                    "בשלב הזה פספורטכארד רוצים אותך בטלפון, לא בטופס — *9912 ואתם סגורים",
+                ),
+            ),
+            "blocked": (
+                "האתר חוסם גישה אוטומטית",
+                _vary(
+                    "האתר של פספורטכארד חוסם אותי כרגע 🥷 אנסה שוב מאוחר יותר, "
+                    "או שאפשר ישירות מולם: *9912",
+                    "פספורטכארד שמו מחסום בדרך ולא נתנו לי לעבור — ננסה שוב עוד קצת, "
+                    "או טלפונית: *9912",
+                ),
+            ),
+        }
     for key, pair in table.items():
         if key in reason:
             return pair
@@ -636,6 +735,16 @@ def _truth_note(phone: str) -> str:
             "שלחת ללקוח לינק לסגור בעצמו. אל תמציא שסגרת ואל תנסה שוב — הצע לעזור במקום אחר.]\n\n"
         )
     if state == "missing":
+        # מרובה-שדות (איסוף מרוכז): הרשימה החיה ב-remaining — מתעדכנת ככל שהלקוח
+        # עונה, כך שהפרסונה מבקשת רק את מה שעוד חסר ומנתבת כל תשובה ל-answers.
+        rem = b.get("remaining") or []
+        if len(rem) > 1 or (rem and b.get("labels")):
+            listing = ", ".join(f"{k} ({(b.get('labels') or {}).get(k, k)})" for k in rem)
+            return (
+                "[אמת-למערכת בלבד: הטופס עצר על שדות חובה שחסרים: " + listing + ". "
+                "בקש מהלקוח את כולם, רצוי בהודעה אחת; ענה על חלק — בקש רק את מה שעוד חסר. "
+                "כל תשובה נכנסת ל-answers עם המפתח המדויק. אל תמציא ערכים ואל תגיד שסגרת.]\n\n"
+            )
         return (
             f"[אמת-למערכת בלבד: הטופס דורש שדה חובה שחסר לי ('{info}'). אל תמציא אותו ואל "
             "תמציא שסגרת — בקש מהלקוח את הפרט הזה במפורש וחכה לתשובה.]\n\n"
@@ -688,9 +797,16 @@ async def run_booking(phone: str, fields: dict) -> None:
     עטוף ב-try + timeout: תקיעה או חריגה הופכות להודעת כישלון בדמות, לא לדממה.
     """
 
-    name = (fields.get("restaurant") or "").strip()
     task_type = fields.get("task_type") or "restaurant"
-    if task_type != "restaurant":
+    insurance = task_type == "insurance"
+    # בביטוח "השם" הוא תיאור הנסיעה — הוא מה שנכנס לכל מנגנוני הקיצור הקיימים
+    # (_resume/_booking.info/truth_note), שעובדים עליו כמו שהם (יציב בין תורים).
+    name = (
+        ("ביטוח נסיעות ל" + (fields.get("destination") or 'חו"ל').strip())
+        if insurance
+        else (fields.get("restaurant") or "").strip()
+    )
+    if task_type not in ("restaurant", "insurance"):
         _booking[phone] = {"state": "failed", "info": "לא נתמך עדיין"}
         await _send_and_record(
             phone,
@@ -698,6 +814,18 @@ async def run_booking(phone: str, fields: dict) -> None:
                 "זה לא משהו שאני סוגר אוטומטית עדיין, אבל אני פה.",
                 "את זה אני עדיין לא סוגר לבד — אבל לכל השאר אני פה.",
                 "עדיין לא הגעתי לסגור דברים כאלה, אבל אני איתך על כל השאר.",
+            ),
+        )
+        return
+    if insurance and not (fields.get("destination") or "").strip():
+        # הגנה: ready=True בלי יעד — לא יורים ריצת טופס ריקה
+        _booking.pop(phone, None)
+        await _send_and_record(
+            phone,
+            _vary(
+                "רגע, לאן הנסיעה?",
+                "רגע, פספסתי — לאיזה יעד נוסעים?",
+                "רק חסר לי היעד של הנסיעה ואני יוצא לדרך",
             ),
         )
         return
@@ -713,6 +841,36 @@ async def run_booking(phone: str, fields: dict) -> None:
             ),
         )
         return
+    birth_dates = fields.get("travelers_birth_dates") or []
+    if insurance:
+        # גארדים לפני ריצה — עדיף לדעת עכשיו מאשר לשרוף ריצת דפדפן של דקות:
+        # הצהרת בריאות חיובית ⇒ פספורטכארד ממילא יעצרו לחיתום טלפוני.
+        health = (fields.get("health_issues") or "").strip()
+        if health and _norm_place(health) not in ("אין", "לא", "שלילי"):
+            _booking[phone] = {"state": "failed", "info": "הצהרת בריאות מחייבת חיתום טלפוני"}
+            await _send_and_record(
+                phone,
+                _vary(
+                    "עברתי על מה שסיפרת על הבריאות — במצב כזה פספורטכארד מחייבים אישור נציג "
+                    "בטלפון, ואונליין זה ייעצר 🫠\nהמוקד שלהם: *9912, ואחרי האישור אני כאן להמשך",
+                    "בגלל הצהרת הבריאות ההצעה אונליין תיעצר אצל פספורטכארד — הם דורשים חיתום "
+                    "בטלפון\nשווה להרים אליהם: *9912. לכל השאר אני כאן",
+                ),
+            )
+            return
+        if any(a >= 85 for a in _ages(birth_dates)):
+            # מעל גיל 85 אין אצל פספורטכארד רכישה אונליין — רק דרך נציג.
+            _booking[phone] = {"state": "failed", "info": "מעל גיל 85 — רכישה רק דרך נציג"}
+            await _send_and_record(
+                phone,
+                _vary(
+                    "בדקתי — לנוסע מעל גיל 85 פספורטכארד לא מוכרים אונליין, רק דרך נציג 🫠\n"
+                    "המוקד שלהם: *9912, ואחרי זה אני כאן להמשך",
+                    "מעל גיל 85 אין אצל פספורטכארד רכישה אונליין — זה נסגר רק מול נציג\n"
+                    "שווה להרים אליהם: *9912. לכל השאר אני כאן",
+                ),
+            )
+            return
     _booking[phone] = {"state": "working", "info": name}
     _await_answer.pop(phone, None)  # ריצה חדשה — שאלה פתוחה קודמת כבר לא רלוונטית
     log.info(
@@ -759,6 +917,10 @@ async def run_booking(phone: str, fields: dict) -> None:
         if waiting:
             resume_arg = waiting
             found = _one(waiting["url"], waiting["platform"])
+        elif insurance:
+            # ספק יחיד, יעד קבוע — בלי Brave, בלי רשימות בחירה ובלי pre-resolve
+            # (ה-guard הקיים בפרה-resolve ממילא מדלג על מה שאינו מסעדה).
+            found = await resolve_insurance_url()
         elif len(picked) == 1:
             # הלקוח בחר מהרשימה (טאפ או תשובה בטקסט) — ה-URL כבר בידינו, בלי resolve
             url, plat = picks[picked[0]]
@@ -884,22 +1046,41 @@ async def run_booking(phone: str, fields: dict) -> None:
             attempts.append((found["fallback"]["url"], found["fallback"]["platform"]))
         used_url, used_platform = attempts[0]
 
+        # ביטוח: מספר הנוסעים נגזר מתאריכי הלידה (לא מ-party_size), אין "שעה",
+        # וחבילת הנסיעה עוברת ל-task כמו שהיא. form_answers = תשובות MISSING שנאספו.
+        party = (len(birth_dates) or 1) if insurance else (fields.get("party_size") or 2)
+        ins_payload = (
+            {
+                "destination": (fields.get("destination") or "").strip(),
+                "return_date": fields.get("return_date") or "",
+                "travelers": birth_dates,
+                "health": fields.get("health_issues") or "אין",
+                "addons": fields.get("addons") or "",
+            }
+            if insurance
+            else None
+        )
+
         async def _attempt(url: str, plat: str, resume_a: dict | None):
             return await book_table_bu(
                 restaurant=name,
                 page_url=url,
                 platform=plat,
                 date=fields.get("date") or "",
-                time=fields.get("time") or "20:00",
-                party_size=fields.get("party_size") or 2,
+                time="" if insurance else (fields.get("time") or "20:00"),
+                party_size=party,
                 name=booker,
                 email=email,
                 phone=_il_phone(phone),
                 notes=fields.get("notes") or "",
                 dry_run=True,
                 resume=resume_a,
+                task_type=task_type,
+                insurance=ins_payload,
+                form_answers=fields.get("form_answers"),
                 # במצב אמת הסשן נשאר על מסך הסיכום — "מאשר" סוגר בקליק באותו סשן.
-                # ב-DRY_RUN אין commit בכלל, אז לא משאירים סשן לחכות סתם.
+                # ב-DRY_RUN אין commit בכלל, אז לא משאירים סשן לחכות סתם. בביטוח זה
+                # קריטי במיוחד — pause-resume אחרי עשרות שדות שמולאו.
                 keep_on_summary=not settings.dry_run,
             )
 
@@ -952,6 +1133,24 @@ async def run_booking(phone: str, fields: dict) -> None:
                     d0, used_url
                 )
                 _booking[phone] = {"state": "card", "info": link}
+                if insurance:
+                    # ה-deliverable של recon ביטוח = הפרמיה (payload אחרי | בשורת
+                    # הסיום, מגיע ב-extra) — נוקבים בה ליד הלינק לקיר-הכרטיס.
+                    quote = _safe_option(d0.get("extra") or "")
+                    quote_line = f"\n{quote}" if quote else ""
+                    await _send_and_record(
+                        phone,
+                        _vary(
+                            f"יש הצעת מחיר 🎯{quote_line}\nמכאן ההשלמה והתשלום שלך — "
+                            f"הכל מחכה בדיוק איפה שעצרתי:\n{link}",
+                            f"הגעתי עד הצעת המחיר{quote_line}\nאת התשלום אני משאיר לך 🥷 "
+                            f"ממשיכים כאן:\n{link}",
+                            f"הטופס מולא עד הסוף — זו ההצעה{quote_line}\nנשאר רק התשלום, "
+                            f"כאן:\n{link}",
+                        )
+                        + _agreed_line(d0),
+                    )
+                    return
                 recap = _card_recap(
                     fields.get("date") or "",
                     d0.get("time") or fields.get("time") or "",
@@ -979,9 +1178,10 @@ async def run_booking(phone: str, fields: dict) -> None:
             _booking[phone] = {"state": "pending", "info": name}
             # השעה המבוקשת לא הייתה פנויה וה-agent בחר קרובה (עד ±30 דק') → גבר חייב
             # להציע אותה ללקוח במפורש ("יש 21:00 במקום 20:30, מתאים?") לפני הסגירה.
-            requested_time = fields.get("time") or "20:00"
+            requested_time = "" if insurance else (fields.get("time") or "20:00")
             actual_time = (res.details or {}).get("time") or ""
-            if actual_time and actual_time != requested_time:
+            # ביטוח: אין מנגנון alt_time — אין "שעה" בהצעת ביטוח בכלל.
+            if not insurance and actual_time and actual_time != requested_time:
                 _booking[phone]["alt_time"] = {"requested": requested_time, "actual": actual_time}
             await memory.upsert_profile(
                 phone,
@@ -991,15 +1191,19 @@ async def run_booking(phone: str, fields: dict) -> None:
             # שומרים את פרמטרי ההזמנה לסגירה האמיתית (confirm→commit). booker כבר נפתר למעלה.
             d = res.details or {}
             _pending_commit[phone] = {
-                "restaurant": name,  # name = שם המסעדה (ראה למעלה); page_url = הנתיב שהצליח
+                "restaurant": name,  # name = שם המסעדה/הביטוח (ראה למעלה); page_url = הנתיב שהצליח
                 "page_url": used_url,
                 "platform": used_platform,
                 "date": fields.get("date") or "",
                 "time": actual_time or requested_time,  # השעה שאושרה בפועל
-                "party_size": fields.get("party_size") or 2,
+                "party_size": party,
                 "name": booker,
                 "email": email,  # C6: בלי זה הסגירה הייתה יורה MISSING:email מיותר
                 "notes": fields.get("notes") or "",
+                # ביטוח: run_commit משחזר את אותו task (ייעצר ב-CARD_REQUIRED → Live View)
+                "task_type": task_type,
+                "insurance": ins_payload,
+                "form_answers": fields.get("form_answers"),
                 # הסשן החי שעומד על מסך הסיכום (רק כשמצב אמת ביקש keep_on_summary) —
                 # הסגירה תמשיך ממנו בקליק במקום ניווט מלא מחדש.
                 "session_id": d.get("session_id"),
@@ -1008,6 +1212,22 @@ async def run_booking(phone: str, fields: dict) -> None:
             # ל"מוכן" שהגיע רק אם פנה קודם. הודעת הצלחה יזומה, עם השעה שנתפסה בפועל.
             at = actual_time or requested_time
             when = f"ל-{fields['date']} " if fields.get("date") else ""
+            if insurance:
+                # recon שעצר על הצעת המחיר בלי קיר-כרטיס: מציגים את ההצעה ושואלים
+                # אם ממשיכים — הסגירה (commit) ממילא תיעצר בקיר-הכרטיס → Live View.
+                quote = _safe_option(d.get("extra") or "")
+                head = _vary(
+                    "יש הצעת מחיר לביטוח 🎯",
+                    "ההצעה מוכנה — ככה זה נראה:",
+                    "עברתי את כל הטופס, זו ההצעה:",
+                )
+                perk_line = f"\nשווה לדעת: {d['perk']}" if d.get("perk") else ""
+                closer = _vary("להמשיך לתשלום?", "ממשיכים לסגירה?", "מתקדמים לתשלום?")
+                await _send_and_record(
+                    phone,
+                    f"{head}\n{quote or 'הפרטים אצלי'}{perk_line}{_agreed_line(d)}\n{closer}",
+                )
+                return
             if _booking[phone].get("alt_time"):
                 alt = _booking[phone]["alt_time"]
                 head = _vary(
@@ -1035,6 +1255,7 @@ async def run_booking(phone: str, fields: dict) -> None:
             # מנגנון אחד כמו none/ambiguous: גבר מבקש מהלקוח את השדה וממתין — בלי
             # pre-validation בצד שלנו (הטופס מחליט מה חובה).
             field = res.details["missing"]
+            fields_list = res.details.get("missing_fields") or ([field] if field else [])
             _booking[phone] = {"state": "missing", "info": field}
             # pause-resume: הסשן נשאר חי (keepAlive) — נשמור אותו כדי שהתשובה של
             # הלקוח תמשיך מאותו מסך במקום ניווט מחדש של דקות.
@@ -1046,6 +1267,31 @@ async def run_booking(phone: str, fields: dict) -> None:
                     "session_id": res.details["session_id"],
                     "recap": (res.details.get("stage") or "")[:400],
                 }
+            if len(fields_list) > 1:
+                # איסוף מרוכז (ורטיקל הביטוח): ה-agent אסף את *כל* שדות החובה החסרים
+                # בדף ועצר פעם אחת — הודעה אחת עם כל הפריטים, בלי רשימת-טאפ (שאלה
+                # אחת פר רשימה). ההשלמה דטרמיניסטית: ה-pipeline (לא המודל) מחליט
+                # מתי החבילה מלאה, דרך ערוץ answers של ה-extract.
+                labels = {
+                    k: _human_field(k, res.details.get("field_labels") or {}) for k in fields_list
+                }
+                opts = res.details.get("options_by_field") or {}
+                _booking[phone] = {
+                    "state": "missing",
+                    "info": ", ".join(labels.values()),
+                    "remaining": fields_list,
+                    "labels": labels,
+                }
+                # options ריק ⇒ המסלול הדטרמיניסטי הישן (שדה-בודד-עם-אופציות) מדלג
+                _await_answer[phone] = {
+                    "fields": dict(fields),
+                    "missing_fields": fields_list,
+                    "answered": {},
+                    "labels": labels,
+                    "options": [],
+                }
+                await _send_and_record(phone, _multi_ask(labels, opts))
+                return
             _human = {
                 "email": "מייל",
                 "name": "שם",
@@ -1123,7 +1369,7 @@ async def run_booking(phone: str, fields: dict) -> None:
             # לא מדליפים keepAlive עד ה-timeout (נצפה חי 15.7 בפיצול שורת הסיום).
             if d.get("session_id"):
                 _spawn(release_session(d["session_id"]))
-            hit = _failure_reply(d.get("failed"), name)
+            hit = _failure_reply(d.get("failed"), name, task_type=task_type)
             if hit:
                 _booking[phone] = {"state": "failed", "info": hit[0]}
                 await _send_and_record(phone, hit[1])
@@ -1226,6 +1472,9 @@ async def run_commit(phone: str) -> None:
                 phone=_il_phone(phone),
                 notes=job.get("notes") or "",
                 dry_run=False,  # סגירה אמיתית (ה-runner עדיין עוצר בכרטיס; commit מלא = עתידי)
+                task_type=job.get("task_type") or "restaurant",
+                insurance=job.get("insurance"),
+                form_answers=job.get("form_answers"),
                 resume=resume_arg,
             )
         finally:
@@ -1284,7 +1533,9 @@ async def run_commit(phone: str) -> None:
             d = res.details or {}
             if d.get("session_id"):  # לא מדליפים סשן חי שנשאר אחרי כישלון
                 _spawn(release_session(d["session_id"]))
-            hit = _failure_reply(d.get("failed"), job["restaurant"])
+            hit = _failure_reply(
+                d.get("failed"), job["restaurant"], task_type=job.get("task_type") or "restaurant"
+            )
             if hit:
                 _booking[phone] = {"state": "failed", "info": hit[0]}
                 await _send_and_record(phone, hit[1])
@@ -1365,6 +1616,37 @@ async def handle_inbound(phone: str, text: str, message_id: str | None = None) -
             _spawn(run_booking(phone, fields))
             return
     result = await converse(phone, text)
+    # MISSING מרובה-שדות: ה-extract מנתב כל תשובה ל-answers ("<מפתח>: <ערך>"), וכאן —
+    # לא במודל — נסגרת ההחלטה מתי החבילה מלאה (הירי הדטרמיניסטי, כמו במסלול האופציות).
+    pend = _await_answer.get(phone)
+    if pend and pend.get("missing_fields") and _booking.get(phone, {}).get("state") == "missing":
+        for item in result.get("answers") or []:
+            k, _, v = item.partition(":")
+            k, v = k.strip(), v.strip()
+            if k in pend["missing_fields"] and v:
+                pend["answered"][k] = v
+        remaining = [k for k in pend["missing_fields"] if k not in pend["answered"]]
+        _booking[phone]["remaining"] = remaining  # ה-truth_note הבא ישקף רק את החסר
+        if not remaining:
+            _await_answer.pop(phone, None)
+            fields = dict(pend["fields"])
+            # PII (ת"ז, תאריכי לידה): הערכים חיים רק ב-flow הרץ — ב-MVP לא נשמרים
+            # בפרופיל לשימוש חוזר. שמירה עתידית בפרופיל = רק מוצפן (Fernet,
+            # ENCRYPTION_KEY). חוב ידוע: הם ממילא ב-prefs._chat/_flow כי הלקוח
+            # הקליד אותם בצ'אט — לא נפתר כאן.
+            fields["form_answers"] = dict(pend["answered"])
+            # ה-ack המכני מחליף את ה-reply של הפרסונה — צימוד דיבור-מעשה נשמר
+            await _send_and_record(
+                phone,
+                _vary(
+                    "יש לי הכל — ממשיך בדיוק מאיפה שעצרתי 🦾",
+                    "קיבלתי את כל הפרטים, ממשיך מאותה נקודה 🤝",
+                    "מעולה, הכל אצלי — לוקח את זה מהמקום שעצרנו 🎯",
+                ),
+            )
+            _booking[phone] = {"state": "working", "info": _booking[phone].get("info") or ""}
+            _spawn(run_booking(phone, fields))
+            return
     # or ולא default: reply="" עובר סכמה אבל מטא דוחה הודעה ריקה — הלקוח בלי תשובה
     reply = result.get("reply") or _vary("רגע 🔄", "רגע איתי 🔄", "עוד רגע אני פה 🔄")
     # שכבת מגן אחרונה לפני הלקוח: שבירת-דמות אמיתית (חשיפת AI/הוראות/אמוג'י זר)
