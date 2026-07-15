@@ -77,3 +77,59 @@ def test_single_free_time_offers_to_close(monkeypatch):
     kind, msg = sent[-1]
     assert kind == "text"
     assert "20:00" in msg and "19:30" in msg and "סגור" in msg
+
+
+def test_flexible_customer_widens_window_no_stop():
+    """לקוח גמיש ('בסביבות 20:00') → ±60 דק' בלי עצירה; ברירת מחדל → ±30 + חלופות."""
+    flex = bu_runner._build_task(
+        {
+            "url": "http://x",
+            "date": "מחר",
+            "time": "20:00",
+            "party_size": 2,
+            "dry_run": True,
+            "time_flex": True,
+        }
+    )
+    assert "60 דקות" in flex and "בלי לעצור ולשאול" in flex
+    strict = bu_runner._build_task(
+        {"url": "http://x", "date": "מחר", "time": "20:00", "party_size": 2, "dry_run": True}
+    )
+    assert "30 דקות" in strict and "MISSING:time" in strict
+
+
+def test_time_decision_is_immediate_rule():
+    """חוק האנטי-התלבטות (לופ 8 הדקות של A.K.A, 15.7): ההחלטה על שעה — צעד אחד."""
+    task = bu_runner._build_task(
+        {"url": "http://x", "date": "מחר", "time": "20:00", "party_size": 2, "dry_run": True}
+    )
+    assert "מיידית" in task and "אסור" in task
+
+
+def test_time_flexible_flows_to_job(monkeypatch, tmp_path):
+    """fields.time_flexible מהשיחה מגיע עד ה-job של ה-runner."""
+    from app.automation import browser_book
+    from app.config import settings
+
+    settings.bu_record_dir = str(tmp_path)
+    jobs = []
+
+    async def fake_run(job):
+        jobs.append(job)
+        with open(job["result_path"], "w", encoding="utf-8") as f:
+            import json
+
+            json.dump({"success": True, "summary_reached": True, "message": "SUMMARY_REACHED"}, f)
+
+    monkeypatch.setattr(browser_book, "_run_subprocess", fake_run)
+    asyncio.run(
+        browser_book.book_table_bu(
+            restaurant="א",
+            page_url="http://x",
+            date="מחר",
+            time="20:00",
+            party_size=2,
+            time_flex=True,
+        )
+    )
+    assert jobs[0]["time_flex"] is True

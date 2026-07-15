@@ -160,6 +160,7 @@ async def book_table_bu(
     dry_run: bool = True,
     resume: dict | None = None,  # {"session_id","recap"} — המשך סשן חי מאותו מסך (pause-resume)
     keep_on_summary: bool = False,  # השאר סשן חי גם על SUMMARY_REACHED — לסגירה-באותו-סשן
+    time_flex: bool = False,  # הלקוח גמיש בשעה → מותר לסגור ±60 דק' בלי לעצור ולשאול
 ) -> ActionResult:
     """מזמין (Ontopo/Tabit) דרך browser-use agent אוטונומי. עוצר בשלב הכרטיס (שער בטיחות).
 
@@ -186,6 +187,7 @@ async def book_table_bu(
         "phone": phone,
         "notes": notes,
         "dry_run": dry_run,
+        "time_flex": time_flex,
         "model": settings.model_name.split("/")[-1],
         "headless": settings.bu_headless,
         "record_dir": record_dir,
