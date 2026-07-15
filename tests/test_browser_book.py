@@ -77,3 +77,36 @@ if __name__ == "__main__":
     import pytest
 
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+def test_timeout_ceiling_events_gets_the_long_one():
+    """הופעות = מפת אולם + טפסים — אותה תקרה ארוכה כמו קולנוע (900s)."""
+    assert browser_book._timeout_s({"task_type": "events"}) == 900
+    assert browser_book._timeout_s({"task_type": "events"}) == browser_book.BU_CINEMA_TIMEOUT_S
+
+
+def test_artist_and_venue_enter_the_job(monkeypatch, tmp_path):
+    """artist/venue של הופעות נכנסים ל-job שנשלח ל-runner, כמו movie/city בקולנוע."""
+    settings.bu_record_dir = str(tmp_path)
+    captured = {}
+
+    async def fake_run(job):
+        captured.update(job)
+        with open(job["result_path"], "w", encoding="utf-8") as f:
+            json.dump({"success": True, "message": "ok"}, f)
+
+    monkeypatch.setattr(browser_book, "_run_subprocess", fake_run)
+    asyncio.run(
+        browser_book.book_table_bu(
+            restaurant="קובי פרץ",
+            page_url="http://x",
+            date="11.08",
+            time="",
+            party_size=2,
+            task_type="events",
+            artist="קובי פרץ",
+            venue="היכל מנורה",
+        )
+    )
+    assert captured["task_type"] == "events"
+    assert captured["artist"] == "קובי פרץ" and captured["venue"] == "היכל מנורה"

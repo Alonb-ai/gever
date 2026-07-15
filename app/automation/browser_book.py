@@ -27,8 +27,9 @@ BU_CINEMA_TIMEOUT_S = 900  # קולנוע ארוך ממסעדה (מפת מושב
 
 
 def _timeout_s(job: dict) -> int:
-    """תקרת הריצה לפי סוג המשימה — קולנוע מקבל את התקרה הארוכה."""
-    return BU_CINEMA_TIMEOUT_S if job.get("task_type") == "cinema" else BU_TIMEOUT_S
+    """תקרת הריצה לפי סוג המשימה — קולנוע והופעות מקבלים את התקרה הארוכה
+    (מפת אולם/מושבים + טפסים; הלקח מריצת הקולנוע שנהרגה ב-600s)."""
+    return BU_CINEMA_TIMEOUT_S if job.get("task_type") in ("cinema", "events") else BU_TIMEOUT_S
 
 
 async def _run_subprocess(job: dict) -> None:
@@ -168,9 +169,11 @@ async def book_table_bu(
     notes: str = "",  # העדפות ביצוע מהלקוח (אזור ישיבה וכו') — מוזרק ל-task
     dry_run: bool = True,
     resume: dict | None = None,  # {"session_id","recap"} — המשך סשן חי מאותו מסך (pause-resume)
-    task_type: str = "restaurant",  # "restaurant" | "cinema" — בורר את ה-task ב-bu_runner
+    task_type: str = "restaurant",  # "restaurant" | "cinema" | "events" — בורר את ה-task
     movie: str = "",  # קולנוע: שם הסרט (נכנס ל-task)
     city: str = "",  # קולנוע: העיר/הסניף — בחירת בית הקולנוע קורית בתוך זרימת הרכישה
+    artist: str = "",  # הופעות: האמן/שם המופע (נכנס ל-task)
+    venue: str = "",  # הופעות: היכל/עיר — רק אם הלקוח ציין (מחדד את בחירת המועד)
     keep_on_summary: bool = False,  # השאר סשן חי גם על SUMMARY_REACHED — לסגירה-באותו-סשן
 ) -> ActionResult:
     """מזמין (Ontopo/Tabit) דרך browser-use agent אוטונומי. עוצר בשלב הכרטיס (שער בטיחות).
@@ -193,6 +196,8 @@ async def book_table_bu(
         "task_type": task_type,
         "movie": movie,
         "city": city,
+        "artist": artist,
+        "venue": venue,
         "date": date,
         "time": time,
         "party_size": party_size,
