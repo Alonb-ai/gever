@@ -21,6 +21,7 @@ def _reset():
     pipeline._resume.clear()
     pipeline._resolved.clear()
     pipeline._pending_pick.clear()
+    pipeline._last_out.clear()  # בלי זה _maybe_ack מדלג על ack-ים בין טסטים
 
 
 def test_run_commit_books_for_real_and_logs(monkeypatch):
@@ -610,6 +611,261 @@ def test_vary_keeps_message_anchors(monkeypatch):
     for _ in range(60):  # מספיק כדי לכסות את כל הווריאנטים בהסתברות ~1
         seen.add(pipeline._vary("א", "ב", "ג"))
     assert seen == {"א", "ב", "ג"}  # כולם מגיעים — זו באמת הגרלה על כל הרשימה
+
+
+def test_every_vary_variant_carries_its_anchors(monkeypatch):
+    """הסורק של הניסוחים המתחלפים: מריצים כל זרימה שמדברת ללקוח כש-_vary מוחלף
+    בלוכד, ובודקים שכל וריאנט (לא רק הנבחר) נושא את עוגני-המידע של ההודעה —
+    שם/שעה/לינק/מילת-המפתח שהטסטים האחרים נועלים — ועובר את חוקי הדמות.
+    ככה וריאנט חדש שמפספס עוגן נתפס דטרמיניסטית, לא בהגרלת ה-random בפרוד."""
+    from app.llm.intent import character_leaks
+
+    captured: list[tuple] = []
+
+    def fake_vary(*variants):
+        captured.append(variants)
+        return variants[0]
+
+    monkeypatch.setattr(pipeline, "_vary", fake_vary)
+
+    def check(key, *anchors):
+        """כל tuple שאחד מהווריאנטים שלו נושא את key — כולם חייבים את כל העוגנים."""
+        hits = [t for t in captured if any(key in v for v in t)]
+        assert hits, f"לא נלכדה קבוצת וריאנטים עם '{key}'"
+        for t in hits:
+            for v in t:
+                assert character_leaks(v) == [], f"וריאנט מפר חוקי דמות: {v!r}"
+                for a in (key, *anchors):
+                    assert a in v, f"וריאנט בלי העוגן '{a}': {v!r}"
+
+    # --- טבלת הכישלונות (נבנית במלואה בכל קריאה — לוכדת את שלוש ההודעות) ---
+    pipeline._failure_reply("no_availability", "גרקו")
+    check("אין מקום פנוי", "גרקו")
+    check("סניף אחר", "סגור", "גרקו")
+    check("אונליין", "גרקו")
+    captured.clear()
+
+    # --- פייקים משותפים לזרימות ההזמנה ---
+    sent: list[str] = []
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def fake_send_list(phone, body, options, button="בחירה"):
+        sent.append(body)
+
+    async def fake_upsert(phone, name=None, email=None, prefs=None):
+        pass
+
+    async def fake_get_profile(phone):
+        return None
+
+    async def fake_log(*a, **k):
+        pass
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "send_list", fake_send_list)
+    monkeypatch.setattr(memory, "upsert_profile", fake_upsert)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+    monkeypatch.setattr(memory, "log_booking", fake_log)
+
+    def resolver(found):
+        async def fake_resolve(name):
+            return found
+
+        return fake_resolve
+
+    def booker(result):
+        async def fake_book(**kwargs):
+            if isinstance(result, BaseException):
+                raise result
+            return result
+
+        return fake_book
+
+    one = {"status": "one", "url": "http://x", "platform": "ontopo", "candidates": []}
+    fields = {"task_type": "restaurant", "restaurant": "גרקו", "time": "20:30", "name": "אלון"}
+
+    def run_flow(flow_fields=fields, *, found=one, book=None):
+        _reset()
+        captured.clear()
+        sent.clear()
+        monkeypatch.setattr(pipeline, "resolve_reservation_url", resolver(found))
+        if book is not None:
+            monkeypatch.setattr(pipeline, "book_table_bu", booker(book))
+        asyncio.run(pipeline.run_booking("vF", flow_fields))
+
+    # --- run_booking: הענפים המכניים ---
+    run_flow({"task_type": "other"})
+    check("עדיין")
+
+    run_flow({"task_type": "restaurant", "restaurant": ""})
+    check("מסעדה")
+
+    run_flow(found={"status": "none", "url": "", "candidates": []})
+    check("לא מצאתי", "גרקו")
+
+    many_urls = {
+        "status": "many",
+        "candidates": [
+            {"title": "https://ontopo.com/he/il/page/1", "url": "u1", "platform": "ontopo"},
+            {"title": "www.tabitisrael.co.il/x", "url": "u2", "platform": "tabit"},
+        ],
+    }
+    run_flow(found=many_urls)
+    check("סניפ", "גרקו")  # "סניפ" ולא "סניף" — ה-ף הסופית שונה מה-פ שבתוך "סניפים"
+
+    many_two = {
+        "status": "many",
+        "candidates": [
+            {"title": "גרקו פרישמן: הזמנת מקום | אונטופו", "url": "u1", "platform": "ontopo"},
+            {"title": "גרקו הרצליה: הזמנת מקום | אונטופו", "url": "u2", "platform": "ontopo"},
+        ],
+    }
+    run_flow(found=many_two)
+    check("כאלה")
+
+    many_one = {
+        "status": "many",
+        "candidates": [
+            {"title": "גרקו פרישמן: הזמנת מקום | אונטופו", "url": "u1", "platform": "ontopo"},
+        ],
+    }
+    run_flow(found=many_one)
+    check("גרקו פרישמן")
+
+    # הצלחת recon (מסך אישור) + שעה חלופית — head/middle/closer
+    run_flow(book=ActionResult(success=True, summary="SUMMARY_REACHED", details={}))
+    check("מסך האישור", "גרקו")
+    check("מוכן")
+    check("סגור")
+
+    run_flow(book=ActionResult(success=True, summary="SUMMARY_REACHED", details={"time": "21:00"}))
+    check("20:30", "21:00")  # וריאנטי השעה החלופית נושאים את שתי השעות
+
+    # ניסיון-שני (fallback) — "דרך אחרת"
+    with_fb = {**one, "fallback": {"url": "http://y", "platform": "tabit"}}
+
+    async def fail_then_ok(**kwargs):
+        if kwargs["page_url"] == "http://x":
+            return ActionResult(success=False, summary="FAILED:x", details={})
+        return ActionResult(success=True, summary="SUMMARY_REACHED", details={})
+
+    _reset()
+    captured.clear()
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", resolver(with_fb))
+    monkeypatch.setattr(pipeline, "book_table_bu", fail_then_ok)
+    asyncio.run(pipeline.run_booking("vF", fields))
+    check("דרך אחרת")
+
+    # כישלון גנרי / timeout / חריגה
+    run_flow(book=ActionResult(success=False, summary="raw agent text", details={}))
+    check("'גרקו'")
+
+    run_flow(book=asyncio.TimeoutError())
+    check("נתקע")
+
+    run_flow(book=RuntimeError("boom"))
+    check("נתקעתי")
+
+    # --- run_commit ---
+    job = {
+        "restaurant": "הדסון",
+        "page_url": "http://x",
+        "platform": "ontopo",
+        "date": "מחר",
+        "time": "19:30",
+        "party_size": 2,
+        "name": "אלון",
+    }
+
+    def run_commit_flow(commit_job, *, book=None):
+        _reset()
+        captured.clear()
+        pipeline._pending_commit["vC"] = dict(commit_job)
+        if book is not None:
+            monkeypatch.setattr(pipeline, "book_table_bu", booker(book))
+        asyncio.run(pipeline.run_commit("vC"))
+
+    run_commit_flow({**job, "name": ""})
+    check("שם")
+
+    run_commit_flow(
+        job,
+        book=ActionResult(success=True, summary="BOOKED", details={"confirmation": "ABC123"}),
+    )
+    check("סגור ✅", "הדסון", "19:30", "סועדים")
+    check("ABC123")
+
+    run_commit_flow(job, book=ActionResult(success=False, summary="raw", details={}))
+    check("נתקע", "'הדסון'")
+
+    run_commit_flow(job, book=asyncio.TimeoutError())
+    check("נתקע")
+
+    run_commit_flow(job, book=RuntimeError("boom"))
+    check("נתקעתי")
+
+    # --- handle_inbound: reply ריק + גישור דליפה ---
+    async def fake_send_typing(mid):
+        pass
+
+    monkeypatch.setattr(pipeline, "send_typing", fake_send_typing)
+
+    async def empty_converse(phone, text):
+        return {"reply": "", "ready": False}
+
+    _reset()
+    captured.clear()
+    monkeypatch.setattr(pipeline, "converse", empty_converse)
+    asyncio.run(pipeline.handle_inbound("vH", "הי"))
+    check("רגע")
+
+    async def leaking_converse(phone, text):
+        return {"reply": "אני בוט", "ready": False}
+
+    _reset()
+    captured.clear()
+    monkeypatch.setattr(pipeline, "converse", leaking_converse)
+    asyncio.run(pipeline.handle_inbound("vH", "הי"))
+    check("רגע")
+
+
+def test_orphan_message_variants_carry_anchors(monkeypatch):
+    """כל וריאנט של הודעת היתום (עליית שרת) נושא 'נפלתי באמצע' + שם המסעדה."""
+    import app.main as main_mod
+    from app.llm.intent import character_leaks
+    from fastapi.testclient import TestClient
+
+    captured: list[tuple] = []
+
+    def fake_vary(*variants):
+        captured.append(variants)
+        return variants[0]
+
+    async def fake_list():
+        return [{"phone": "972500000000", "restaurant": "גרקו"}]
+
+    async def fake_clear(phone):
+        pass
+
+    async def fake_send(phone, msg):
+        pass
+
+    monkeypatch.setattr(main_mod, "_vary", fake_vary)
+    monkeypatch.setattr(main_mod.memory, "list_inflight", fake_list)
+    monkeypatch.setattr(main_mod.memory, "clear_inflight", fake_clear)
+    monkeypatch.setattr(main_mod, "send_text", fake_send)
+    monkeypatch.setattr(main_mod.settings, "bu_browser", "local")  # מדלג על sweep
+
+    with TestClient(main_mod.app):
+        pass
+
+    assert captured, "הודעת היתום לא עברה דרך _vary"
+    for t in captured:
+        for v in t:
+            assert "נפלתי באמצע" in v and "ההזמנה של גרקו" in v
+            assert character_leaks(v) == []
 
 
 def test_list_rows_titles_show_distinguishing_location():

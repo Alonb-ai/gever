@@ -6,21 +6,33 @@ Webhook נכנס מ-Meta WhatsApp Cloud API:
   POST /webhook  — הודעות נכנסות (JSON) → app.pipeline → תשובה ב-WhatsApp.
 """
 
+import asyncio
 import hashlib
 import hmac
 import json
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request, Response
 
 from app.automation.browser_book import sweep_orphan_sessions
 from app.config import settings
 from app.db import memory
-from app.pipeline import handle_inbound
+from app.pipeline import _vary, handle_inbound
 from app.whatsapp.client import send_text
 
 log = logging.getLogger("gever")
+
+KEEPALIVE_INTERVAL_S = 24 * 60 * 60
+
+
+async def _supabase_keepalive() -> None:
+    """שאילתה יומית קלה ל-Supabase — פרויקט חינמי מושהה אחרי ~שבוע בלי תעבורה
+    (קרה 14.7: NXDOMAIN, כל הזיכרון כבוי בשקט). רץ כל עוד השרת חי (פרוד = 24/7).
+    recent_bookings בולע כשלים בעצמו, אז הלולאה לא מתה על תקלת רשת."""
+    while True:
+        await memory.recent_bookings("_keepalive")
+        await asyncio.sleep(KEEPALIVE_INTERVAL_S)
 
 
 @asynccontextmanager
@@ -47,12 +59,20 @@ async def lifespan(_app: FastAPI):
             what = f" של {o['restaurant']}" if o.get("restaurant") else ""
             await send_text(
                 o["phone"],
-                f"סורי נפלתי באמצע ההזמנה{what} 😮‍💨\nעוד הודעה אחת ממך ואני סוגר את זה",
+                _vary(
+                    f"סורי נפלתי באמצע ההזמנה{what} 😮‍💨\nעוד הודעה אחת ממך ואני סוגר את זה",
+                    f"נפלתי באמצע ההזמנה{what}, סליחה על זה 🫠\nרק לכתוב לי שוב מה רצית ואני עליה",
+                    f"אוף, נפלתי באמצע ההזמנה{what} 😮‍💨\nאם זה עדיין רלוונטי — הודעה ואני סוגר",
+                ),
             )
             log.info("orphan booking recovered for %s (%s)", o["phone"], o.get("restaurant"))
         except Exception:  # noqa: BLE001
             log.warning("orphan recovery failed for %s", o.get("phone"), exc_info=True)
+    keepalive = asyncio.create_task(_supabase_keepalive())
     yield
+    keepalive.cancel()
+    with suppress(asyncio.CancelledError):
+        await keepalive
 
 
 app = FastAPI(title="גבר / Gever", version="0.1.0", lifespan=lifespan)
