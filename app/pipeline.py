@@ -229,6 +229,54 @@ async def _maybe_ack(phone: str, text: str) -> None:
         await _send_and_record(phone, text)
 
 
+async def _save_flow(phone: str) -> None:
+    """התמדת מצב ה-flow (הזמנה/רשימה/סשן ממתין) ל-prefs — redeploy מפסיק להרוג
+    שיחות באמצע (ה-blocker לבטא). read-merge כמו _persist_chat, נקרא בסוף
+    run_booking/run_commit — אחרי שהמצב התייצב, פעם אחת לריצה."""
+    flow = {
+        "booking": _booking.get(phone),
+        "pending_commit": _pending_commit.get(phone),
+        "resume": _resume.get(phone),
+        "resolved": _resolved.get(phone),
+        "pending_pick": _pending_pick.get(phone),
+        "ts": time.time(),
+    }
+    prof = await memory.get_profile(phone)
+    prefs = (prof or {}).get("prefs") or {}
+    await memory.upsert_profile(phone, prefs={**prefs, "_flow": flow})
+
+
+def _restore_flow(phone: str, flow: dict | None) -> None:
+    """שחזור מצב flow מ-prefs אחרי restart — רק כשאין כלום בזיכרון (מצב חם מנצח).
+    מצב ישן מ->3 שעות לא משוחזר (השיחה ממילא פותחת דף חדש); state="working" נזרק
+    (הריצה מתה עם התהליך — התאוששות היתומים כבר מתנצלת עליה). session_id-ים
+    משוחזרים כמו שהם: חיוּת נבדקת בשימוש, וסשן מת נופל שקוף לריצה טרייה."""
+    in_memory = (
+        phone in _booking
+        or phone in _pending_commit
+        or phone in _pending_pick
+        or phone in _resume
+        or phone in _resolved
+    )
+    if not flow or in_memory:
+        return
+    if (time.time() - (flow.get("ts") or 0)) > SESSION_GAP_S:
+        return
+    b = flow.get("booking")
+    if b and b.get("state") != "working":
+        _booking[phone] = b
+    for key, target in (
+        ("pending_commit", _pending_commit),
+        ("resume", _resume),
+        ("resolved", _resolved),
+    ):
+        if flow.get(key):
+            target[phone] = flow[key]
+    if flow.get("pending_pick"):
+        # JSON החזיר רשימות — הקוד מצפה ל-(url, platform)
+        _pending_pick[phone] = {k: tuple(v) for k, v in flow["pending_pick"].items()}
+
+
 HEARTBEAT_S = 75  # שקט ארוך מזה באמצע ריצה מרגיש כמו נטישה (ממצא התחקיר: 230 שנ' דממה)
 
 
@@ -429,6 +477,9 @@ async def _chat_for(phone: str) -> tuple:
     last = _last_seen.get(phone)
     prefs = (profile or {}).get("prefs") or {}
     chat_meta = prefs.get("_chat") or {}
+    # שחזור מצב flow אחרי restart — לפני בדיקת ה"דף החדש", כדי שסשן הזמנה ששוחזר
+    # (מאשר ממתין / רשימה פתוחה) ימנע איפוס השיחה בדיוק כמו מצב חם בזיכרון.
+    _restore_flow(phone, prefs.get("_flow"))
 
     if last is not None:
         # מסלול חם בתהליך — כמו תמיד: gap >~3h מאז התור האחרון פותח דף חדש.
@@ -1013,6 +1064,7 @@ async def run_booking(phone: str, fields: dict) -> None:
         )
     finally:
         await memory.clear_inflight(phone)
+        await _save_flow(phone)  # המצב התייצב — שורד redeploy מכאן
         log.info("run_booking done: %s -> state=%s", phone, _booking.get(phone, {}).get("state"))
 
 
@@ -1165,6 +1217,7 @@ async def run_commit(phone: str) -> None:
     finally:
         await memory.clear_inflight(phone)
         _pending_commit.pop(phone, None)
+        await _save_flow(phone)  # אחרי ניקוי ה-gate — ה-_flow המותמד משקף את הסיום
 
 
 async def handle_inbound(phone: str, text: str, message_id: str | None = None) -> None:
