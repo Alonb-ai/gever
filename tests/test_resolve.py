@@ -466,3 +466,71 @@ def test_real_titles_leaves_textual_titles_and_survives_fetch_error(monkeypatch)
     asyncio.run(resolve._real_titles(cands))
     assert cands[0]["title"] == "גרקו פרישמן: הזמנת מקום | אונטופו"  # לא השתנה
     assert cands[1]["title"] == "https://ontopo.com/he/il/page/9"  # כשל — נשאר, יסונן ברשימה
+
+
+def test_dead_ontopo_page_loses_to_tabit(monkeypatch):
+    """מלכודת גרקו (נצפתה שוב חי 15.7, הרצליה): דף Ontopo עם כותרת מושלמת אבל
+    'לא פעיל' — נפסל, וטאביט החי זוכה במקומו."""
+    import asyncio
+
+    from app.automation import resolve as rs
+
+    async def fake_search(name):
+        return [
+            {
+                "title": "גרקו הרצליה הרצליה",
+                "url": "https://ontopo.com/he/il/page/965",
+                "platform": "ontopo",
+            },
+            {
+                "title": "גרקו הרצליה",
+                "url": "https://tabitisrael.co.il/site/greco-h",
+                "platform": "tabit",
+            },
+        ], []
+
+    async def fake_titles(c):
+        pass
+
+    async def fake_dead(url):
+        return "ontopo.com" in url
+
+    monkeypatch.setattr(rs, "search_reservation", fake_search)
+    monkeypatch.setattr(rs, "_real_titles", fake_titles)
+    monkeypatch.setattr(rs, "_ontopo_dead", fake_dead)
+    r = asyncio.run(rs.resolve_reservation_url("גרקו הרצליה"))
+    assert r["status"] == "one" and r["platform"] == "tabit"
+    assert "tabitisrael" in r["url"]
+
+
+def test_live_ontopo_page_still_wins(monkeypatch):
+    """דף Ontopo חי — שום שינוי בסדר העדיפויות (ontopo לפני tabit)."""
+    import asyncio
+
+    from app.automation import resolve as rs
+
+    async def fake_search(name):
+        return [
+            {"title": "הדסון", "url": "https://ontopo.com/he/il/page/1", "platform": "ontopo"},
+            {"title": "הדסון", "url": "https://tabitisrael.co.il/site/hudson", "platform": "tabit"},
+        ], []
+
+    async def fake_titles(c):
+        pass
+
+    async def fake_dead(url):
+        return False
+
+    monkeypatch.setattr(rs, "search_reservation", fake_search)
+    monkeypatch.setattr(rs, "_real_titles", fake_titles)
+    monkeypatch.setattr(rs, "_ontopo_dead", fake_dead)
+    r = asyncio.run(rs.resolve_reservation_url("הדסון"))
+    assert r["status"] == "one" and r["platform"] == "ontopo"
+    assert r["fallback"]["platform"] == "tabit"  # ה-fallback נשמר
+
+
+def test_looks_dead_markers():
+    from app.automation.resolve import _looks_dead
+
+    assert _looks_dead("<div>העסק לא פעיל</div>") is True
+    assert _looks_dead("<div>הזמינו שולחן עכשיו</div>") is False

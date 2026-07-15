@@ -175,6 +175,9 @@ def _safe_option(s: str) -> str:
     lbl = s.replace("[", "").replace("]", "")
     lbl = "".join(c for c in lbl if not _looks_like_emoji(c) or c in ALLOWED_EMOJI)
     lbl = " ".join(lbl.split())
+    # מילים כפולות רצופות — אונטופו מחזיקים שמות כמו "גרקו הרצליה הרצליה" (העיר
+    # פעמיים בכותרת הרשמית, נצפה חי 15.7) — מציגים ללקוח נקי.
+    lbl = re.sub(r"(?<!\S)(\S+)( \1)+(?!\S)", r"\1", lbl)
     return "" if not lbl or character_leaks(lbl) else lbl
 
 

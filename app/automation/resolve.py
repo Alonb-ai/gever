@@ -11,12 +11,15 @@ resolver: שם מסעדה → URL של דף הזמנות, בלי דפדפן. mul
 
 import asyncio
 import html
+import logging
 import re
 import urllib.parse
 
 import httpx
 
 from app.config import settings
+
+log = logging.getLogger("gever")
 
 BRAVE = "https://api.search.brave.com/res/v1/web/search"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
@@ -114,6 +117,27 @@ async def _real_titles(candidates: list[dict]) -> None:
                     c["title"] = title
             except Exception:  # noqa: BLE001 — best-effort: בלי שם הדף יסונן מהרשימה
                 pass
+
+
+# דף Ontopo "רפאים": קיים, כותרת מושלמת, אבל המקום מסומן בו כלא-פעיל (אירוע שפג/
+# עסק שירד). ניצח את ה-resolve פעמיים (גרקו 07.2026, גרקו הרצליה 15.7) ושלח את
+# הריצה לדף מת בזמן שהמסעדה חיה ובועטת בטאביט.
+_DEAD_MARKS = ("לא פעיל", "האירוע הסתיים")
+
+
+def _looks_dead(body: str) -> bool:
+    return any(m in body for m in _DEAD_MARKS)
+
+
+async def _ontopo_dead(url: str) -> bool:
+    """האם דף ה-Ontopo מסומן מת. כשל רשת → False (ספק-חי עדיף על פסילת שווא)."""
+    try:
+        async with httpx.AsyncClient(
+            timeout=8, headers={"User-Agent": UA}, follow_redirects=True
+        ) as http:
+            return _looks_dead((await http.get(url)).text)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _candidate(url: str, raw_title: str, seen: set) -> dict | None:
@@ -273,40 +297,66 @@ async def resolve_reservation_url(name: str) -> dict:
     """
     candidates, raw = await search_reservation(name)
     await _real_titles(candidates)  # כותרות-URL → השם האמיתי מהדף, לפני כל התאמה
-    primary, fallback = None, None
-    for platform, _, _ in _PLATFORMS:
-        plat = [c for c in candidates if c["platform"] == platform]
-        if not plat:
+
+    def _select(pool: list[dict]) -> tuple[str | None, dict | None, dict | None]:
+        primary, fallback = None, None
+        for platform, _, _ in _PLATFORMS:
+            plat = [c for c in pool if c["platform"] == platform]
+            if not plat:
+                continue
+            # סינון דילים/שוברים/חבילות לפני הדיסאמביגואציה — אלה מבלבלים את הלקוח.
+            # אם הסינון מרוקן הכל, נשארים עם הסט המקורי (fallback).
+            plat = [c for c in plat if not _is_listing(c["title"])] or plat
+            status, chosen_title, good = _match_restaurant(name, [c["title"] for c in plat])
+            if status == "one":
+                url = next(c["url"] for c in plat if c["title"] == chosen_title)
+                if primary is None:
+                    primary = {
+                        "status": "one",
+                        "url": url,
+                        "platform": platform,
+                        "candidates": plat,
+                    }
+                else:
+                    fallback = {"url": url, "platform": platform}
+                    break
+            elif status == "many" and primary is None:
+                return (
+                    "many",
+                    {
+                        "status": "many",
+                        "url": None,
+                        "platform": platform,
+                        "candidates": [c for c in plat if c["title"] in good],
+                        "fallback": None,
+                    },
+                    None,
+                )
+            # אין match חזק בפלטפורמה הזו → מנסים את הבאה בתור.
+        return ("one", primary, fallback) if primary else (None, None, None)
+
+    pool = list(candidates)
+    while True:
+        kind, picked, fallback = _select(pool)
+        if kind == "many":
+            return picked
+        if kind is None:
+            break
+        # מלכודת דף-הרפאים של Ontopo (גרקו): מנצח עם כותרת מושלמת אבל "לא פעיל".
+        # פוסלים וחוזרים לבחור מהשאר — טאביט/סניף אחר, ואם לא נותר כלום ייכנס
+        # הנתיב של אתר-המסעדה (Phase 4-lite) שימצא את פלטפורמת האמת.
+        if picked["platform"] == "ontopo" and await _ontopo_dead(picked["url"]):
+            log.info("resolve: dead ontopo page dropped for '%s': %s", name, picked["url"])
+            pool = [c for c in pool if c["url"] != picked["url"]]
             continue
-        # סינון דילים/שוברים/חבילות לפני הדיסאמביגואציה — אלה מבלבלים את הלקוח.
-        # אם הסינון מרוקן הכל, נשארים עם הסט המקורי (fallback).
-        plat = [c for c in plat if not _is_listing(c["title"])] or plat
-        status, chosen_title, good = _match_restaurant(name, [c["title"] for c in plat])
-        if status == "one":
-            url = next(c["url"] for c in plat if c["title"] == chosen_title)
-            if primary is None:
-                primary = {"status": "one", "url": url, "platform": platform, "candidates": plat}
-            else:
-                fallback = {"url": url, "platform": platform}
-                break
-        elif status == "many" and primary is None:
-            return {
-                "status": "many",
-                "url": None,
-                "platform": platform,
-                "candidates": [c for c in plat if c["title"] in good],
-                "fallback": None,
-            }
-        # אין match חזק בפלטפורמה הזו → מנסים את הבאה בתור.
-    if primary:
-        return {**primary, "fallback": fallback}
+        return {**picked, "fallback": fallback}
     # אף פלטפורמה לא נתנה match חזק → לעולם לא לבחור לבד. לשאול את הלקוח (many) או none.
-    if candidates:
+    if pool:
         return {
             "status": "many",
             "url": None,
             "platform": None,
-            "candidates": candidates,
+            "candidates": pool,
             "fallback": None,
         }
     # אפס דפי פלטפורמה בחיפוש — לפני שמוותרים: לינק פלטפורמה מהאתר של המסעדה עצמה

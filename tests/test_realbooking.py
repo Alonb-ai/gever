@@ -1530,3 +1530,9 @@ if __name__ == "__main__":
     import pytest
 
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+def test_safe_option_dedupes_consecutive_words():
+    """'גרקו הרצליה הרצליה' (כותרת אונטופו הרשמית, נצפה חי 15.7) → נקי ללקוח."""
+    assert pipeline._safe_option("גרקו הרצליה הרצליה") == "גרקו הרצליה"
+    assert pipeline._safe_option("קפה קפה רעננה") == "קפה רעננה"  # גם שם-מותג כפול מנוקה
