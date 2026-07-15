@@ -64,6 +64,15 @@ def test_book_table_bu_timeout_is_honest(monkeypatch, tmp_path):
     assert res.details["stage"] == "timeout"
 
 
+def test_timeout_ceiling_cinema_gets_the_long_one():
+    """קולנוע ארוך ממסעדה (מפת מושבים + סוגי כרטיסים + טופס) — ריצה חיה נהרגה
+    ב-600s קליק אחד לפני קיר-התשלום. מסעדות נשארות על התקרה הקצרה."""
+    assert browser_book._timeout_s({"task_type": "cinema"}) == browser_book.BU_CINEMA_TIMEOUT_S
+    assert browser_book._timeout_s({"task_type": "restaurant"}) == browser_book.BU_TIMEOUT_S
+    assert browser_book._timeout_s({}) == browser_book.BU_TIMEOUT_S
+    assert browser_book.BU_CINEMA_TIMEOUT_S > browser_book.BU_TIMEOUT_S
+
+
 if __name__ == "__main__":
     import pytest
 

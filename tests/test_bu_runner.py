@@ -175,6 +175,131 @@ def test_commit_missing_field_is_not_a_booking():
     assert r["missing"] == "email"
 
 
+# --- קולנוע: _build_cinema_task (דרך _build_task) + seats ב-_parse_result ---
+
+_CJOB = {
+    "task_type": "cinema",
+    "url": "https://www.planetcinema.co.il/films/the-odyssey/7460s2r",
+    "movie": "האודיסאה",
+    "city": "ראשון לציון",
+    "party_size": 2,
+    "date": "15.7",
+    "time": "20:00",
+    "name": "אלון",
+    "email": "a@b.com",
+    "phone": "0540000000",
+}
+
+
+def test_cinema_task_keeps_contract_and_is_principled_not_recipe():
+    """ה-task של קולנוע: markers קיימים בלבד (אין חוזה חדש), אין שמות כפתורים,
+    וכל חוקי הקולנוע (סניף לפי עיר, חלון 90 דק', פורמט, מושבים) נוכחים."""
+    recon = _build_task({**_CJOB, "dry_run": True})
+    commit = _build_task({**_CJOB, "dry_run": False})
+    assert _CJOB["url"] in recon and "האודיסאה" in recon and "ראשון לציון" in recon
+    # חוזה ה-markers הקיים — לא ממציאים חדש
+    assert "SUMMARY_REACHED" in recon and "CARD_REQUIRED" in recon
+    assert "MISSING" in recon and "FAILED" in recon and "URL:" in recon
+    assert "BOOKED" in commit
+    # עקרוני, לא מתכון: בלי שמות כפתורים של אתר ספציפי
+    assert "מצאו לי שולחן" not in recon and "הזמנת כרטיסים אונליין" not in recon
+    # recon עוצר לפני הסוף + המשפט הייחודי לקולנוע (קיר התשלום = מסך הסיכום)
+    assert "אל תלחץ" in recon
+    assert "מסך התשלום הוא מסך הסיכום" in recon and "מסך התשלום הוא מסך הסיכום" in commit
+    # חוקי קולנוע
+    assert "FAILED:no_cinema_in_city" in recon
+    assert "90 דקות" in recon
+    assert "MISSING:format" in recon and "OPTIONS:" in recon
+    assert "MISSING:seats" in recon
+    assert "אל תתלבט" in recon  # כלל האנטי-התלבטות המשותף
+    # שורת הסיום המורחבת: שעה | מושבים
+    assert "SUMMARY_REACHED 21:30 | שורה 7 מושבים 11,12" in recon
+    # לקחי iter 2 (ריצה חיה): SVG — לבדוק מבנה לפני script, ואימות אבטחה — סבלנות
+    assert "SVG" in recon and "אל תנחש" in recon
+    assert "אימות אבטחה" in recon
+    # לקח סבב סינמה סיטי (ריצה חיה 15.07.26): קליק תכנותי על SVG לא נקלט —
+    # צריך רצף אירועי עכבר על אלמנט ה-hit-area (8 צעדי ניסוי-וטעייה בלי הרמז)
+    assert "hit-area" in recon and "mousedown/mouseup/click" in recon
+
+
+def test_cinema_task_seat_default_is_declared_choice():
+    """ברירת המחדל למושבים (החריג היחיד לכלל 'לא בוחרים') מוצהרת ב-task:
+    צמודים, אמצע האולם, לא שורה ראשונה; תוספת תשלום → עצירה."""
+    recon = _build_task({**_CJOB, "dry_run": True})
+    assert "צמודים" in recon and "אמצע האולם" in recon and "שורה ראשונה" in recon
+    assert "תוספת תשלום" in recon
+
+
+def test_cinema_task_injects_notes_and_contact():
+    """notes ('שורה אחורית', 'בלי תלת-ממד') סוגרות בחירות מראש — מוזרקות כמו במסעדות."""
+    with_notes = _build_task({**_CJOB, "dry_run": True, "notes": "בלי תלת-ממד"})
+    assert "בלי תלת-ממד" in with_notes and "העדפות מהלקוח" in with_notes
+    bare = _build_task({**_CJOB, "dry_run": True})
+    assert "העדפות מהלקוח" not in bare
+    assert "אלון" in bare and "a@b.com" in bare
+
+
+def test_cinema_resume_continues_frozen_screen():
+    """resume (pause-resume): לא מנווטים מחדש — ה-URL לא מופיע, ה-recap כן."""
+    t = _build_task({**_CJOB, "dry_run": True, "resume": {"recap": "עצרתי על בחירת פורמט"}})
+    assert "אל תנווט" in t and "עצרתי על בחירת פורמט" in t
+    assert _CJOB["url"] not in t
+
+
+def test_parse_result_extracts_seats_after_pipe():
+    """קולנוע: הטקסט אחרי | בשורה האחרונה → seats; השעה נתפסת כרגיל."""
+    final = "נבחר פלאנט ראשון לציון.\nSUMMARY_REACHED 21:30 | שורה 7 מושבים 11,12"
+    r = _parse_result(final, commit=False)
+    assert r["success"] is True
+    assert r["time"] == "21:30"
+    assert r["seats"] == "שורה 7 מושבים 11,12"
+
+
+def test_parse_result_seats_with_card_wall_marker():
+    """התוצאה הצפויה בכל ריצת קולנוע מוצלחת: SUMMARY_REACHED + מושבים + CARD_REQUIRED
+    באותה שורה — המושבים נחלצים נקיים, בלי ה-marker."""
+    final = "URL: https://x/checkout\nSUMMARY_REACHED 21:30 | שורה 7 מושבים 11,12 CARD_REQUIRED"
+    r = _parse_result(final, commit=False)
+    assert r["success"] is True and r["card_required"] is True
+    assert r["seats"] == "שורה 7 מושבים 11,12"
+    assert r["page_now"] == "https://x/checkout"
+
+
+def test_parse_result_mixed_markers_live_iter1_regression():
+    """רגרסיה חיה (איטרציה 1, פלאנט ראשל"צ): ה-agent ערבב שני markers בשורת הסיום —
+    'SUMMARY_REACHED 19:30 | שורה 5 מושבים 7,8 / MISSING:last_name'. MISSING חייב
+    לנצח (success=False, השדה נקלט), וה-seats נחלץ נקי בלי זנב ה-marker."""
+    final = "הגעתי לטופס הפרטים.\nSUMMARY_REACHED 19:30 | שורה 5 מושבים 7,8 / MISSING:last_name"
+    r = _parse_result(final, commit=False)
+    assert r["success"] is False
+    assert r["missing"] == "last_name"
+    assert r["time"] == "19:30"
+    assert r["seats"] == "שורה 5 מושבים 7,8"
+
+
+def test_parse_result_seats_trailing_pipe_live_regression():
+    """רגרסיה חיה (ריצת אמת): ה-agent שם | גם לפני ה-marker —
+    'SUMMARY_REACHED 19:30 | שורה 5 מושבים 7,8 | CARD_REQUIRED' — והלקוח קיבל
+    'שורה 5 מושבים 7,8 |' עם פייפ יתום בסוף. תווי ההפרדה נחתכים מהקצוות."""
+    final = "URL: https://x/checkout\nSUMMARY_REACHED 19:30 | שורה 5 מושבים 7,8 | CARD_REQUIRED"
+    r = _parse_result(final, commit=False)
+    assert r["success"] is True and r["card_required"] is True
+    assert r["seats"] == "שורה 5 מושבים 7,8"
+    # וגם פייפ יתום בלי marker אחריו (agent שסיים את השורה ב-|)
+    r = _parse_result("SUMMARY_REACHED 19:30 | שורה 5 מושבים 7,8 |", commit=False)
+    assert r["seats"] == "שורה 5 מושבים 7,8"
+
+
+def test_parse_result_no_pipe_means_no_seats_restaurant_regression():
+    """מסעדות לא פולטות | בשורת הסיום — seats ריק, שום שדה אחר לא זז."""
+    r = _parse_result("SUMMARY_REACHED 21:00", commit=False)
+    assert r["seats"] == "" and r["time"] == "21:00" and r["success"] is True
+    # | בשורת OPTIONS (לא השורה האחרונה) לא הופך למושבים
+    r = _parse_result("OPTIONS: רגיל | IMAX | 4DX\nMISSING:format", commit=False)
+    assert r["seats"] == "" and r["missing"] == "format"
+    assert r["options"] == ["רגיל", "IMAX", "4DX"]
+
+
 if __name__ == "__main__":
     import pytest
 

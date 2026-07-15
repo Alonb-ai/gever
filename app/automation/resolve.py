@@ -1,9 +1,11 @@
 """
 resolver: שם מסעדה → URL של דף הזמנות, בלי דפדפן. multi-platform: Ontopo › Tabit.
+ורטיקל קולנוע: שם סרט → URL של דף הסרט. פלאנט › רב-חן › סינמה סיטי (אותו צינור).
 
-חיפוש web בשאילתה רחבה ("<שם> הזמנת מקום") שתופסת את שתי הפלטפורמות, ואז
-דיסאמביגואציה לפי הכותרת (חשוב — לרשת כמו "הדסון" יש כמה סניפים) פלטפורמה-פלטפורמה
-לפי סדר עדיפות. מחזיר 'one' עם url+platform, 'many' עם מועמדים לשאלת הבהרה, או 'none'.
+חיפוש web בשאילתה רחבה ("<שם> הזמנת מקום" / "<סרט> כרטיסים קולנוע") שתופסת את
+הפלטפורמות, ואז דיסאמביגואציה לפי הכותרת (חשוב — לרשת כמו "הדסון" יש כמה סניפים)
+פלטפורמה-פלטפורמה לפי סדר עדיפות. מחזיר 'one' עם url+platform, 'many' עם מועמדים
+לשאלת הבהרה, או 'none'.
 
 מנוע החיפוש: Brave Search API (BRAVE_API_KEY חובה). נתיב ה-DDG נמחק: מת בפרוד
 (202 אנטי-בוט ל-IP של דטהסנטר) ומיותר ב-dev — ה-tier החינמי של Brave מספיק.
@@ -29,6 +31,30 @@ _PLATFORMS: list[tuple[str, re.Pattern, str]] = [
     ("ontopo", _PAGE, "https://ontopo.com/he/il/page/{}"),
     ("tabit", _TABIT, "https://www.tabitisrael.co.il/site/{}"),
 ]
+
+# קולנוע (סדר = תיעדוף): פלאנט ורב-חן חולקות פלטפורמה (אותם movie ids, נבדק חי 14.07.26),
+# ולכן רב-חן היא ה-fallback הטבעי כשבעיר אין פלאנט. yesplanet באלטרנציה — Brave עלול
+# עוד להחזיר את הדומיין הישן (redirect 302); הקנוני תמיד planetcinema.
+_CINEMA_PLATFORMS: list[tuple[str, re.Pattern, str]] = [
+    (
+        "planet",
+        re.compile(r"(?:planetcinema|yesplanet)\.co\.il/films/([a-z0-9-]+/\d+s\d+r)"),
+        "https://www.planetcinema.co.il/films/{}",
+    ),
+    (
+        "rav-hen",
+        re.compile(r"rav-hen\.co\.il/films/([a-z0-9-]+/\d+s\d+r)"),
+        "https://www.rav-hen.co.il/films/{}",
+    ),
+    (
+        "cinema-city",
+        re.compile(r"cinema-city\.co\.il/movie/(\d+)"),
+        "https://www.cinema-city.co.il/movie/{}",
+    ),
+]
+
+
+_CC_TITLE_SUFFIX = re.compile(r"\s*[-–|]\s*סינמה סיטי\s*$")
 
 
 def _clean(t: str) -> str:
@@ -116,15 +142,20 @@ async def _real_titles(candidates: list[dict]) -> None:
                 pass
 
 
-def _candidate(url: str, raw_title: str, seen: set) -> dict | None:
+def _candidate(url: str, raw_title: str, seen: set, platforms=_PLATFORMS) -> dict | None:
     """URL+כותרת של תוצאת חיפוש → מועמד {title, url קנוני, platform}, או None
-    אם זה לא דף הזמנות של פלטפורמה מוכרת (או כפול)."""
-    for platform, pattern, canon in _PLATFORMS:
+    אם זה לא דף של פלטפורמה מוכרת (או כפול). dedup לפי (platform, id) — אותו id
+    בפלאנט וברב-חן = שתי רשומות בכוונה (רב-חן היא fallback)."""
+    for platform, pattern, canon in platforms:
         m = pattern.search(url)
         if not m or (platform, m.group(1)) in seen:
             continue
         seen.add((platform, m.group(1)))
         title = _clean(raw_title)
+        if platform == "cinema-city":
+            # כותרות סינמה סיטי חיות: "<סרט> - סינמה סיטי" — שם האתר אינו מילה
+            # מבחינה בין גרסאות (מדובב/לרוסית), והוא שובר את _is_clean_name.
+            title = _CC_TITLE_SUFFIX.sub("", title)
         if platform == "tabit":
             # כותרות Tabit בתוצאות חיפוש גנריות ("הזמנת מקום - טאביט") — שם המסעדה
             # יושב ב-slug של ה-URL. מוסיפים אותו לכותרת כדי שהדיסאמביגואציה תעבוד.
@@ -135,18 +166,19 @@ def _candidate(url: str, raw_title: str, seen: set) -> dict | None:
     return None
 
 
-def _from_brave(data: dict) -> list[dict]:
+def _from_brave(data: dict, platforms=_PLATFORMS) -> list[dict]:
     """JSON של Brave web search → [{title, url, platform}] (deduped, לפי סדר)."""
     out, seen = [], set()
     for r in (data.get("web") or {}).get("results") or []:
-        c = _candidate(r.get("url") or "", r.get("title") or "", seen)
+        c = _candidate(r.get("url") or "", r.get("title") or "", seen, platforms)
         if c:
             out.append(c)
     return out
 
 
 async def _brave_raw(query: str) -> list[dict]:
-    """שאילתת Brave אחת → תוצאות web גולמיות ([{url, title, description}, ...])."""
+    """שאילתת Brave אחת → תוצאות web גולמיות ([{url, title, description}, ...]).
+    משותף לכל הוורטיקלים (מסעדות/קולנוע/הופעות)."""
     if not settings.brave_api_key:
         # כישלון קולני ולא [] שקט — בלי מפתח אין resolver, וזה באג קונפיגורציה
         raise RuntimeError("BRAVE_API_KEY חסר — ה-resolver לא יכול לחפש")
@@ -263,6 +295,13 @@ async def _phone_hint(name: str, raw: list[dict]) -> str | None:
         return None
 
 
+async def search_cinema(movie: str) -> list[dict]:
+    """[{title, url, platform}] של דפי סרט (פלאנט/רב-חן/סינמה סיטי) לשאילתה (deduped).
+    שאילתה רחבה אחת — נבדק חי (14.07.26): מחזירה את דפי הסרט של כל הרשתות."""
+    raw = await _brave_raw(f"{movie} כרטיסים קולנוע")
+    return _from_brave({"web": {"results": raw}}, _CINEMA_PLATFORMS)
+
+
 async def resolve_reservation_url(name: str) -> dict:
     """
     מחזיר {'status': one|many|none, 'url', 'platform', 'candidates', 'fallback'}.
@@ -273,14 +312,43 @@ async def resolve_reservation_url(name: str) -> dict:
     """
     candidates, raw = await search_reservation(name)
     await _real_titles(candidates)  # כותרות-URL → השם האמיתי מהדף, לפני כל התאמה
+    result = _pick(name, candidates, _PLATFORMS, drop_listings=True)
+    if result["status"] != "none":
+        return result
+    # אפס דפי פלטפורמה בחיפוש — לפני שמוותרים: לינק פלטפורמה מהאתר של המסעדה עצמה
+    # (Phase 4-lite), ואם גם זה אין — לפחות טלפון במקום מבוי סתום. מסעדות בלבד —
+    # קולנוע/הופעות לא נכנסים לכאן.
+    from_site = await _platform_link_from_site(name, raw)
+    if from_site:
+        return from_site
+    return {**result, "phone_hint": await _phone_hint(name, raw)}
+
+
+async def resolve_cinema_url(movie: str, chain: str | None = None) -> dict:
+    """כמו resolve_reservation_url, לסרטים: אותו חוזה החזרה בדיוק, על _CINEMA_PLATFORMS.
+    בלי סינון _is_listing (ה-regex כבר משאיר רק דפי רשתות); כלל הברזל נשמר — אין
+    match חזק → many/none, לעולם לא בוחרים סרט לבד (שם דו-משמעי / גרסה מחודשת).
+    העיר לא משתתפת כאן — דף הסרט ארצי, בחירת הסניף קורית בתוך זרימת הרכישה.
+    chain (למשל "cinema-city"): הלקוח ביקש רשת ספציפית → מתעלמים מהאחרות
+    (בלעדיהם פלאנט תמיד מנצחת, כי היא ראשונה בסדר התיעדוף)."""
+    candidates = await search_cinema(movie)
+    await _real_titles(candidates)  # כותרות-URL קורות גם כאן
+    platforms = [p for p in _CINEMA_PLATFORMS if p[0] == chain] if chain else _CINEMA_PLATFORMS
+    return _pick(movie, candidates, platforms, drop_listings=False)
+
+
+def _pick(name: str, candidates: list[dict], platforms, *, drop_listings: bool) -> dict:
+    """דיסאמביגואציה פלטפורמה-פלטפורמה לפי סדר התיעדוף — הלב המשותף של שני
+    ה-resolvers. drop_listings: סינון דילים/שוברים (רלוונטי למסעדות בלבד)."""
     primary, fallback = None, None
-    for platform, _, _ in _PLATFORMS:
+    for platform, _, _ in platforms:
         plat = [c for c in candidates if c["platform"] == platform]
         if not plat:
             continue
-        # סינון דילים/שוברים/חבילות לפני הדיסאמביגואציה — אלה מבלבלים את הלקוח.
-        # אם הסינון מרוקן הכל, נשארים עם הסט המקורי (fallback).
-        plat = [c for c in plat if not _is_listing(c["title"])] or plat
+        if drop_listings:
+            # סינון דילים/שוברים/חבילות לפני הדיסאמביגואציה — אלה מבלבלים את הלקוח.
+            # אם הסינון מרוקן הכל, נשארים עם הסט המקורי (fallback).
+            plat = [c for c in plat if not _is_listing(c["title"])] or plat
         status, chosen_title, good = _match_restaurant(name, [c["title"] for c in plat])
         if status == "one":
             url = next(c["url"] for c in plat if c["title"] == chosen_title)
@@ -301,24 +369,10 @@ async def resolve_reservation_url(name: str) -> dict:
     if primary:
         return {**primary, "fallback": fallback}
     # אף פלטפורמה לא נתנה match חזק → לעולם לא לבחור לבד. לשאול את הלקוח (many) או none.
-    if candidates:
-        return {
-            "status": "many",
-            "url": None,
-            "platform": None,
-            "candidates": candidates,
-            "fallback": None,
-        }
-    # אפס דפי פלטפורמה בחיפוש — לפני שמוותרים: לינק פלטפורמה מהאתר של המסעדה עצמה
-    # (Phase 4-lite), ואם גם זה אין — לפחות טלפון במקום מבוי סתום.
-    from_site = await _platform_link_from_site(name, raw)
-    if from_site:
-        return from_site
     return {
-        "status": "none",
+        "status": "many" if candidates else "none",
         "url": None,
         "platform": None,
-        "candidates": [],
+        "candidates": candidates,
         "fallback": None,
-        "phone_hint": await _phone_hint(name, raw),
     }
