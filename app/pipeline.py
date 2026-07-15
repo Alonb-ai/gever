@@ -1114,6 +1114,10 @@ async def run_booking(phone: str, fields: dict) -> None:
             # (שובר את הדמות + חושף אוטומציה) וגם לא ל-info (מוזרק ל-truth_note —
             # לא נותנים לאתר להשחיל טקסט לבלוק האמת). נשמר ב-debug בלבד.
             d = res.details or {}
+            # ריצה שסווגה ככישלון אבל השאירה סשן חי (card שלא נותב וכד') — משחררים,
+            # לא מדליפים keepAlive עד ה-timeout (נצפה חי 15.7 בפיצול שורת הסיום).
+            if d.get("session_id"):
+                _spawn(release_session(d["session_id"]))
             hit = _failure_reply(d.get("failed"), name)
             if hit:
                 _booking[phone] = {"state": "failed", "info": hit[0]}
@@ -1273,6 +1277,8 @@ async def run_commit(phone: str) -> None:
             # כמו ב-run_booking: סיבה מוכרת → אמת ספציפית; אחרת הפלט הגולמי לא
             # ללקוח ולא ל-truth_note — debug בלבד.
             d = res.details or {}
+            if d.get("session_id"):  # לא מדליפים סשן חי שנשאר אחרי כישלון
+                _spawn(release_session(d["session_id"]))
             hit = _failure_reply(d.get("failed"), job["restaurant"])
             if hit:
                 _booking[phone] = {"state": "failed", "info": hit[0]}

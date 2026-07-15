@@ -128,3 +128,53 @@ def test_card_message_recaps_booking(monkeypatch):
     )
     final = sent[-1]
     assert "19:15" in final and "23.7" in final and "3" in final  # השעה שנבחרה בפועל
+
+
+ASA_SPLIT_REPORT = """הגעתי למסך פרטי האשראי של ההזמנה ל-ASA Izakaya. כל הפרטים הוזנו.
+
+AGREED: תקנון ומדיניות ביטול | האזור שנבחר הוא אזור עישון.
+
+נבחר: 3 סועדים בתאריך 23.07 בשעה 19:00 באזור בחוץ Asa - אזור עישון.
+URL: https://s1.ontopo.com/he/checkout/feBZRKpnrWU
+
+SUMMARY_REACHED 19:00
+CARD_REQUIRED"""
+
+
+def test_split_final_lines_still_parse():
+    """הרגרסיה של טסט 15.7 (פעמיים!): ה-agent פיצל את שורת הסיום לשתי שורות —
+    ריצה שהגיעה למסך האשראי דווחה ככישלון. בלוק-הסיום קורא עד 3 שורות אחרונות."""
+    from app.automation.bu_runner import _parse_result
+
+    r = _parse_result(ASA_SPLIT_REPORT, commit=False)
+    assert r["success"] is True
+    assert r["summary_reached"] is True and r["card_required"] is True
+    assert r["time"] == "19:00"
+    assert r["agreed"] and "תקנון" in r["agreed"][0]
+    assert r["page_now"].startswith("https://s1.ontopo.com")
+
+
+def test_unrecognized_failure_releases_leaked_session(monkeypatch):
+    """כישלון לא-מזוהה שהשאיר סשן חי → הסשן משוחרר, לא מדליף 30 דק' keepAlive."""
+    _reset()
+    sent, released = [], []
+    bad = ActionResult(success=False, summary="גיבריש בלי מרקר", details={"session_id": "s-leak"})
+    _wire(monkeypatch, sent, [bad])
+
+    async def fake_release(sid):
+        released.append(sid)
+
+    monkeypatch.setattr(pipeline, "release_session", fake_release)
+    pipeline._resolved["p1"] = {"name": "אסה", "url": "http://x", "platform": "ontopo"}
+
+    async def _go():
+        await pipeline.run_booking("p1", {"restaurant": "אסה", "time": "19:00"})
+        import asyncio as _a
+
+        for _ in range(3):
+            await _a.sleep(0)
+            if pipeline._pending:
+                await _a.gather(*list(pipeline._pending), return_exceptions=True)
+
+    asyncio.run(_go())
+    assert released == ["s-leak"]
