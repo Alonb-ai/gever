@@ -304,3 +304,103 @@ if __name__ == "__main__":
     import pytest
 
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+# --- הופעות: _build_concert_task (דרך _build_task) — אותם markers, מחיר במקטע ה-| ---
+
+_EJOB = {
+    "task_type": "events",
+    "url": "https://www.leaan.co.il/events/kobi-peretz/5514",
+    "artist": "קובי פרץ",
+    "venue": "היכל מנורה",
+    "party_size": 2,
+    "date": "11.08",
+    "name": "אלון",
+    "email": "a@b.com",
+    "phone": "0540000000",
+}
+
+
+def test_concert_task_keeps_contract_and_event_rules():
+    """ה-task של הופעות: markers קיימים בלבד, וכל חוקי ההופעות נוכחים — תאריך=אירוע
+    בדיד (MISSING:date+OPTIONS), קטגוריית מחיר, sold_out, ת"ז, שורת-סיום-אחת."""
+    recon = _build_task({**_EJOB, "dry_run": True})
+    commit = _build_task({**_EJOB, "dry_run": False})
+    assert _EJOB["url"] in recon and "קובי פרץ" in recon and "היכל מנורה" in recon
+    # חוזה ה-markers הקיים — לא ממציאים חדש (אין PRICE: וכדומה)
+    assert "SUMMARY_REACHED" in recon and "CARD_REQUIRED" in recon
+    assert "MISSING" in recon and "FAILED" in recon and "URL:" in recon
+    assert "BOOKED" in commit and "PRICE:" not in recon
+    # חוקי הופעות
+    assert "MISSING:date" in recon and "OPTIONS:" in recon
+    assert "MISSING:price_category" in recon
+    assert "FAILED:sold_out" in recon and "FAILED:no_event_in_city" in recon
+    assert "MISSING:id_number" in recon and "לעולם אל תמציא" in recon
+    assert "MISSING:seats" in recon
+    assert "FAILED:login_required" in recon
+    # אין שעה מבוקשת בהופעות — השעה נגזרת מהמופע (אין ±90 דק')
+    assert "90 דקות" not in recon
+    # כלל שורת-סיום-אחת: MISSING/FAILED לבדה, בלי SUMMARY_REACHED לפניה
+    assert "בלי SUMMARY_REACHED לפניה" in recon
+    # השורה המורחבת: שעה | קטגוריה+מושבים+מחיר
+    assert 'SUMMARY_REACHED 21:00 | פרטר שורה 12 מושבים 7,8 — סה"כ 640 ש"ח' in recon
+    # לקחי הקולנוע מועתקים מילה-במילה: SVG hit-area + אימות אבטחה + מפה היררכית
+    assert "hit-area" in recon and "mousedown/mouseup/click" in recon
+    assert "אימות אבטחה" in recon
+    assert "גוש" in recon  # אולמות גדולים — בחירת גוש/מפלס לפני מפת המושבים
+    # קיר התשלום הוא הסוף הטבעי (כרטיס דיגיטלי) — כמו קולנוע
+    assert "מסך התשלום הוא מסך הסיכום" in recon and "מסך התשלום הוא מסך הסיכום" in commit
+
+
+def test_concert_task_optional_date_and_venue():
+    """בלי date — ה-task לא ממציא תאריך ומנחה MISSING:date על ריבוי מועדים;
+    בלי venue — אין ' ב-' ריק בכותרת המשימה."""
+    bare = _build_task({**_EJOB, "date": "", "venue": "", "dry_run": True})
+    assert "בתאריך" not in bare.split("\n")[2]  # שורת המשימה בלי זנב תאריך ריק
+    assert "לא צוין" in bare  # date_line מציין שאין תאריך מבוקש
+    assert "MISSING:date" in bare
+
+
+def test_concert_task_injects_notes_and_contact():
+    """העדפת מחיר/ישיבה ('הכי זול') מגיעה ב-notes — _notes_line הקיים, בלי מנגנון חדש."""
+    with_notes = _build_task({**_EJOB, "dry_run": True, "notes": "הכי זול"})
+    assert "הכי זול" in with_notes and "העדפות מהלקוח" in with_notes
+    bare = _build_task({**_EJOB, "dry_run": True})
+    assert "העדפות מהלקוח" not in bare
+    assert "אלון" in bare and "a@b.com" in bare
+
+
+def test_concert_resume_continues_frozen_screen():
+    """resume: intro של המשך — בלי 'התחל מהכתובת', עם ה-recap."""
+    t = _build_task({**_EJOB, "dry_run": True, "resume": {"recap": "עצרתי על בחירת קטגוריה"}})
+    assert "אל תנווט" in t and "עצרתי על בחירת קטגוריה" in t
+    assert "התחל מהכתובת" not in t and _EJOB["url"] not in t
+
+
+def test_parse_result_concert_price_lives_in_pipe_section():
+    """אפס שינוי ב-_parse_result: המחיר חי במקטע ה-| — seats מכיל קטגוריה+מחיר,
+    time נתפס, card_required נדלק מה-marker."""
+    final = 'SUMMARY_REACHED 21:00 | פרטר שורה 12 מושבים 7,8 — סה"כ 640 ש"ח CARD_REQUIRED'
+    r = _parse_result(f"נבחר מופע 11/08.\n{final}", commit=False)
+    assert r["success"] is True
+    assert r["time"] == "21:00"
+    assert r["card_required"] is True
+    seats = r["seats"]
+    assert "640" in seats and "פרטר" in seats
+    assert "CARD_REQUIRED" not in seats and "SUMMARY_REACHED" not in seats
+
+
+def test_parse_result_concert_options_with_prices():
+    """OPTIONS של קטגוריות מחיר → שתי אופציות עם המחירים כלשונן."""
+    r = _parse_result('OPTIONS: פרטר 320 ש"ח | יציע 180 ש"ח\nMISSING:price_category', commit=False)
+    assert r["missing"] == "price_category"
+    assert r["options"] == ['פרטר 320 ש"ח', 'יציע 180 ש"ח']
+
+
+def test_parse_result_concert_missing_date_with_venues():
+    """MISSING:date + OPTIONS של מועדים (כולל עיר/היכל) — הרשימה שהלקוח יקבל."""
+    r = _parse_result(
+        'OPTIONS: 11/08 היכל מנורה ת"א | 15/08 היכל הפיס חיפה\nMISSING:date', commit=False
+    )
+    assert r["missing"] == "date"
+    assert r["options"] == ['11/08 היכל מנורה ת"א', "15/08 היכל הפיס חיפה"]
