@@ -4,12 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>גבר. צריך משהו? גבר עושה.</title>
-<meta name="description" content="כל מה שאתה דוחה כי נמאס לך מטפסים. מסעדה, ביטוח, כרטיסים. אתה זורק לגבר משפט אחד בוואטסאפ והוא על זה עד הסוף. לא בוט שמפטפט, מישהו שבאמת סוגר.">
+<meta name="description" content="גבר סוגר לך שולחן במסעדה מתוך וואטסאפ: משפט אחד ממך, והוא מוצא מקום, ממלא את הפרטים ומאשר על שמך. בלי אפליקציות ובלי טפסים. עכשיו בבטא סגורה.">
 <meta property="og:title" content="גבר. צריך משהו? גבר עושה.">
-<meta property="og:description" content="אתה כותב משפט אחד בוואטסאפ, גבר נכנס לאתר, ממלא וסוגר במקומך. מסעדה, ביטוח, כרטיסים.">
+<meta property="og:description" content="משפט אחד בוואטסאפ — וגבר סוגר לך שולחן במסעדה. בלי אפליקציות, בלי טפסים. עכשיו בבטא סגורה.">
+<meta property="og:url" content="https://alonb-ai.github.io/gever/">
+<meta property="og:site_name" content="גבר">
 <meta property="og:locale" content="he_IL">
 <meta property="og:type" content="website">
-<!-- TODO: החלף WHATSAPP_NUMBER בכל הקישורים (3 מופעים) במספר הבינלאומי בלי + ובלי רווחים, למשל 9725XXXXXXXX -->
+<meta name="twitter:card" content="summary">
+<!-- WHATSAPP_NUMBER — placeholder עד C1 (מספר וואטסאפ אמיתי). בדף יש 4 קישורי wa.me: ניווט, hero, CTA סופי, פוטר.
+     החלפה של כולם בפקודה אחת: sed -i '' 's/WHATSAPP_NUMBER/9725XXXXXXXX/g' web/index.html -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Alef:wght@400;700&family=Frank+Ruhl+Libre:wght@700;900&family=IBM+Plex+Sans+Hebrew:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -39,7 +43,7 @@ a{text-decoration:none;color:inherit}
 </style>
 </head>
 <body>
-<a href="#actions" class="skip">דלג לתוכן</a>
+<a href="#how" class="skip">דלג לתוכן</a>
 
 <div dir="rtl" style="font-family:'IBM Plex Sans Hebrew',sans-serif;background:#16140f;color:#F3ECDD;min-height:100vh">
 
@@ -51,9 +55,8 @@ a{text-decoration:none;color:inherit}
         <nav style="display:flex;align-items:center;gap:28px;font-weight:500;font-size:15px" aria-label="ניווט ראשי">
           <a class="lnk" href="#how" style="color:#c4bcad">איך זה עובד</a>
           <a class="lnk" href="#actions" style="color:#c4bcad">מה גבר עושה</a>
-          <a class="lnk" href="#pricing" style="color:#c4bcad">כמה זה עולה</a>
           <a class="lnk" href="#faq" style="color:#c4bcad">שאלות</a>
-          <a href="#waitlist" style="background:var(--accent,#FF6B35);color:#16140f;font-weight:600;padding:11px 20px;border-radius:12px;white-space:nowrap">דבר איתי</a>
+          <a href="https://wa.me/WHATSAPP_NUMBER?text=היי%20גבר%2C%20בוא%20ננסה" target="_blank" rel="noopener" style="background:var(--accent,#FF6B35);color:#16140f;font-weight:600;padding:11px 20px;border-radius:12px;white-space:nowrap">דבר עם גבר</a>
         </nav>
       </div>
     </div>
@@ -63,24 +66,20 @@ a{text-decoration:none;color:inherit}
   <section style="max-width:1160px;margin:0 auto;padding:56px 26px 56px">
     <div class="r-hero" style="display:grid;grid-template-columns:1.08fr .92fr;gap:50px;align-items:center">
       <div>
-        <span style="display:inline-flex;align-items:center;gap:8px;background:rgba(28,163,163,.14);color:#54c9c9;font-weight:600;font-size:13px;padding:8px 16px;border-radius:999px;margin-bottom:26px">גברי איתך · וואטסאפ בלי אפליקציות</span>
-        <h1 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(50px,7vw,92px);line-height:.98;letter-spacing:-.01em">צריך משהו?<br><span style="color:var(--accent,#FF6B35)">גבר עושה</span></h1>
-        <p style="font-size:clamp(18px,2vw,21px);line-height:1.62;color:#c4bcad;max-width:486px;margin:26px 0 0">כל מה שאתה דוחה כי נמאס לך מטפסים מסעדה ביטוח כרטיסים אתה זורק לגבר משפט אחד בוואטסאפ והוא על זה עד הסוף</p>
+        <span style="display:inline-flex;align-items:center;gap:8px;background:rgba(28,163,163,.14);color:#54c9c9;font-weight:600;font-size:13px;padding:8px 16px;border-radius:999px;margin-bottom:26px">בטא סגורה · בוואטסאפ, בלי אפליקציות</span>
+        <h1 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(50px,7vw,92px);line-height:.98;letter-spacing:-.01em">צריך שולחן?<br><span style="color:var(--accent,#FF6B35)">גבר סוגר</span></h1>
+        <p style="font-size:clamp(18px,2vw,21px);line-height:1.62;color:#c4bcad;max-width:486px;margin:26px 0 0">שולחן במסעדה בלי טלפונים, בלי אפליקציות ובלי טפסים. אתה זורק לגבר משפט אחד בוואטסאפ — והוא מוצא, ממלא ומאשר לך על שמך.</p>
 
         <div style="display:flex;align-items:center;gap:14px;margin:30px 0;padding:16px 20px;background:#211e17;border-radius:16px">
-          <span style="font-weight:600;font-size:14px;color:#8c8475;white-space:nowrap;flex:none">השבוע גבר עשה</span>
+          <span style="font-weight:600;font-size:14px;color:#8c8475;white-space:nowrap;flex:none">למשל, תזרוק לגבר</span>
           <span id="rotor" style="font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:clamp(18px,2.4vw,25px);color:var(--accent,#FF6B35);line-height:1.1;display:inline-block">שולחן ל-6 על הים בשישי</span>
         </div>
 
         <div style="display:flex;flex-wrap:wrap;gap:13px;align-items:center">
-          <a href="#waitlist" style="background:var(--accent,#FF6B35);color:#16140f;font-weight:600;font-size:17px;padding:16px 30px;border-radius:14px;box-shadow:0 12px 28px rgba(255,107,53,.26)">יאללה, תכניס אותי</a>
-          <!-- TODO: החלף WHATSAPP_NUMBER במספר אמיתי -->
-          <a href="https://wa.me/WHATSAPP_NUMBER?text=היי%20גבר%2C%20בוא%20ננסה" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:9px;background:#211e17;color:#F3ECDD;font-weight:600;font-size:17px;padding:15px 26px;border-radius:14px">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="#25D366" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.8 4.9-1.3A10 10 0 1 0 12 2Zm5.8 14.3c-.2.7-1.4 1.3-2 1.4-.5.1-1.2.1-1.9-.1-.4-.1-1-.3-1.8-.6-3-1.3-5-4.4-5.1-4.6-.2-.2-1.3-1.7-1.3-3.2 0-1.5.8-2.3 1.1-2.6.3-.3.6-.4.8-.4h.6c.2 0 .5 0 .7.5l.9 2.1c.1.2.1.4 0 .6l-.4.6-.4.4c-.1.1-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.4 2.4 1.5.3.1.5.1.6-.1l.8-1c.2-.2.4-.2.6-.1l2 1c.3.1.4.2.5.3.1.2.1.6-.1 1.3Z"/></svg>
-            או תכתוב לגבר עכשיו
-          </a>
+          <a href="https://wa.me/WHATSAPP_NUMBER?text=היי%20גבר%2C%20בוא%20ננסה" target="_blank" rel="noopener" style="background:var(--accent,#FF6B35);color:#16140f;font-weight:600;font-size:17px;padding:16px 30px;border-radius:14px;box-shadow:0 12px 28px rgba(255,107,53,.26)">דבר עם גבר בוואטסאפ</a>
+          <a href="#how" style="display:inline-flex;align-items:center;gap:9px;background:#211e17;color:#F3ECDD;font-weight:600;font-size:17px;padding:15px 26px;border-radius:14px">רגע, איך זה עובד?</a>
         </div>
-        <p style="font-size:13.5px;color:#8c8475;margin-top:18px">חמש המשימות הראשונות על חשבון גבר בלי כרטיס אשראי</p>
+        <p style="font-size:13.5px;color:#8c8475;margin-top:18px">הבטא חינם — בלי כרטיס אשראי ובלי התחייבות</p>
       </div>
 
       <!-- PHONE -->
@@ -101,7 +100,7 @@ a{text-decoration:none;color:inherit}
             </div>
             <div id="chatBody" style="height:368px;overflow-y:auto;background:#0b141a;background-image:radial-gradient(rgba(255,255,255,.035) 1px,transparent 1px);background-size:16px 16px;padding:12px 11px;display:flex;flex-direction:column" aria-hidden="true">
               <div id="chat" style="margin-top:auto;display:flex;flex-direction:column;gap:7px">
-                <div style="align-self:center;background:rgba(28,42,38,.85);color:#f7e9b0;font-size:10.5px;line-height:1.4;text-align:center;padding:5px 11px;border-radius:8px;max-width:90%;margin-bottom:3px">ההודעות מוצפנות מקצה לקצה. גם גבר לא שומר אותן.</div>
+                <div style="align-self:center;background:rgba(28,42,38,.85);color:#f7e9b0;font-size:10.5px;line-height:1.4;text-align:center;padding:5px 11px;border-radius:8px;max-width:90%;margin-bottom:3px">הצ'אט הזה הוא עם חשבון עסקי.</div>
               </div>
             </div>
             <div style="background:#1f2c34;padding:8px 10px;display:flex;align-items:center;gap:8px" aria-hidden="true">
@@ -118,108 +117,105 @@ a{text-decoration:none;color:inherit}
   <div style="max-width:1160px;margin:0 auto;padding:4px 26px 24px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center">
     <span style="font-size:13px;color:#8c8475;font-weight:500;margin-left:6px">כבר עכשיו</span>
     <span style="background:#211e17;border-radius:999px;padding:9px 18px;font-weight:500;font-size:14.5px;color:#c4bcad">מסעדות</span>
-    <span style="background:#211e17;border-radius:999px;padding:9px 18px;font-weight:500;font-size:14.5px;color:#c4bcad">ביטוחים</span>
-    <span style="background:#211e17;border-radius:999px;padding:9px 18px;font-weight:500;font-size:14.5px;color:#c4bcad">כרטיסים</span>
-    <span style="background:#211e17;border-radius:999px;padding:9px 18px;font-weight:500;font-size:14.5px;color:#c4bcad">תורים</span>
-    <span style="background:#211e17;border-radius:999px;padding:9px 18px;font-weight:500;font-size:14.5px;color:#c4bcad">דרכונים</span>
-    <span style="background:#211e17;border-radius:999px;padding:9px 18px;font-weight:500;font-size:14.5px;color:#c4bcad">משלוחים</span>
+    <span style="font-size:13px;color:#8c8475;font-weight:500;margin-left:6px">ובדרך</span>
+    <span style="background:#211e17;border-radius:999px;padding:9px 18px;font-weight:500;font-size:14.5px;color:#c4bcad">כרטיסים<span style="background:rgba(255,107,53,.14);color:#FF6B35;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:600;margin-inline-start:7px;vertical-align:middle">בקרוב</span></span>
+    <span style="background:#211e17;border-radius:999px;padding:9px 18px;font-weight:500;font-size:14.5px;color:#c4bcad">ביטוחים<span style="background:rgba(255,107,53,.14);color:#FF6B35;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:600;margin-inline-start:7px;vertical-align:middle">בקרוב</span></span>
+    <span style="background:#211e17;border-radius:999px;padding:9px 18px;font-weight:500;font-size:14.5px;color:#c4bcad">תורים<span style="background:rgba(255,107,53,.14);color:#FF6B35;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:600;margin-inline-start:7px;vertical-align:middle">בקרוב</span></span>
   </div>
-
-  <!-- ACTIONS -->
-  <section id="actions" style="max-width:1160px;margin:0 auto;padding:84px 26px">
-    <div style="text-align:center;max-width:640px;margin:0 auto 48px">
-      <div style="font-weight:600;font-size:13px;letter-spacing:.04em;color:#54c9c9;margin-bottom:16px">מה גבר עושה</div>
-      <h2 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(32px,4.6vw,54px);line-height:1.04;letter-spacing:-.01em">מה גבר עושה בשבילך</h2>
-    </div>
-    <div class="r-3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:22px">
-      <article style="background:#211e17;border-radius:24px;padding:32px 28px">
-        <div style="width:52px;height:52px;border-radius:16px;background:rgba(255,107,53,.14);display:flex;align-items:center;justify-content:center;margin-bottom:18px"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--accent,#FF6B35)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 2v7c0 1.1.9 2 2 2h0a2 2 0 0 0 2-2V2M5 2v9M9 2v20M16 2c-1.7 0-3 2-3 5s1.3 4 3 4v11"/></svg></div>
-        <h3 style="font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:26px;margin-bottom:12px">מסעדות</h3>
-        <p style="font-size:16px;color:#c4bcad;line-height:1.6;margin-bottom:18px">שולחן לשישי או ערב שאסור לפשל בו אתה אומר כמה ומתי וגבר מסדר גם איפה שתמיד מלא</p>
-      </article>
-      <article style="background:#211e17;border-radius:24px;padding:32px 28px">
-        <div style="width:52px;height:52px;border-radius:16px;background:rgba(255,107,53,.14);display:flex;align-items:center;justify-content:center;margin-bottom:18px"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--accent,#FF6B35)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9 8 11 4.6-2 8-6 8-11V5l-8-3Z"/><path d="M9 12l2 2 4-4"/></svg></div>
-        <h3 style="font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:26px;margin-bottom:12px">ביטוח</h3>
-        <p style="font-size:16px;color:#c4bcad;line-height:1.6;margin-bottom:18px">חידוש רכב דירה או נסיעות בלי חצי שעה על הקו גבר משווה בודק שלא עובדים עליך והפוליסה נוחתת לך בוואטסאפ</p>
-      </article>
-      <article style="background:#211e17;border-radius:24px;padding:32px 28px">
-        <div style="width:52px;height:52px;border-radius:16px;background:rgba(255,107,53,.14);display:flex;align-items:center;justify-content:center;margin-bottom:18px"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--accent,#FF6B35)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2 2 2 0 0 0 0 4v2a2 2 0 0 0 0 4 2 2 0 0 1-2 2H5a2 2 0 0 1-2-2 2 2 0 0 0 0-4v-2a2 2 0 0 0 0-4Z"/><path d="M14 5v14" stroke-dasharray="2 2"/></svg></div>
-        <h3 style="font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:26px;margin-bottom:12px">כרטיסים</h3>
-        <p style="font-size:16px;color:#c4bcad;line-height:1.6;margin-bottom:18px">הופעות משחקים הצגות ברגע שהמכירה נפתחת גבר כבר שם ותופס לך מקומות טובים לפני שזה אוזל</p>
-      </article>
-    </div>
-    <p style="text-align:center;font-size:18px;color:#c4bcad;margin-top:30px">וזו רק ההתחלה כל דבר מעצבן באינטרנט פשוט תזרוק על גבר</p>
-  </section>
 
   <!-- HOW -->
   <section id="how" style="background:#103a3a;color:#eaf6f3">
     <div style="max-width:1160px;margin:0 auto;padding:84px 26px">
       <div style="text-align:center;max-width:620px;margin:0 auto 50px">
         <div style="font-weight:600;font-size:13px;letter-spacing:.04em;color:#5fcfc4;margin-bottom:16px">איך זה עובד</div>
-        <h2 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(32px,4.6vw,54px);line-height:1.04;letter-spacing:-.01em">שלושה שלבים וזה באמת הכל</h2>
+        <h2 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(32px,4.6vw,54px);line-height:1.04;letter-spacing:-.01em">שלושה שלבים, וזה באמת הכול</h2>
       </div>
       <div class="r-3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:22px">
         <div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:22px;padding:32px 28px">
           <div style="width:46px;height:46px;border-radius:14px;background:var(--accent,#FF6B35);color:#16140f;font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:22px;display:flex;align-items:center;justify-content:center;margin-bottom:20px">1</div>
           <h3 style="font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:24px;margin-bottom:12px">אתה כותב</h3>
-          <p style="font-size:16px;color:#bcdbd6;line-height:1.6">פותח וואטסאפ ומספר לגבר מה צריך כאילו אתה כותב לחבר. תזמין שולחן ל-4 תחדש ביטוח לרכב</p>
+          <p style="font-size:16px;color:#bcdbd6;line-height:1.6">פותח וואטסאפ ומספר לגבר מה בא לך, כאילו אתה כותב לחבר: "שולחן ל-4 בחמישי בערב, משהו אסייתי בתל אביב".</p>
         </div>
         <div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:22px;padding:32px 28px">
           <div style="width:46px;height:46px;border-radius:14px;background:var(--accent,#FF6B35);color:#16140f;font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:22px;display:flex;align-items:center;justify-content:center;margin-bottom:20px">2</div>
           <h3 style="font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:24px;margin-bottom:12px">גבר על זה</h3>
-          <p style="font-size:16px;color:#bcdbd6;line-height:1.6">נכנס לאתר ממלא מגיש ובוחר את ההגיוני חסר פרט שאלה אחת קצרה סבבה</p>
+          <p style="font-size:16px;color:#bcdbd6;line-height:1.6">גבר נכנס לאתר ההזמנות, מוצא מקום פנוי וממלא הכול בעצמו. חסר פרט? שאלה אחת קצרה וממשיכים.</p>
         </div>
         <div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:22px;padding:32px 28px">
           <div style="width:46px;height:46px;border-radius:14px;background:var(--accent,#FF6B35);color:#16140f;font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:22px;display:flex;align-items:center;justify-content:center;margin-bottom:20px">3</div>
           <h3 style="font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:24px;margin-bottom:12px">ואתה חופשי</h3>
-          <p style="font-size:16px;color:#bcdbd6;line-height:1.6">נכנסת הודעה שולחן ל-4 בשישי 20:00 על שמך וזהו חזרת לחיים שלך</p>
+          <p style="font-size:16px;color:#bcdbd6;line-height:1.6">נכנסת הודעה: "סגור. שולחן ל-4 בחמישי 20:00, על שמך". זהו — חזרת לחיים שלך.</p>
         </div>
       </div>
-      <p style="text-align:center;font-weight:500;font-size:19px;color:#eaf6f3;margin-top:38px">לא פתחת אתר לא מילאת טופס גבר עשה</p>
+      <p style="text-align:center;font-weight:500;font-size:19px;color:#eaf6f3;margin-top:38px">לא פתחת אתר, לא מילאת טופס. גבר עשה.</p>
+    </div>
+  </section>
+
+  <!-- ACTIONS -->
+  <section id="actions" style="max-width:1160px;margin:0 auto;padding:84px 26px">
+    <div style="text-align:center;max-width:640px;margin:0 auto 48px">
+      <div style="font-weight:600;font-size:13px;letter-spacing:.04em;color:#54c9c9;margin-bottom:16px">מה גבר עושה</div>
+      <h2 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(32px,4.6vw,54px);line-height:1.04;letter-spacing:-.01em">מה גבר סוגר לך היום</h2>
+    </div>
+    <div class="r-3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:22px">
+      <article style="background:#211e17;border-radius:24px;padding:32px 28px">
+        <div style="width:52px;height:52px;border-radius:16px;background:rgba(255,107,53,.14);display:flex;align-items:center;justify-content:center;margin-bottom:18px"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--accent,#FF6B35)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 2v7c0 1.1.9 2 2 2h0a2 2 0 0 0 2-2V2M5 2v9M9 2v20M16 2c-1.7 0-3 2-3 5s1.3 4 3 4v11"/></svg></div>
+        <h3 style="font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:26px;margin-bottom:12px">מסעדות</h3>
+        <p style="font-size:16px;color:#c4bcad;line-height:1.6;margin-bottom:18px">שולחן לשישי בערב או דייט שאסור לפשל בו. אתה אומר כמה, מתי ואיפה — גבר מוצא, מזמין ומאשר לך על שמך. ואם השעה תפוסה? הוא חוזר עם חלופות אמיתיות.</p>
+      </article>
+      <article style="background:#211e17;border-radius:24px;padding:32px 28px">
+        <div style="width:52px;height:52px;border-radius:16px;background:rgba(255,107,53,.14);display:flex;align-items:center;justify-content:center;margin-bottom:18px"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--accent,#FF6B35)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9 8 11 4.6-2 8-6 8-11V5l-8-3Z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <h3 style="font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:26px;margin-bottom:12px">הכרטיס נשאר אצלך</h3>
+        <p style="font-size:16px;color:#c4bcad;line-height:1.6;margin-bottom:18px">מסעדה מבקשת כרטיס אשראי להבטחת ההזמנה? גבר עוצר שם ומעביר אליך את ההשלמה — אתה מזין את הפרטים בעצמך. גבר לא רואה ולא שומר פרטי אשראי.</p>
+      </article>
+      <article style="background:#211e17;border-radius:24px;padding:32px 28px">
+        <div style="width:52px;height:52px;border-radius:16px;background:rgba(255,107,53,.14);display:flex;align-items:center;justify-content:center;margin-bottom:18px"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--accent,#FF6B35)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2 2 2 0 0 0 0 4v2a2 2 0 0 0 0 4 2 2 0 0 1-2 2H5a2 2 0 0 1-2-2 2 2 0 0 0 0-4v-2a2 2 0 0 0 0-4Z"/><path d="M14 5v14" stroke-dasharray="2 2"/></svg></div>
+        <h3 style="font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:26px;margin-bottom:12px">ומה בדרך<span style="background:rgba(255,107,53,.14);color:#FF6B35;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:600;margin-inline-start:7px;vertical-align:middle">בקרוב</span></h3>
+        <p style="font-size:16px;color:#c4bcad;line-height:1.6;margin-bottom:18px">כרטיסים להופעות, ביטוחים, תורים — זה הכיוון. גבר לומד דבר אחד בכל פעם ועושה אותו עד הסוף, וחברי הבטא מנסים כל דבר חדש ראשונים.</p>
+      </article>
+    </div>
+    <p style="text-align:center;font-size:18px;color:#c4bcad;margin-top:30px">זו ההתחלה. בסוף, כל דבר מעצבן באינטרנט פשוט ייזרק על גבר.</p>
+  </section>
+
+  <!-- VERSUS -->
+  <section style="max-width:1160px;margin:0 auto;padding:0 26px 78px">
+    <div style="max-width:700px;margin:0 auto 44px;text-align:center">
+      <div style="font-weight:600;font-size:13px;letter-spacing:.04em;color:#54c9c9;margin-bottom:16px">השאלה הראשונה ששואלים את גבר</div>
+      <h2 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(34px,5vw,60px);line-height:1.02;letter-spacing:-.01em">כל בוט יודע לדבר.<br><span style="color:var(--accent,#FF6B35)">גבר יודע לעשות.</span></h2>
+      <p style="font-size:19px;color:#c4bcad;margin-top:18px;line-height:1.6">בוט יזרוק לך לינק, יאחל בהצלחה ויחזור לישון. גבר נכנס לאתר בעצמו, ממלא את מה שצריך ומחזיר לך אישור סגור.</p>
+    </div>
+    <div class="r-vs" style="display:grid;grid-template-columns:1fr 1fr;gap:22px">
+      <div style="background:#211e17;border-radius:24px;padding:34px 30px">
+        <div style="font-weight:700;font-size:15px;color:#8c8475;margin-bottom:22px">בוט רגיל</div>
+        <ul style="list-style:none;display:flex;flex-direction:column;gap:16px">
+          <li style="display:flex;gap:12px;font-size:16.5px;color:#c4bcad;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(194,64,42,.2);color:#e59177;display:flex;align-items:center;justify-content:center;flex:none;font-size:13px;font-weight:700">✕</span>זורק לינק וממשיך הלאה</li>
+          <li style="display:flex;gap:12px;font-size:16.5px;color:#c4bcad;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(194,64,42,.2);color:#e59177;display:flex;align-items:center;justify-content:center;flex:none;font-size:13px;font-weight:700">✕</span>"הקש 1, הקש 2" — תפריט, לא בן אדם</li>
+          <li style="display:flex;gap:12px;font-size:16.5px;color:#c4bcad;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(194,64,42,.2);color:#e59177;display:flex;align-items:center;justify-content:center;flex:none;font-size:13px;font-weight:700">✕</span>יודע לספר לך מה לעשות. לעשות בעצמו? פחות</li>
+          <li style="display:flex;gap:12px;font-size:16.5px;color:#c4bcad;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(194,64,42,.2);color:#e59177;display:flex;align-items:center;justify-content:center;flex:none;font-size:13px;font-weight:700">✕</span>בסוף היום, אתה זה שתקוע מול הטופס</li>
+        </ul>
+      </div>
+      <div style="background:#F3ECDD;color:#16140f;border-radius:24px;padding:34px 30px;position:relative;box-shadow:0 20px 44px rgba(0,0,0,.45)">
+        <span style="position:absolute;top:-12px;right:30px;background:var(--accent,#FF6B35);color:#fff;font-weight:700;font-size:13px;padding:6px 15px;border-radius:999px">זה גבר</span>
+        <div style="font-weight:700;font-size:15px;color:#c2491b;margin-bottom:22px">גבר</div>
+        <ul style="list-style:none;display:flex;flex-direction:column;gap:16px">
+          <li style="display:flex;gap:12px;font-size:16.5px;color:#2b2620;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(20,120,120,.14);display:flex;align-items:center;justify-content:center;flex:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#147878" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span>נכנס לאתר וממלא הכול בעצמו</li>
+          <li style="display:flex;gap:12px;font-size:16.5px;color:#2b2620;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(20,120,120,.14);display:flex;align-items:center;justify-content:center;flex:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#147878" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span>כותב איתך בעברית, כמו חבר שביקשת ממנו טובה</li>
+          <li style="display:flex;gap:12px;font-size:16.5px;color:#2b2620;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(20,120,120,.14);display:flex;align-items:center;justify-content:center;flex:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#147878" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span>לא נוגע בכרטיס האשראי שלך — את זה אתה משלים בעצמך</li>
+          <li style="display:flex;gap:12px;font-size:16.5px;color:#2b2620;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(20,120,120,.14);display:flex;align-items:center;justify-content:center;flex:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#147878" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span>מודיע כשסגור — ואתה כבר בעניינים אחרים</li>
+        </ul>
+      </div>
     </div>
   </section>
 
   <!-- FOUNDER -->
   <section style="max-width:1160px;margin:0 auto;padding:0 26px 84px">
     <div style="background:#211e17;border-radius:30px;padding:48px 44px;display:flex;gap:36px;align-items:center;flex-wrap:wrap">
-      <div style="width:132px;height:132px;flex:none;border-radius:50%;background:radial-gradient(circle at 30% 30%,#2f2a20,#16140f);display:flex;align-items:center;justify-content:center;color:#6b6456;font-size:13px;font-weight:500" aria-hidden="true">תמונה</div>
       <div style="flex:1;min-width:260px">
         <div style="font-weight:600;font-size:13px;letter-spacing:.04em;color:#54c9c9;margin-bottom:14px">מי עומד מאחורי גבר</div>
-        <p style="font-size:clamp(18px,2vw,22px);line-height:1.6;color:#F3ECDD;margin-bottom:18px">נמאס לנו לשרוף ערבים על טפסים מוקדים והמתנות אז בנינו את גבר שיעשה את זה במקומנו הוא עדיין צעיר ואנחנו עונים אישית לכל הודעה שנכנסת</p>
+        <p style="font-size:clamp(18px,2vw,22px);line-height:1.6;color:#F3ECDD;margin-bottom:18px">נמאס לנו לשרוף ערבים על טפסים, אתרים איטיים והמתנות למוקד — אז בנינו את גבר שיעשה את זה במקומנו. גבר הוא עוזר AI, לא בן אדם שיושב מול מסך, אבל מאחוריו יש אנשים אמיתיים: הוא עדיין צעיר, הבטא סגורה בכוונה, ואנחנו עוקבים אישית אחרי כל הזמנה.</p>
         <div style="font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:18px;color:#c4bcad">הצוות של גבר</div>
       </div>
     </div>
-  </section>
-
-  <!-- PRICING -->
-  <section id="pricing" style="max-width:1160px;margin:0 auto;padding:0 26px 84px">
-    <div style="text-align:center;max-width:660px;margin:0 auto 48px">
-      <div style="font-weight:600;font-size:13px;letter-spacing:.04em;color:#54c9c9;margin-bottom:16px">כמה זה עולה</div>
-      <h2 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(32px,4.6vw,54px);line-height:1.04;letter-spacing:-.01em">מתחילים חינם משלמים רק אם בא לך עוד</h2>
-    </div>
-    <div class="r-price" style="display:grid;grid-template-columns:repeat(2,minmax(0,340px));gap:22px;justify-content:center;align-items:stretch">
-      <div style="background:#211e17;border-radius:24px;padding:34px 28px;display:flex;flex-direction:column">
-        <h3 style="font-weight:600;font-size:19px;margin-bottom:6px">חינם</h3>
-        <div style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:48px;line-height:1;margin:10px 0 24px">₪0</div>
-        <ul style="list-style:none;display:flex;flex-direction:column;gap:13px;flex:1;margin-bottom:26px">
-          <li style="display:flex;gap:10px;font-size:16px;color:#c4bcad"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1CA3A3" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:2px" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>5 משימות על חשבון גבר</li>
-          <li style="display:flex;gap:10px;font-size:16px;color:#c4bcad"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1CA3A3" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:2px" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>כל הסוגים פתוחים</li>
-          <li style="display:flex;gap:10px;font-size:16px;color:#c4bcad"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1CA3A3" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:2px" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>בלי כרטיס אשראי</li>
-        </ul>
-        <a href="#waitlist" style="text-align:center;border:1.5px solid rgba(243,236,221,.28);color:#F3ECDD;font-weight:600;font-size:16px;padding:13px;border-radius:13px">מתחיל חינם</a>
-      </div>
-      <div style="background:var(--accent,#FF6B35);color:#16140f;border-radius:24px;padding:40px 28px;display:flex;flex-direction:column;position:relative;box-shadow:0 24px 56px rgba(255,107,53,.3)">
-        <h3 style="font-weight:600;font-size:19px;margin-bottom:6px">גבר מלא</h3>
-        <div style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:48px;line-height:1;margin:10px 0 24px">₪29 <span style="font-size:18px;font-weight:500;font-family:'IBM Plex Sans Hebrew',sans-serif">/ חודש</span></div>
-        <ul style="list-style:none;display:flex;flex-direction:column;gap:13px;flex:1;margin-bottom:26px">
-          <li style="display:flex;gap:10px;font-size:16px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16140f" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:2px" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>משימות בלי הגבלה</li>
-          <li style="display:flex;gap:10px;font-size:16px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16140f" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:2px" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>גבר קופץ ראשון על שלך</li>
-          <li style="display:flex;gap:10px;font-size:16px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16140f" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:2px" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>כל ההיסטוריה שמורה בוואטסאפ</li>
-        </ul>
-        <a href="#waitlist" style="text-align:center;background:#16140f;color:#fff;font-weight:600;font-size:16px;padding:14px;border-radius:13px">קח את זה</a>
-      </div>
-    </div>
-    <p style="text-align:center;font-size:15px;color:#8c8475;margin-top:24px">מבטלים בלחיצה בלי שיחות שכנוע ובלי דרמה</p>
   </section>
 
   <!-- FAQ -->
@@ -228,60 +224,29 @@ a{text-decoration:none;color:inherit}
       <div style="font-weight:600;font-size:13px;letter-spacing:.04em;color:#54c9c9;margin-bottom:16px">שאלות</div>
       <h2 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(32px,4.6vw,54px);line-height:1.04;letter-spacing:-.01em">מה שכולם שואלים את גבר</h2>
     </div>
-    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">זה בוט או בן אדם<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">תכלס מאחורי הקלעים רצה אוטומציה חכמה אבל אתה לא תרגיש בוט כותבים בשפה רגילה בלי תפריטים ובלי הקש 1 וגבר לא מתחזה לבן אדם פשוט עושה את העבודה</p></details>
-    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">זה בטוח אתם נוגעים בכרטיס שלי<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">כל תשלום עובר אישור שלך לפני שהוא קורה והפרטים שלך שמורים אתה מחליט תמיד</p></details>
-    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">ומה אם תטעה<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">כל דבר עם משמעות תשלום או הזמנה גבר מוודא איתך לפני ואם קרתה טעות גבר מתקן ולא נשארת עם זה לבד אח שלי</p></details>
-    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">כמה זמן זה לוקח<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">רוב הדברים נגמרים תוך כמה דקות כשזה תלוי במישהו אחר מוקד או פתיחת מכירה גבר על המתנה ומקפיץ ברגע שאפשר</p></details>
-    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">ומה אם זה לא מסעדה ביטוח או כרטיסים<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">תכתוב בכל זאת אם אפשר גבר יעשה ואם עדיין לא גבר ירשום ויחזור אליך כשייפתח</p></details>
-    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">איך מתחילים<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">שתי דקות נרשם פה או שולח לגבר הודעה ראשונה בוואטסאפ סבבה זהו</p></details>
+    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">זה בוט או בן אדם?<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">גבר הוא עוזר AI. כותבים איתו בעברית רגילה — בלי תפריטים ובלי "הקש 1" — והוא נכנס לאתר ועושה את העבודה בעצמו. הוא לא מתחזה לבן אדם. הוא פשוט סוגר.</p></details>
+    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">אתם נוגעים בכרטיס האשראי שלי?<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">לא. כשמסעדה מבקשת כרטיס להבטחת הזמנה, גבר עוצר ומעביר אליך את ההשלמה — אתה מזין את הפרטים בעצמך. גבר לא רואה ולא שומר פרטי אשראי.</p></details>
+    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">ומה אם גבר טועה?<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">לפני כל סגירה מחייבת גבר מוודא איתך. ואם בכל זאת יצאה טעות — כותבים לו והוא מסדר, לא נשארת עם זה לבד. בזמן הבטא גם הצוות עוקב מקרוב על כל הזמנה.</p></details>
+    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">כמה זמן זה לוקח?<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">בדרך כלל כמה דקות מההודעה ועד האישור. ואם השעה שרצית תפוסה, גבר לא מרים ידיים — הוא חוזר אליך עם חלופות שפנויות באמת.</p></details>
+    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">כמה זה עולה?<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">בבטא — כלום. גבר עוד לומד, אז הכול חינם ובלי כרטיס אשראי. כשיגיע תמחור, מי שהיה בבטא ישמע ראשון.</p></details>
+    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">ורק מסעדות?<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">כרגע כן — גבר עושה דבר אחד ועושה אותו עד הסוף. כרטיסים, ביטוחים ותורים בדרך, וחברי הבטא ינסו אותם ראשונים.</p></details>
+    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">איך נכנסים לבטא?<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">שולחים לגבר הודעה בוואטסאפ מאחד הכפתורים בדף. הבטא נפתחת בקבוצות קטנות, ומי שכתב — ראשון בתור.</p></details>
   </section>
 
   <!-- FINAL CTA -->
-  <section id="waitlist" style="max-width:1160px;margin:0 auto;padding:0 26px 80px">
+  <section id="cta" style="max-width:1160px;margin:0 auto;padding:0 26px 80px">
     <div style="background:var(--accent,#FF6B35);color:#16140f;border-radius:32px;padding:84px 40px;text-align:center;box-shadow:0 28px 60px rgba(255,107,53,.28)">
       <div style="font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:clamp(18px,2.2vw,26px);margin-bottom:14px;opacity:.72">גברי איתך</div>
-      <h2 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(36px,5.2vw,64px);line-height:1.02;letter-spacing:-.01em;margin-bottom:18px">יש משהו שאתה דוחה כבר שבוע<br>תזרוק אותו על גבר</h2>
-      <p style="font-size:20px;line-height:1.6;max-width:560px;margin:0 auto 34px;color:#4a2a18">100 הראשונים שנכנסים מקבלים חודש שלם על חשבון גבר אחרי זה זה נפתח לכולם</p>
+      <h2 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(36px,5.2vw,64px);line-height:1.02;letter-spacing:-.01em;margin-bottom:18px">יש מסעדה שאתה דוחה כבר שבוע?<br>תזרוק אותה על גבר</h2>
+      <p style="font-size:20px;line-height:1.6;max-width:560px;margin:0 auto 34px;color:#4a2a18">הבטא סגורה ונפתחת בקבוצות קטנות. מי שכותב עכשיו — נכנס ראשון, וכל זה חינם.</p>
       <div style="display:flex;flex-wrap:wrap;gap:13px;justify-content:center">
-        <a href="#waitlist" style="background:#16140f;color:#fff;font-weight:600;font-size:18px;padding:17px 34px;border-radius:14px">תכניס אותי לרשימה</a>
-        <!-- TODO: החלף WHATSAPP_NUMBER במספר אמיתי -->
         <a href="https://wa.me/WHATSAPP_NUMBER?text=היי%20גבר%2C%20בוא%20ננסה" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:9px;background:#fff;color:#16140f;font-weight:600;font-size:18px;padding:16px 30px;border-radius:14px"><svg width="20" height="20" viewBox="0 0 24 24" fill="#25D366" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.8 4.9-1.3A10 10 0 1 0 12 2Zm5.8 14.3c-.2.7-1.4 1.3-2 1.4-.5.1-1.2.1-1.9-.1-.4-.1-1-.3-1.8-.6-3-1.3-5-4.4-5.1-4.6-.2-.2-1.3-1.7-1.3-3.2 0-1.5.8-2.3 1.1-2.6.3-.3.6-.4.8-.4h.6c.2 0 .5 0 .7.5l.9 2.1c.1.2.1.4 0 .6l-.4.6-.4.4c-.1.1-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.4 2.4 1.5.3.1.5.1.6-.1l.8-1c.2-.2.4-.2.6-.1l2 1c.3.1.4.2.5.3.1.2.1.6-.1 1.3Z"/></svg>דבר עם גבר בוואטסאפ</a>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:20px;justify-content:center;margin-top:24px">
-        <span style="display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:#5a3320"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5a3320" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>התשלום עובר רק באישורך</span>
-        <span style="display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:#5a3320"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5a3320" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9 8 11 4.6-2 8-6 8-11V5l-8-3Z"/></svg>לא שומרים פרטי אשראי</span>
+        <span style="display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:#5a3320"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5a3320" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>כל סגירה מחייבת — רק באישור שלך</span>
+        <span style="display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:#5a3320"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5a3320" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9 8 11 4.6-2 8-6 8-11V5l-8-3Z"/></svg>פרטי אשראי לא עוברים דרך גבר</span>
       </div>
-      <p style="font-size:14px;color:#5a3320;margin-top:20px">בחינם להתחלה בלי התחייבות הכי גרוע חסכת לעצמך כאב ראש</p>
-    </div>
-  </section>
-
-  <!-- VERSUS -->
-  <section style="max-width:1160px;margin:0 auto;padding:78px 26px">
-    <div style="max-width:700px;margin:0 auto 44px;text-align:center">
-      <div style="font-weight:600;font-size:13px;letter-spacing:.04em;color:#54c9c9;margin-bottom:16px">השאלה הראשונה ששואלים את גבר</div>
-      <h2 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(34px,5vw,60px);line-height:1.02;letter-spacing:-.01em">כל בוט יודע לדבר.<br><span style="color:var(--accent,#FF6B35)">גבר יודע לעשות.</span></h2>
-      <p style="font-size:19px;color:#c4bcad;margin-top:18px;line-height:1.6">בוט יזרוק לך לינק יאחל בהצלחה ויחזור לישון. גבר נכנס לאתר עצמו ממלא את כל מה שצריך ומחזיר לך תוצאה</p>
-    </div>
-    <div class="r-vs" style="display:grid;grid-template-columns:1fr 1fr;gap:22px">
-      <div style="background:#211e17;border-radius:24px;padding:34px 30px">
-        <div style="font-weight:700;font-size:15px;color:#8c8475;margin-bottom:22px">בוט רגיל</div>
-        <ul style="list-style:none;display:flex;flex-direction:column;gap:16px">
-          <li style="display:flex;gap:12px;font-size:16.5px;color:#c4bcad;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(194,64,42,.2);color:#e59177;display:flex;align-items:center;justify-content:center;flex:none;font-size:13px;font-weight:700">✕</span>זורק לינק וממשיך הלאה</li>
-          <li style="display:flex;gap:12px;font-size:16.5px;color:#c4bcad;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(194,64,42,.2);color:#e59177;display:flex;align-items:center;justify-content:center;flex:none;font-size:13px;font-weight:700">✕</span>הקש 1 הקש 2 תפריט לא בן אדם</li>
-          <li style="display:flex;gap:12px;font-size:16.5px;color:#c4bcad;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(194,64,42,.2);color:#e59177;display:flex;align-items:center;justify-content:center;flex:none;font-size:13px;font-weight:700">✕</span>יודע לספר לך מה לעשות אבל לעשות בעצמו פחות</li>
-          <li style="display:flex;gap:12px;font-size:16.5px;color:#c4bcad;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(194,64,42,.2);color:#e59177;display:flex;align-items:center;justify-content:center;flex:none;font-size:13px;font-weight:700">✕</span>בסוף היום אתה זה שתקוע מול הטופס</li>
-        </ul>
-      </div>
-      <div style="background:#F3ECDD;color:#16140f;border-radius:24px;padding:34px 30px;position:relative;box-shadow:0 20px 44px rgba(0,0,0,.45)">
-        <span style="position:absolute;top:-12px;right:30px;background:var(--accent,#FF6B35);color:#fff;font-weight:700;font-size:13px;padding:6px 15px;border-radius:999px">זה גבר</span>
-        <div style="font-weight:700;font-size:15px;color:#c2491b;margin-bottom:22px">גבר</div>
-        <ul style="list-style:none;display:flex;flex-direction:column;gap:16px">
-          <li style="display:flex;gap:12px;font-size:16.5px;color:#2b2620;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(20,120,120,.14);display:flex;align-items:center;justify-content:center;flex:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#147878" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span>נכנס לאתר וממלא את הכל לבד</li>
-          <li style="display:flex;gap:12px;font-size:16.5px;color:#2b2620;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(20,120,120,.14);display:flex;align-items:center;justify-content:center;flex:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#147878" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span>כותב איתך בעברית כמו חבר ששואלים אותו טובה</li>
-          <li style="display:flex;gap:12px;font-size:16.5px;color:#2b2620;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(20,120,120,.14);display:flex;align-items:center;justify-content:center;flex:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#147878" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span>לא עוצר באמצע הולך עד הסוף</li>
-          <li style="display:flex;gap:12px;font-size:16.5px;color:#2b2620;line-height:1.45"><span style="width:22px;height:22px;border-radius:50%;background:rgba(20,120,120,.14);display:flex;align-items:center;justify-content:center;flex:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#147878" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span>מודיע שהכל מוכן ואתה כבר בעניינים אחרים</li>
-        </ul>
-      </div>
+      <p style="font-size:14px;color:#5a3320;margin-top:20px">בלי התחייבות. הכי גרוע? חסכת לעצמך שיחת טלפון.</p>
     </div>
   </section>
 
@@ -290,15 +255,14 @@ a{text-decoration:none;color:inherit}
     <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:24px;align-items:center">
       <div>
         <div style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:28px;color:#F3ECDD">גבר<span style="color:var(--accent,#FF6B35)">.</span></div>
-        <p style="font-size:15px;margin-top:8px;max-width:320px;line-height:1.5;color:#9c9485">אתה כותב גבר עושה גברי איתך</p>
+        <p style="font-size:15px;margin-top:8px;max-width:320px;line-height:1.5;color:#9c9485">אתה כותב, גבר עושה. גברי איתך.</p>
       </div>
       <nav style="display:flex;gap:24px;flex-wrap:wrap;font-weight:500;font-size:15px;color:#9c9485" aria-label="ניווט פוטר">
-        <a href="#how">איך זה עובד</a><a href="#pricing">כמה זה עולה</a><a href="#faq">שאלות</a><!-- TODO: WHATSAPP_NUMBER --><a href="https://wa.me/WHATSAPP_NUMBER?text=היי%20גבר" target="_blank" rel="noopener">וואטסאפ</a>
+        <a href="#how">איך זה עובד</a><a href="#actions">מה גבר עושה</a><a href="#faq">שאלות</a><a href="https://wa.me/WHATSAPP_NUMBER?text=היי%20גבר" target="_blank" rel="noopener">וואטסאפ</a>
       </nav>
     </div>
     <div style="border-top:1px solid rgba(243,236,221,.12);margin-top:26px;padding-top:18px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;font-size:13px;color:#7a7367">
       <span>© גבר · כל הזכויות שמורות</span>
-      <span><a href="#">תנאי שימוש</a> · <a href="#">מדיניות פרטיות</a></span>
     </div>
   </footer>
 
@@ -308,8 +272,8 @@ a{text-decoration:none;color:inherit}
 (function(){
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // Hero rotor
-  var words = ['שולחן ל-6 על הים בשישי','ביטוח רכב 380 שקל פחות','2 כרטיסים בשורה שביעית','תור לטסט בלי להמתין','דרכון יומיים לפני טיסה','משלוח פרחים ליום הולדת'];
+  // Hero rotor — דוגמאות לבקשות (לא "הישגים" מומצאים)
+  var words = ['שולחן ל-6 על הים בשישי','משהו איטלקי הערב, זוג','יום הולדת ל-10 בחמישי','דייט רומנטי לשבת ב-21:00','צהריים עם הצוות ביום שלישי'];
   var rotor = document.getElementById('rotor');
   if (rotor && !reduce){
     var ri = 0;
@@ -326,11 +290,11 @@ a{text-decoration:none;color:inherit}
   var statusEl = document.getElementById('waStatus');
   if (!chat) return;
   var script = [
-    { side:'me', text:'גבר צריך שולחן ל-3 הערב בדרום העיר משהו רציני לבשר', time:'21:14' },
-    { side:'g',  text:'סבבה אח שלי 21:00 או שעדיף לך שעה אחרת', time:'21:14', typing:1400 },
+    { side:'me', text:'גבר, צריך שולחן ל-3 הערב בדרום העיר. משהו רציני לבשר', time:'21:14' },
+    { side:'g',  text:'סבבה אח שלי. 21:00, או שעדיף לך שעה אחרת?', time:'21:14', typing:1400 },
     { side:'me', text:'21:00 פצצה', time:'21:15' },
-    { side:'g',  text:'שנייה בודק כמה מקומות', time:'21:15', typing:1200 },
-    { side:'g',  text:'סגור חיים שלי M25 בשוק הכרמל 21:00 שולחן ל-3 על שמך תהנו', time:'21:16', typing:1900 }
+    { side:'g',  text:'שנייה, בודק כמה מקומות', time:'21:15', typing:1200 },
+    { side:'g',  text:'סגור חיים שלי ✅ M25 בשוק הכרמל, 21:00, שולחן ל-3 על שמך. תהנו', time:'21:16', typing:1900 }
   ];
   var meBubble = 'align-self:flex-start;max-width:82%;background:#005c4b;color:#e9f7ef;padding:6px 9px 5px;border-radius:10px;border-top-right-radius:3px;font-size:14.5px;line-height:1.45;box-shadow:0 1px .5px rgba(0,0,0,.18);animation:msgIn .32s cubic-bezier(.2,.7,.2,1);word-break:break-word';
   var gBubble = 'align-self:flex-end;max-width:82%;background:#202c33;color:#e9edef;padding:6px 9px 5px;border-radius:10px;border-top-left-radius:3px;font-size:14.5px;line-height:1.45;box-shadow:0 1px .5px rgba(0,0,0,.18);animation:msgIn .32s cubic-bezier(.2,.7,.2,1);word-break:break-word';
