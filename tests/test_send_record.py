@@ -46,7 +46,9 @@ def test_send_and_record_saves_turn_and_persists(monkeypatch):
     asyncio.run(pipeline._send_and_record("p1", "הנה הלינק: https://x"))
 
     assert sent == ["הנה הלינק: https://x"]
-    assert pipeline._turns["p1"][-1] == {"role": "model", "text": "הנה הלינק: https://x"}
+    last = pipeline._turns["p1"][-1]
+    assert last["role"] == "model" and last["text"] == "הנה הלינק: https://x"
+    assert last["ts"] > 0  # ts פר-תור — לתחקירים (לקח 15.7)
     assert upserts[0]["kept"] == 1  # prefs קיימים שרדו את המיזוג
     assert upserts[0]["_chat"]["turns"][-1]["text"] == "הנה הלינק: https://x"
     assert upserts[0]["_chat"]["ts"] > 0

@@ -115,7 +115,8 @@ def test_matching_time_answer_fires_directly(monkeypatch):
     assert booked[0]["time"] == "19:30"
     assert "p1" not in pipeline._await_answer
     # ההיסטוריה משקפת את החילוף: תור המשתמש ואחריו ה-ack שנרשם דרך _send_and_record
-    assert pipeline._turns["p1"][-2] == {"role": "user", "text": "19:30"}
+    user_turn = pipeline._turns["p1"][-2]
+    assert user_turn["role"] == "user" and user_turn["text"] == "19:30" and user_turn["ts"] > 0
     assert pipeline._turns["p1"][-1]["role"] == "model"
 
 
