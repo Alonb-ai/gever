@@ -317,6 +317,11 @@ def _parse_result(final: str, *, commit: bool) -> dict:
     card = "CARD_REQUIRED" in last
     missing = _marker_arg(last, "MISSING:") if "MISSING:" in last else ""
     failed = _marker_arg(last, "FAILED:") if "FAILED:" in last else ""
+    # דיווח סופי ריק = ה-agent מת בלי שורת סיום (נצפה חי ev iter 1: סשן Browserbase
+    # נפל באמצע — keepalive timeout → HTTP 410 — וה-agent נעצר אחרי 5 כשלים רצופים).
+    # בלי זה התוצאה כולה ריקה: אין failed, אין info ל-truth_note, ואין זכר שהדפדפן מת.
+    if not final:
+        failed = "browser_error"
     # השעה שנבחרה בפועל (החוזה: אחרי SUMMARY_REACHED) — כדי שגבר יציע חלופה ללקוח
     # ("יש 21:00 במקום 20:30, מתאים?") לפני הסגירה, וה-commit יסגור את מה שאושר.
     m = re.search(r"\b(\d{1,2}:\d{2})\b", last)
