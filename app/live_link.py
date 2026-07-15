@@ -111,11 +111,10 @@ PAGE_HTML = """<!doctype html>
 <footer id="kb-wrap">
   <div class="kb">
     <input id="kb-in" type="text" inputmode="text" autocomplete="off" autocorrect="off"
-           autocapitalize="off" spellcheck="false"
+           autocapitalize="off" spellcheck="false" enterkeyhint="next"
            placeholder="טאפ על שדה למעלה, ואז הקלד כאן">
-    <button id="kb-next" type="button">⇥ שדה הבא</button>
   </div>
-  <p class="hint">ההקלדה עוברת ישירות לדף המאובטח של בית העסק — לא נשמרת אצל גבר.</p>
+  <p class="hint">"הבא" במקלדת קופץ לשדה הבא · ההקלדה עוברת ישירות לדף המאובטח — לא נשמרת אצל גבר.</p>
 </footer>
 <script>
 window.addEventListener("message", function (ev) {
@@ -134,6 +133,12 @@ window.addEventListener("message", function (ev) {
   var ws = null, msgId = 0;
   function connect() {
     ws = new WebSocket(CDP);
+    ws.onopen = function () {
+      /* הדף המרוחק רץ ב-viewport של דסקטופ — מוקטן פי 3 באייפריים והכל זעיר
+         (משוב אלון 15.7). כופים עליו מידות מובייל: הטופס נפרס מחדש גדול וקריא. */
+      send("Emulation.setDeviceMetricsOverride",
+           { width: 430, height: 900, deviceScaleFactor: 2, mobile: true });
+    };
     ws.onclose = function () { ws = null; };
   }
   function send(method, params) {
@@ -159,10 +164,23 @@ window.addEventListener("message", function (ev) {
     }
     prev = v;
   });
-  document.getElementById("kb-next").addEventListener("click", function () {
-    key("rawKeyDown", "Tab", "Tab", 9); key("keyUp", "Tab", "Tab", 9);  // מעבר שדה
-    inp.value = ""; prev = ""; inp.focus();                             // שדה חדש = פס נקי
+  /* "הבא"/Enter במקלדת = Tab בדפדפן המרוחק — בלי כפתור נפרד (משוב אלון:
+     זה כבר מובנה במקלדת של iOS). שדה חדש = פס נקי. */
+  inp.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      key("rawKeyDown", "Tab", "Tab", 9); key("keyUp", "Tab", "Tab", 9);
+      inp.value = ""; prev = "";
+    }
   });
+  /* מקלדת iOS מקטינה את ה-viewport — מכווצים את העמוד לגובה הנראה כדי שהטופס
+     המרוחק ופס ההקלדה יישארו שניהם על המסך (הזום "ברח" מהטופס בטסט 15.7). */
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", function () {
+      document.body.style.height = window.visualViewport.height + "px";
+      window.scrollTo(0, 0);
+    });
+  }
 })();
 </script>
 </body>

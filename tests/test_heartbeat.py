@@ -28,10 +28,12 @@ def _run_heartbeat(monkeypatch, last_out_age: float):
     return sent, sleeps
 
 
-def test_heartbeat_sends_on_long_silence(monkeypatch):
-    """שקט ארוך מ-75 שנ' → עדכון; הלולאה מוגבלת לשניים ונגמרת לבד."""
+def test_heartbeat_sends_two_different_messages(monkeypatch):
+    """שקט ארוך → שתי פעימות, ותמיד *שונות* זו מזו (משוב אלון 15.7: אותה הודעה
+    פעמיים ברצף מרגישה בוט)."""
     sent, sleeps = _run_heartbeat(monkeypatch, last_out_age=200)
     assert len(sent) == 2  # ה-fake לא מאפס את השעון — שתי הפעימות נשלחו, ולא יותר
+    assert sent[0] != sent[1]
     assert sleeps == [pipeline.HEARTBEAT_S] * 2
 
 
@@ -41,14 +43,8 @@ def test_heartbeat_quiet_when_recently_spoke(monkeypatch):
     assert sent == []
 
 
-def test_heartbeat_variants_pass_character_rules(monkeypatch):
-    """כל וריאנט של הפעימה עומד בחוקי הדמות (אימוג'י מהפלטה, בלי חשיפה)."""
-    captured = []
-
-    def fake_vary(*variants):
-        captured.extend(variants)
-        return variants[0]
-
-    monkeypatch.setattr(pipeline, "_vary", fake_vary)
-    _run_heartbeat(monkeypatch, last_out_age=200)
-    assert captured and all(not character_leaks(v) for v in captured)
+def test_heartbeat_repertoire_passes_character_rules():
+    """כל הרפרטואר עומד בחוקי הדמות (אימוג'י מהפלטה, בלי חשיפה), ורחב מספיק."""
+    assert len(pipeline.HEARTBEAT_MSGS) >= 5
+    assert all(not character_leaks(m) for m in pipeline.HEARTBEAT_MSGS)
+    assert len(set(pipeline.HEARTBEAT_MSGS)) == len(pipeline.HEARTBEAT_MSGS)

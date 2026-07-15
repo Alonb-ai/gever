@@ -287,22 +287,27 @@ def _restore_flow(phone: str, flow: dict | None) -> None:
 HEARTBEAT_S = 75  # שקט ארוך מזה באמצע ריצה מרגיש כמו נטישה (ממצא התחקיר: 230 שנ' דממה)
 
 
+# רפרטואר הפעימות — רחב, כי אלון שמע את אותה הודעה פעמיים ברצף בטסט (15.7) וזה
+# הרגיש בוט. random.sample מבטיח ששתי הפעימות באותה ריצה תמיד שונות זו מזו.
+HEARTBEAT_MSGS = [
+    "עוד איתך — האתר לוקח את הזמן שלו 🔄",
+    "עדיין עובד על זה, לא נעלמתי 🦾",
+    "לוקח לו רגע להגיב, אני על זה 🔄",
+    "האתר איטי היום, אבל אני לא מרפה 😮‍💨",
+    "מתקדם שם — לאט אבל בטוח 🎯",
+    "עוד קצת סבלנות, אני עדיין שם 🔄",
+]
+
+
 async def _heartbeat(phone: str) -> None:
     """סימני חיים בזמן ריצת דפדפן ארוכה: אחרי ~75 שנ' של שקט — עדכון קצר, מקסימום
     שניים לריצה (יותר מזה נהיה ספאם). רץ כ-task מקביל לריצה ומבוטל בסופה; נשלח
     רק אם באמת שקט (כל הודעה אחרת מאפסת את השעון דרך _last_out)."""
-    for _ in range(2):
+    for msg in random.sample(HEARTBEAT_MSGS, k=2):  # שתי פעימות שונות מובטח
         await asyncio.sleep(HEARTBEAT_S)
         if time.time() - _last_out.get(phone, 0) < HEARTBEAT_S:
             continue
-        await _send_and_record(
-            phone,
-            _vary(
-                "עוד איתך — האתר לוקח את הזמן שלו 🔄",
-                "עדיין עובד על זה, לא נעלמתי 🦾",
-                "לוקח לו רגע להגיב, אני על זה 🔄",
-            ),
-        )
+        await _send_and_record(phone, msg)
 
 
 def _agreed_line(details: dict | None) -> str:

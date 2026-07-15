@@ -84,3 +84,21 @@ def test_page_embeds_keyboard_bar_with_cdp():
     tok2 = live_link.wrap("https://somewhere.example/live-no-wss").split("/b/")[1]
     html2 = live_link.page_for(tok2)
     assert "__CDP__" not in html2  # ריק → הפס מוסתר ב-JS, אין שאריות תבנית
+
+
+def test_page_mobile_fixes_from_live_test():
+    """משוב אייפון 15.7: viewport מובייל נכפה על הסשן המרוחק (טופס קריא), אין
+    כפתור 'שדה הבא' (Enter במקלדת = Tab), וההקלדה מטופלת ב-visualViewport."""
+    from app import live_link
+
+    tok = live_link.wrap(
+        "https://www.browserbase.com/devtools-fullscreen/inspector.html"
+        "?wss=connect.browserbase.com/debug/s2/devtools/page/P2?debug=true"
+    ).split("/b/")[1]
+    html = live_link.page_for(tok)
+    assert "Emulation.setDeviceMetricsOverride" in html and '"mobile": true' in html.replace(
+        "mobile: true", '"mobile": true'
+    )
+    assert "kb-next" not in html
+    assert 'enterkeyhint="next"' in html
+    assert "visualViewport" in html
