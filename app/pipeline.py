@@ -26,7 +26,11 @@ from app.automation.browser_book import (
     release_session,
 )
 from app import live_link
-from app.automation.resolve import resolve_cinema_url, resolve_reservation_url
+from app.automation.resolve import (
+    resolve_cinema_url,
+    resolve_event_url,
+    resolve_reservation_url,
+)
 from app.config import settings
 from app.db import memory
 from app.llm.intent import (
@@ -58,13 +62,20 @@ _EXTRACT = (
     "· צימוד מוחלט בין דיבור למעשה: אמרת ללקוח שאתה על זה או שתעדכן אותו ⇔ סימנת "
     "דגל באותו JSON. בלי דגל — אין הבטחה ואין 'שנייה', יש שאלה; וגם עם דגל הביצוע "
     "לוקח כמה דקות — תדבר בהתאם.\n"
-    "· task_type: 'restaurant' (וגם ברירת המחדל), 'cinema' (כשמבקשים כרטיסים לסרט) "
-    "או 'other'. ב-other לעולם אין ready — אין עדיין מי שיבצע, אתה רק עונה בכנות.\n"
+    "· task_type: 'restaurant' (וגם ברירת המחדל), 'cinema' (כשמבקשים כרטיסים לסרט), "
+    "'events' (כרטיסים להופעה/מופע/סטנדאפ) או 'other'. ב-other לעולם אין ready — "
+    "אין עדיין מי שיבצע, אתה רק עונה בכנות.\n"
     "· בקולנוע (task_type='cinema') ready=true רק כשחמישה שדות מלאים וחד-משמעיים: "
     "movie (סרט אחד), date (DD.MM), city (עיר או סניף), party_size (מספר כרטיסים), "
     "time. בקולנוע time הוא מרכז חלון: 'בערב'→20:00, 'אחר הצהריים'→16:00, "
     "'בצהריים'→13:00, 'בבוקר'→11:00 — ההמרה הזו נחשבת חד-משמעית (בשונה ממסעדה); "
     "שעה מפורשת עדיפה. notes: העדפות מושבים/פורמט עם הסיבה.\n"
+    "· בהופעות (task_type='events', כשמבקשים כרטיסים להופעה/מופע/סטנדאפ) ready=true "
+    "כשיש artist (אמן או שם מופע אחד) ו-party_size (מספר כרטיסים). date (DD.MM) — אם הלקוח "
+    "נתן; לא נתן → אל תעצור את השיחה על זה, המועדים הזמינים יגיעו מהדף. time אינו שדה "
+    "בהופעות — השעה נגזרת מהמופע. venue — רק אם הלקוח ציין עיר/היכל. בחירת מועד "
+    "מרשימה שהצגת חוזרת ל-date; בחירת קטגוריה/מושבים הולכת ל-notes. notes: העדפות "
+    "ישיבה/מחיר עם הסיבה ('הכי זול', 'קרוב לבמה', 'עד 250 ש\"ח לכרטיס').\n"
     "· notes: העדפות ביצוע שהלקוח נתן (אזור ישיבה, אירוע, בקשה מיוחדת) — טקסט קצר, "
     "כולל הסיבה אם נתן אחת ('בחוץ — מעשנים', לא רק 'בחוץ'; הסיבה משנה את הבחירה בטופס); "
     "מגיע למי שמבצע. השלמה של שדה שביקשת (שם משפחה) הולכת לשדה עצמו, לא לכאן.\n"
@@ -80,10 +91,12 @@ _SCHEMA = {
         "reply": {"type": "string"},
         "ready": {"type": "boolean"},
         "confirm": {"type": "boolean"},
-        "task_type": {"type": "string", "enum": ["restaurant", "cinema", "other"]},
+        "task_type": {"type": "string", "enum": ["restaurant", "cinema", "events", "other"]},
         "restaurant": {"type": "string"},
         "movie": {"type": "string"},
         "city": {"type": "string"},
+        "artist": {"type": "string"},
+        "venue": {"type": "string"},
         "date": {"type": "string"},
         "time": {"type": "string"},
         "party_size": {"type": "integer"},
@@ -425,6 +438,29 @@ def _failure_reply(
             ),
         ),
     }
+    if task_type == "events":
+        table = {
+            **table,
+            "sold_out": (
+                "הכרטיסים אזלו לכל המועדים",
+                _vary(
+                    f"הכרטיסים ל'{name}' אזלו — כולם 😮‍💨 שאבדוק מופע אחר?",
+                    f"בדקתי — '{name}' sold out, אזלו הכרטיסים לכל המועדים 🫠\nשאחפש מופע אחר?",
+                    f"אין מה לתפוס — הכרטיסים ל'{name}' אזלו לגמרי\nרוצה שאבדוק מופע או אמן אחר?",
+                ),
+            ),
+            "no_event_in_city": (
+                f"המופע לא מתקיים ב-{city or 'המקום המבוקש'}",
+                _vary(
+                    f"'{name}' לא מופיע ב-{city or 'המקום שביקשת'} — "
+                    "יש מועדים במקומות אחרים, שאבדוק אותם?",
+                    f"בדקתי — אין מופע של '{name}' ב-{city or 'המקום שביקשת'}. "
+                    "יש בערים אחרות, שאבדוק?",
+                    f"'{name}' לא מגיע ל-{city or 'המקום שביקשת'} 🫠 "
+                    "שאבדוק את המועדים במקומות האחרים?",
+                ),
+            ),
+        }
     if task_type == "cinema":
         table = {
             **table,
@@ -720,11 +756,22 @@ async def run_booking(phone: str, fields: dict) -> None:
 
     task_type = fields.get("task_type") or "restaurant"
     cinema = task_type == "cinema"
-    # בקולנוע "השם" הוא שם הסרט — הוא מה שנכנס לכל מנגנוני הקיצור הקיימים
-    # (_resume/_resolved/_pending_pick/_booking.info), שעובדים עליו כמו שהם.
-    name = ((fields.get("movie") if cinema else fields.get("restaurant")) or "").strip()
+    events = task_type == "events"
+    # בקולנוע "השם" הוא שם הסרט ובהופעות שם האמן/המופע — הוא מה שנכנס לכל מנגנוני
+    # הקיצור הקיימים (_resume/_resolved/_pending_pick/_booking.info), שעובדים עליו כמו שהם.
+    name = (
+        (
+            fields.get("movie")
+            if cinema
+            else fields.get("artist")
+            if events
+            else fields.get("restaurant")
+        )
+        or ""
+    ).strip()
     city = (fields.get("city") or "").strip() if cinema else ""
-    if task_type not in ("restaurant", "cinema"):
+    venue = (fields.get("venue") or "").strip() if events else ""
+    if task_type not in ("restaurant", "cinema", "events"):
         _booking[phone] = {"state": "failed", "info": "לא נתמך עדיין"}
         await _send_and_record(
             phone,
@@ -746,6 +793,12 @@ async def run_booking(phone: str, fields: dict) -> None:
                 "רק חסר לי שם של סרט ואני יוצא לדרך",
             )
             if cinema
+            else _vary(
+                "רגע, לאיזו הופעה לוקחים כרטיסים?",
+                "רגע, פספסתי — לאיזו הופעה?",
+                "רק חסר לי שם של מופע או אמן ואני יוצא לדרך",
+            )
+            if events
             else _vary(
                 "רגע לאיזו מסעדה אנחנו סוגרים",
                 "רגע, פספסתי — לאיזו מסעדה?",
@@ -823,8 +876,8 @@ async def run_booking(phone: str, fields: dict) -> None:
             _pending_pick.pop(phone, None)  # מסעדה/סרט אחר — הרשימה הישנה לא רלוונטית
             found = None
             pr = _preresolve.pop(phone, None)
-            # pre-resolve הוא מסעדות בלבד (resolve_reservation_url) — בקולנוע לא קוטפים
-            if pr and not cinema and _same_place(pr["name"], name):
+            # pre-resolve הוא מסעדות בלבד (resolve_reservation_url) — קולנוע/הופעות לא קוטפים
+            if pr and task_type == "restaurant" and _same_place(pr["name"], name):
                 try:
                     found = await pr["task"]  # כבר מוכן/רץ מהשיחה — לא מחכים ל-Brave מאפס
                 except Exception:  # noqa: BLE001 — pre-resolve נכשל → resolve רגיל במקומו
@@ -833,7 +886,11 @@ async def run_booking(phone: str, fields: dict) -> None:
                 pr["task"].cancel()  # שם אחר / קולנוע — התוצאה הישנה לא רלוונטית
             if found is None:
                 found = await (
-                    resolve_cinema_url(name) if cinema else resolve_reservation_url(name)
+                    resolve_cinema_url(name)
+                    if cinema
+                    else resolve_event_url(name, venue)
+                    if events
+                    else resolve_reservation_url(name)
                 )
             if found["status"] == "one":
                 _resolved[phone] = {
@@ -844,7 +901,13 @@ async def run_booking(phone: str, fields: dict) -> None:
         if found["status"] == "none":
             _booking[phone] = {"state": "none", "info": name}
             hint = found.get("phone_hint")
-            if cinema:
+            if events:
+                msg = _vary(
+                    f"לא מצאתי איפה קונים כרטיסים ל'{name}' — אולי המופע רשום בשם אחר?",
+                    f"חיפשתי ולא מצאתי איפה קונים כרטיסים ל'{name}'. אולי זה כתוב קצת אחרת?",
+                    f"'{name}' לא עולה לי בשום מקום — יש אולי שם מדויק יותר למופע?",
+                )
+            elif cinema:
                 msg = _vary(
                     f"לא מצאתי איפה קונים כרטיסים ל'{name}'. אולי הסרט רשום בשם אחר?",
                     f"חיפשתי ולא מצאתי איפה קונים כרטיסים ל'{name}'. אולי זה כתוב קצת אחרת?",
@@ -950,6 +1013,8 @@ async def run_booking(phone: str, fields: dict) -> None:
                 task_type=task_type,
                 movie=name if cinema else "",
                 city=city,
+                artist=name if events else "",
+                venue=venue,
                 # במצב אמת הסשן נשאר על מסך הסיכום — "מאשר" סוגר בקליק באותו סשן.
                 # ב-DRY_RUN אין commit בכלל, אז לא משאירים סשן לחכות סתם.
                 keep_on_summary=not settings.dry_run,
@@ -1004,6 +1069,27 @@ async def run_booking(phone: str, fields: dict) -> None:
                     d0, used_url
                 )
                 _booking[phone] = {"state": "card", "info": link}
+                if events:
+                    # העצירה-המוצלחת הסטנדרטית של הופעות (כרטיס דיגיטלי = קיר תשלום
+                    # תמיד): שם המופע, שעת המופע, קטגוריה+מושבים+סה"כ מחיר (מהחוזה של
+                    # שורת הסיום — הלקוח רואה את הסכום לפני התשלום) + לינק עטוף.
+                    show = d0.get("time") or ""
+                    seats = d0.get("seats") or ""
+                    summary = " · ".join(p for p in (f"מופע ב-{show}" if show else "", seats) if p)
+                    summary_line = f"\n{summary}" if summary else ""
+                    await _send_and_record(
+                        phone,
+                        _vary(
+                            f"סגרתי לך הכל ל'{name}'{summary_line}\n"
+                            f"נשאר רק התשלום — הכרטיסים שמורים לך עוד כמה דקות, "
+                            f"שווה לסגור עכשיו:\n{link}",
+                            f"תפסתי לך כרטיסים ל'{name}' 🎯{summary_line}\n"
+                            f"נשאר רק התשלום, והם שמורים רק לכמה דקות — כאן:\n{link}",
+                            f"'{name}' מסודר עד הרגע האחרון{summary_line}\n"
+                            f"נשאר רק התשלום — המושבים שמורים לך עוד כמה דקות:\n{link}",
+                        ),
+                    )
+                    return
                 if cinema:
                     # העצירה המוצלחת הסטנדרטית של קולנוע: סיכום מלא (סרט, הקרנה,
                     # מושבים) + לינק — "נשאר רק התשלום".
@@ -1051,9 +1137,9 @@ async def run_booking(phone: str, fields: dict) -> None:
             # להציע אותה ללקוח במפורש ("יש 21:00 במקום 20:30, מתאים?") לפני הסגירה.
             requested_time = fields.get("time") or "20:00"
             actual_time = (res.details or {}).get("time") or ""
-            # קולנוע: בלי מנגנון alt_time — סטיית שעה היא הנורמה (הקרנות בדידות),
-            # וההודעה ממילא נוקבת בשעת ההקרנה שנתפסה ושואלת "לסגור?".
-            if not cinema and actual_time and actual_time != requested_time:
+            # קולנוע/הופעות: בלי מנגנון alt_time — השעה נגזרת מההקרנה/מהמופע,
+            # וההודעה ממילא נוקבת בשעה שנתפסה.
+            if task_type == "restaurant" and actual_time and actual_time != requested_time:
                 _booking[phone]["alt_time"] = {"requested": requested_time, "actual": actual_time}
             await memory.upsert_profile(
                 phone,
@@ -1072,10 +1158,12 @@ async def run_booking(phone: str, fields: dict) -> None:
                 "name": booker,
                 "email": email,  # C6: בלי זה הסגירה הייתה יורה MISSING:email מיותר
                 "notes": fields.get("notes") or "",
-                # קולנוע: run_commit משחזר את אותו task (באבטיפוס לא ירוץ — DRY_RUN תמיד)
+                # קולנוע/הופעות: run_commit משחזר את אותו task
                 "task_type": task_type,
                 "movie": name if cinema else "",
                 "city": city,
+                "artist": name if events else "",
+                "venue": venue,
                 # הסשן החי שעומד על מסך הסיכום (רק כשמצב אמת ביקש keep_on_summary) —
                 # הסגירה תמשיך ממנו בקליק במקום ניווט מלא מחדש.
                 "session_id": d.get("session_id"),
@@ -1084,6 +1172,24 @@ async def run_booking(phone: str, fields: dict) -> None:
             # ל"מוכן" שהגיע רק אם פנה קודם. הודעת הצלחה יזומה, עם השעה שנתפסה בפועל.
             at = actual_time or requested_time
             when = f"ל-{fields['date']} " if fields.get("date") else ""
+            if events:
+                # סיכום בלי קיר כרטיס (כמעט תיאורטי בהופעות): שעת המופע + שורת
+                # הקטגוריה/מושבים/מחיר, "לסגור?".
+                seats = d.get("seats") or ""
+                seat_line = f"\n{seats}" if seats else ""
+                head = _vary(
+                    f"יש! תפסתי לך כרטיסים ל'{name}'",
+                    f"בום 🎯 '{name}' על הקשקש",
+                    f"'{name}' מסודר — עומד על מסך הסיכום",
+                )
+                perk_line = f"\nשווה לדעת: {d['perk']}" if d.get("perk") else ""
+                closer = _vary("לסגור?", "לסגור לך?", "אז לסגור?", "שנסגור את זה?")
+                await _send_and_record(
+                    phone,
+                    f"{head}\n{when}מופע ב-{at}, {fields.get('party_size') or 2} "
+                    f"כרטיסים{seat_line}{perk_line}\n{closer}",
+                )
+                return
             if cinema:
                 # סיכום בלי קיר כרטיס (נדיר בקולנוע): שעת ההקרנה + המושבים, "לסגור?".
                 seats = d.get("seats") or ""
@@ -1154,6 +1260,10 @@ async def run_booking(phone: str, fields: dict) -> None:
                 "seats": "העדפת מושבים",
                 "showtime": "שעת הקרנה",
                 "language": "גרסה (מדובב / כתוביות)",
+                # הופעות: מועד/קטגוריה/ת"ז — הענף len(real)>=2 הופך OPTIONS לרשימת טאפ
+                "date": "תאריך (מהמועדים שקיימים)",
+                "price_category": "קטגוריית מחיר",
+                "id_number": "תעודת זהות (לכרטיס)",
                 # השעה המבוקשת תפוסה והדף מציע אחרות — הצעה במקום "לא מצאתי" (בקשת אלון)
                 "time": "שעה",
             }.get(field, field)
@@ -1217,7 +1327,9 @@ async def run_booking(phone: str, fields: dict) -> None:
             # (שובר את הדמות + חושף אוטומציה) וגם לא ל-info (מוזרק ל-truth_note —
             # לא נותנים לאתר להשחיל טקסט לבלוק האמת). נשמר ב-debug בלבד.
             d = res.details or {}
-            hit = _failure_reply(d.get("failed"), name, task_type=task_type, city=city)
+            hit = _failure_reply(
+                d.get("failed"), name, task_type=task_type, city=venue if events else city
+            )
             if hit:
                 _booking[phone] = {"state": "failed", "info": hit[0]}
                 await _send_and_record(phone, hit[1])
@@ -1323,6 +1435,8 @@ async def run_commit(phone: str) -> None:
                 task_type=job.get("task_type") or "restaurant",
                 movie=job.get("movie") or "",
                 city=job.get("city") or "",
+                artist=job.get("artist") or "",
+                venue=job.get("venue") or "",
                 resume=resume_arg,
             )
         finally:
@@ -1342,6 +1456,20 @@ async def run_commit(phone: str) -> None:
             _reset_next.add(phone)  # ההזמנה נסגרה — ההודעה הבאה פותחת דף חדש
             when = f"ל-{job['date']} " if job.get("date") else ""
             at_time = d.get("time") or job["time"]  # D6: השעה שנסגרה בפועל, לא המבוקשת
+            if (job.get("task_type") or "restaurant") == "events":
+                # הופעות: הכרטיס הדיגיטלי נשלח למייל — לא מבטיחים SMS.
+                msg = _vary(
+                    f"סגור ✅ {job['party_size']} כרטיסים ל'{job['restaurant']}' — "
+                    "הכרטיסים בדרך למייל שלך 🤙",
+                    f"סגור ✅ '{job['restaurant']}' נעול — {job['party_size']} כרטיסים "
+                    "בדרך למייל שלך 🤙",
+                    f"סגור ✅ תפסתי לך {job['party_size']} כרטיסים ל'{job['restaurant']}' — "
+                    "תחפש אותם במייל 🤙",
+                )
+                if conf:
+                    msg += "\n" + _vary(f"מספר אישור: {conf}", f"מספר האישור שלך: {conf}")
+                await _send_and_record(phone, msg)
+                return
             if (job.get("task_type") or "restaurant") == "cinema":
                 # קולנוע: restaurant = שם הסרט — "שולחן/סועדים/מהמסעדה" היו שקר בדמות.
                 # בלי הבטחת ערוץ (SMS/מייל) — לא יודעים איך בית הקולנוע שולח.
@@ -1398,7 +1526,7 @@ async def run_commit(phone: str) -> None:
                 d.get("failed"),
                 job["restaurant"],
                 task_type=job.get("task_type") or "restaurant",
-                city=job.get("city") or "",
+                city=job.get("venue") or job.get("city") or "",
             )
             if hit:
                 _booking[phone] = {"state": "failed", "info": hit[0]}
@@ -1522,10 +1650,12 @@ async def handle_inbound(phone: str, text: str, message_id: str | None = None) -
         if stale and stale.get("session_id"):
             # ה-gate הישן החזיק סשן חי על מסך סיכום — משחררים, לא מדליפים דקות דפדפן
             _spawn(release_session(stale["session_id"]))
-        # info = שם המסעדה/הסרט בתהליך, כדי שה-truth_note ינקוב בו אם תגיע בקשה אחרת בזמן ריצה.
+        # info = שם המסעדה/הסרט/המופע בתהליך — ה-truth_note ינקוב בו אם תגיע בקשה אחרת בזמן ריצה.
         _booking[phone] = {
             "state": "working",
-            "info": (result.get("restaurant") or result.get("movie") or "").strip(),
+            "info": (
+                result.get("restaurant") or result.get("movie") or result.get("artist") or ""
+            ).strip(),
         }
         _spawn(run_booking(phone, result))
     else:
