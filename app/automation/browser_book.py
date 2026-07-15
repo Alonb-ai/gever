@@ -22,6 +22,13 @@ log = logging.getLogger("gever")
 _RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bu_runner.py")
 BU_TIMEOUT_S = 600  # ponytail: תקרה קשיחה (10 דק') — browser-use עובר את כל זרימת Ontopo
 # עד הסיכום; 5 דק' קטעו ריצות חיות באמצע (dry-run #2). agent תקוע נכשל בקול, לא בדממה.
+BU_INSURANCE_TIMEOUT_S = 1200  # טופס ביטוח רב-דפים ארוך גם מקולנוע (לקח הקולנוע:
+# 600s הרג ריצה חיה קליק אחד לפני הסוף). 20 דק' עדיין תקרה קשיחה.
+
+
+def _timeout_s(job: dict) -> int:
+    """תקרת הריצה לפי סוג המשימה — ביטוח מקבל את התקרה הארוכה."""
+    return BU_INSURANCE_TIMEOUT_S if job.get("task_type") == "insurance" else BU_TIMEOUT_S
 
 
 async def _run_subprocess(job: dict) -> None:
@@ -44,7 +51,9 @@ async def _run_subprocess(job: dict) -> None:
             env=env,
         )
         try:
-            await asyncio.wait_for(proc.communicate(json.dumps(job).encode()), timeout=BU_TIMEOUT_S)
+            await asyncio.wait_for(
+                proc.communicate(json.dumps(job).encode()), timeout=_timeout_s(job)
+            )
         except asyncio.TimeoutError:
             proc.kill()  # ponytail: הורג את ה-runner; browser-use סוגר את Chrome ביציאה
             await proc.wait()
@@ -159,6 +168,9 @@ async def book_table_bu(
     notes: str = "",  # העדפות ביצוע מהלקוח (אזור ישיבה וכו') — מוזרק ל-task
     dry_run: bool = True,
     resume: dict | None = None,  # {"session_id","recap"} — המשך סשן חי מאותו מסך (pause-resume)
+    task_type: str = "restaurant",  # "restaurant" | "insurance" — בורר את ה-task ב-bu_runner
+    insurance: dict | None = None,  # ביטוח: {destination, return_date, travelers, health, addons}
+    form_answers: dict | None = None,  # תשובות הלקוח לשדות MISSING — מוזרקות ל-intro של resume
     keep_on_summary: bool = False,  # השאר סשן חי גם על SUMMARY_REACHED — לסגירה-באותו-סשן
 ) -> ActionResult:
     """מזמין (Ontopo/Tabit) דרך browser-use agent אוטונומי. עוצר בשלב הכרטיס (שער בטיחות).
@@ -178,6 +190,9 @@ async def book_table_bu(
     job = {
         "url": page_url,
         "platform": platform,
+        "task_type": task_type,
+        "insurance": insurance,
+        "form_answers": form_answers,
         "date": date,
         "time": time,
         "party_size": party_size,
@@ -191,7 +206,8 @@ async def book_table_bu(
         "record_dir": record_dir,
         "result_path": result_path,
         "steps_path": steps_path,
-        "max_steps": 40,
+        # ביטוח: טופס רב-דפים עתיר שדות — תקרת צעדים גבוהה יותר, כמו התקרה בזמן
+        "max_steps": 80 if task_type == "insurance" else 40,
     }
     session_id: str | None = None
     if settings.bu_browser == "browserbase":
@@ -259,6 +275,10 @@ async def book_table_bu(
             "confirmation": r.get("confirmation"),
             "summary_reached": r.get("summary_reached"),
             "missing": r.get("missing"),
+            "missing_fields": r.get("missing_fields") or [],
+            "options_by_field": r.get("options_by_field") or {},
+            "field_labels": r.get("field_labels") or {},
+            "extra": r.get("extra") or "",
             "options": r.get("options") or [],
             "page_now": r.get("page_now") or "",
             "failed": r.get("failed"),

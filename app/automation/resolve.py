@@ -116,10 +116,10 @@ async def _real_titles(candidates: list[dict]) -> None:
                 pass
 
 
-def _candidate(url: str, raw_title: str, seen: set) -> dict | None:
+def _candidate(url: str, raw_title: str, seen: set, platforms=_PLATFORMS) -> dict | None:
     """URL+כותרת של תוצאת חיפוש → מועמד {title, url קנוני, platform}, או None
     אם זה לא דף הזמנות של פלטפורמה מוכרת (או כפול)."""
-    for platform, pattern, canon in _PLATFORMS:
+    for platform, pattern, canon in platforms:
         m = pattern.search(url)
         if not m or (platform, m.group(1)) in seen:
             continue
@@ -135,11 +135,11 @@ def _candidate(url: str, raw_title: str, seen: set) -> dict | None:
     return None
 
 
-def _from_brave(data: dict) -> list[dict]:
+def _from_brave(data: dict, platforms=_PLATFORMS) -> list[dict]:
     """JSON של Brave web search → [{title, url, platform}] (deduped, לפי סדר)."""
     out, seen = [], set()
     for r in (data.get("web") or {}).get("results") or []:
-        c = _candidate(r.get("url") or "", r.get("title") or "", seen)
+        c = _candidate(r.get("url") or "", r.get("title") or "", seen, platforms)
         if c:
             out.append(c)
     return out
@@ -273,14 +273,30 @@ async def resolve_reservation_url(name: str) -> dict:
     """
     candidates, raw = await search_reservation(name)
     await _real_titles(candidates)  # כותרות-URL → השם האמיתי מהדף, לפני כל התאמה
+    picked = _pick(name, candidates, _PLATFORMS, drop_listings=True)
+    if picked["status"] != "none":
+        return picked
+    # אפס דפי פלטפורמה בחיפוש — לפני שמוותרים: לינק פלטפורמה מהאתר של המסעדה עצמה
+    # (Phase 4-lite), ואם גם זה אין — לפחות טלפון במקום מבוי סתום.
+    from_site = await _platform_link_from_site(name, raw)
+    if from_site:
+        return from_site
+    return {**picked, "phone_hint": await _phone_hint(name, raw)}
+
+
+def _pick(name: str, candidates: list[dict], platforms, *, drop_listings: bool) -> dict:
+    """דיסאמביגואציה פלטפורמה-פלטפורמה לפי סדר התיעדוף — הלב המשותף של ה-resolvers
+    (הועתק כמו-שהוא מענף הקולנוע לקראת המיזוג). drop_listings: סינון דילים/שוברים
+    (רלוונטי למסעדות בלבד)."""
     primary, fallback = None, None
-    for platform, _, _ in _PLATFORMS:
+    for platform, _, _ in platforms:
         plat = [c for c in candidates if c["platform"] == platform]
         if not plat:
             continue
-        # סינון דילים/שוברים/חבילות לפני הדיסאמביגואציה — אלה מבלבלים את הלקוח.
-        # אם הסינון מרוקן הכל, נשארים עם הסט המקורי (fallback).
-        plat = [c for c in plat if not _is_listing(c["title"])] or plat
+        if drop_listings:
+            # סינון דילים/שוברים/חבילות לפני הדיסאמביגואציה — אלה מבלבלים את הלקוח.
+            # אם הסינון מרוקן הכל, נשארים עם הסט המקורי (fallback).
+            plat = [c for c in plat if not _is_listing(c["title"])] or plat
         status, chosen_title, good = _match_restaurant(name, [c["title"] for c in plat])
         if status == "one":
             url = next(c["url"] for c in plat if c["title"] == chosen_title)
@@ -301,24 +317,25 @@ async def resolve_reservation_url(name: str) -> dict:
     if primary:
         return {**primary, "fallback": fallback}
     # אף פלטפורמה לא נתנה match חזק → לעולם לא לבחור לבד. לשאול את הלקוח (many) או none.
-    if candidates:
-        return {
-            "status": "many",
-            "url": None,
-            "platform": None,
-            "candidates": candidates,
-            "fallback": None,
-        }
-    # אפס דפי פלטפורמה בחיפוש — לפני שמוותרים: לינק פלטפורמה מהאתר של המסעדה עצמה
-    # (Phase 4-lite), ואם גם זה אין — לפחות טלפון במקום מבוי סתום.
-    from_site = await _platform_link_from_site(name, raw)
-    if from_site:
-        return from_site
     return {
-        "status": "none",
+        "status": "many" if candidates else "none",
         "url": None,
         "platform": None,
-        "candidates": [],
+        "candidates": candidates,
         "fallback": None,
-        "phone_hint": await _phone_hint(name, raw),
+    }
+
+
+# ורטיקל ביטוח: ספק יחיד, יעד קבוע — resolve בלי חיפוש, באותו חוזה החזרה בדיוק.
+INSURANCE_URL = "https://purchase.passportcard.co.il/"
+
+
+async def resolve_insurance_url() -> dict:
+    """ביטוח נסיעות (פספורטכארד): תמיד 'one'. async לשמירת חוזה resolve_reservation_url."""
+    return {
+        "status": "one",
+        "url": INSURANCE_URL,
+        "platform": "passportcard",
+        "candidates": [{"title": "פספורטכארד", "url": INSURANCE_URL, "platform": "passportcard"}],
+        "fallback": None,
     }
