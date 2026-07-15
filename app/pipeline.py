@@ -229,6 +229,27 @@ async def _maybe_ack(phone: str, text: str) -> None:
         await _send_and_record(phone, text)
 
 
+HEARTBEAT_S = 75  # שקט ארוך מזה באמצע ריצה מרגיש כמו נטישה (ממצא התחקיר: 230 שנ' דממה)
+
+
+async def _heartbeat(phone: str) -> None:
+    """סימני חיים בזמן ריצת דפדפן ארוכה: אחרי ~75 שנ' של שקט — עדכון קצר, מקסימום
+    שניים לריצה (יותר מזה נהיה ספאם). רץ כ-task מקביל לריצה ומבוטל בסופה; נשלח
+    רק אם באמת שקט (כל הודעה אחרת מאפסת את השעון דרך _last_out)."""
+    for _ in range(2):
+        await asyncio.sleep(HEARTBEAT_S)
+        if time.time() - _last_out.get(phone, 0) < HEARTBEAT_S:
+            continue
+        await _send_and_record(
+            phone,
+            _vary(
+                "עוד איתך — האתר לוקח את הזמן שלו 🔄",
+                "עדיין עובד על זה, לא נעלמתי 🦾",
+                "לוקח לו רגע להגיב, אני על זה 🔄",
+            ),
+        )
+
+
 def _card_link(details: dict | None, fallback: str) -> str:
     """הלינק ללקוח בקיר-כרטיס: הכתובת שבה הדפדפן עצר (URL: מהדיווח — עם ההזמנה
     שכבר מולאה) עדיפה על דף ההתחלה. רק https ורק אותו דומיין — לא נותנים לטקסט
@@ -750,36 +771,40 @@ async def run_booking(phone: str, fields: dict) -> None:
             attempts.append((found["fallback"]["url"], found["fallback"]["platform"]))
         used_url, used_platform = attempts[0]
         res = None
-        for i, (url, plat) in enumerate(attempts):
-            if i:
-                await _send_and_record(
-                    phone,
-                    _vary(
-                        "הנתיב הראשון לא הלך, מנסה דרך אחרת 🔄",
-                        "הכיוון הראשון נסתם — הולך על דרך אחרת 🔄",
-                        "זה לא תפס שם, מנסה דרך אחרת 🔄",
-                    ),
+        hb = asyncio.create_task(_heartbeat(phone))  # סימני חיים בשקט של ריצה ארוכה
+        try:
+            for i, (url, plat) in enumerate(attempts):
+                if i:
+                    await _send_and_record(
+                        phone,
+                        _vary(
+                            "הנתיב הראשון לא הלך, מנסה דרך אחרת 🔄",
+                            "הכיוון הראשון נסתם — הולך על דרך אחרת 🔄",
+                            "זה לא תפס שם, מנסה דרך אחרת 🔄",
+                        ),
+                    )
+                used_url, used_platform = url, plat
+                res = await book_table_bu(
+                    restaurant=name,
+                    page_url=url,
+                    platform=plat,
+                    date=fields.get("date") or "",
+                    time=fields.get("time") or "20:00",
+                    party_size=fields.get("party_size") or 2,
+                    name=booker,
+                    email=email,
+                    phone=_il_phone(phone),
+                    notes=fields.get("notes") or "",
+                    dry_run=True,
+                    resume=resume_arg if i == 0 else None,  # resume רק לנתיב המקורי
+                    # במצב אמת הסשן נשאר על מסך הסיכום — "מאשר" סוגר בקליק באותו סשן.
+                    # ב-DRY_RUN אין commit בכלל, אז לא משאירים סשן לחכות סתם.
+                    keep_on_summary=not settings.dry_run,
                 )
-            used_url, used_platform = url, plat
-            res = await book_table_bu(
-                restaurant=name,
-                page_url=url,
-                platform=plat,
-                date=fields.get("date") or "",
-                time=fields.get("time") or "20:00",
-                party_size=fields.get("party_size") or 2,
-                name=booker,
-                email=email,
-                phone=_il_phone(phone),
-                notes=fields.get("notes") or "",
-                dry_run=True,
-                resume=resume_arg if i == 0 else None,  # resume רלוונטי רק לנתיב המקורי
-                # במצב אמת הסשן נשאר על מסך הסיכום — "מאשר" סוגר בקליק באותו סשן.
-                # ב-DRY_RUN אין commit בכלל, אז לא משאירים סשן לחכות סתם.
-                keep_on_summary=not settings.dry_run,
-            )
-            if res.success or (res.details or {}).get("missing"):
-                break
+                if res.success or (res.details or {}).get("missing"):
+                    break
+        finally:
+            hb.cancel()
         if res.success:
             d0 = res.details or {}
             if d0.get("card_required"):
@@ -1035,20 +1060,24 @@ async def run_commit(phone: str) -> None:
                 "session_id": job["session_id"],
                 "recap": f"אתה כבר על מסך הסיכום של {job['restaurant']} — נשאר רק לאשר סופית",
             }
-        res = await book_table_bu(
-            restaurant=job["restaurant"],
-            page_url=job["page_url"],
-            platform=job.get("platform") or "",
-            date=job["date"],
-            time=job["time"],
-            party_size=job["party_size"],
-            name=job["name"],
-            email=job.get("email") or "",
-            phone=_il_phone(phone),
-            notes=job.get("notes") or "",
-            dry_run=False,  # סגירה אמיתית (כיום ה-runner עדיין עוצר בכרטיס; commit מלא = עתידי)
-            resume=resume_arg,
-        )
+        hb = asyncio.create_task(_heartbeat(phone))  # סימני חיים גם בסגירה
+        try:
+            res = await book_table_bu(
+                restaurant=job["restaurant"],
+                page_url=job["page_url"],
+                platform=job.get("platform") or "",
+                date=job["date"],
+                time=job["time"],
+                party_size=job["party_size"],
+                name=job["name"],
+                email=job.get("email") or "",
+                phone=_il_phone(phone),
+                notes=job.get("notes") or "",
+                dry_run=False,  # סגירה אמיתית (ה-runner עדיין עוצר בכרטיס; commit מלא = עתידי)
+                resume=resume_arg,
+            )
+        finally:
+            hb.cancel()
         if res.success:
             d = res.details or {}
             conf = d.get("confirmation") or ""
