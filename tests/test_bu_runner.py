@@ -217,6 +217,9 @@ def test_cinema_task_keeps_contract_and_is_principled_not_recipe():
     # לקחי iter 2 (ריצה חיה): SVG — לבדוק מבנה לפני script, ואימות אבטחה — סבלנות
     assert "SVG" in recon and "אל תנחש" in recon
     assert "אימות אבטחה" in recon
+    # לקח סבב סינמה סיטי (ריצה חיה 15.07.26): קליק תכנותי על SVG לא נקלט —
+    # צריך רצף אירועי עכבר על אלמנט ה-hit-area (8 צעדי ניסוי-וטעייה בלי הרמז)
+    assert "hit-area" in recon and "mousedown/mouseup/click" in recon
 
 
 def test_cinema_task_seat_default_is_declared_choice():
