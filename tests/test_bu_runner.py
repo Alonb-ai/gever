@@ -277,6 +277,19 @@ def test_parse_result_mixed_markers_live_iter1_regression():
     assert r["seats"] == "שורה 5 מושבים 7,8"
 
 
+def test_parse_result_seats_trailing_pipe_live_regression():
+    """רגרסיה חיה (ריצת אמת): ה-agent שם | גם לפני ה-marker —
+    'SUMMARY_REACHED 19:30 | שורה 5 מושבים 7,8 | CARD_REQUIRED' — והלקוח קיבל
+    'שורה 5 מושבים 7,8 |' עם פייפ יתום בסוף. תווי ההפרדה נחתכים מהקצוות."""
+    final = "URL: https://x/checkout\nSUMMARY_REACHED 19:30 | שורה 5 מושבים 7,8 | CARD_REQUIRED"
+    r = _parse_result(final, commit=False)
+    assert r["success"] is True and r["card_required"] is True
+    assert r["seats"] == "שורה 5 מושבים 7,8"
+    # וגם פייפ יתום בלי marker אחריו (agent שסיים את השורה ב-|)
+    r = _parse_result("SUMMARY_REACHED 19:30 | שורה 5 מושבים 7,8 |", commit=False)
+    assert r["seats"] == "שורה 5 מושבים 7,8"
+
+
 def test_parse_result_no_pipe_means_no_seats_restaurant_regression():
     """מסעדות לא פולטות | בשורת הסיום — seats ריק, שום שדה אחר לא זז."""
     r = _parse_result("SUMMARY_REACHED 21:00", commit=False)

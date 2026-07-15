@@ -309,6 +309,101 @@ def test_run_commit_restores_cinema_job(monkeypatch):
     assert captured["dry_run"] is False
 
 
+def test_cinema_card_wall_link_is_live_view_when_session_alive(monkeypatch):
+    """קיר-כרטיס קולנוע עם סשן חי → הלינק בהודעה הוא ה-Live View של הסשן (הלקוח
+    נוחת על מסך הכרטיס עם כל מה שכבר מולא), לא לינק הדף הרגיל."""
+    _reset()
+
+    async def fake_book(**kwargs):
+        return ActionResult(
+            success=True,
+            summary="SUMMARY_REACHED 21:30 | שורה 7 מושבים 11,12 CARD_REQUIRED",
+            details={
+                "card_required": True,
+                "time": "21:30",
+                "seats": "שורה 7 מושבים 11,12",
+                "session_id": "sess-live",
+            },
+        )
+
+    live_calls = []
+
+    async def fake_live_view(session_id):
+        live_calls.append(session_id)
+        return "https://live.browserbase.com/sess-live"
+
+    sent, _ = _wire(monkeypatch, book=fake_book)
+    monkeypatch.setattr(pipeline, "live_view_url", fake_live_view)
+    asyncio.run(pipeline.run_booking("c10", dict(_FIELDS)))
+
+    assert live_calls == ["sess-live"]  # ה-session_id של הריצה הגיע ל-live_view_url
+    final = sent[-1]
+    assert "https://live.browserbase.com/sess-live" in final
+    assert "planetcinema.co.il" not in final  # לא נפלנו ללינק הדף הרגיל
+    assert pipeline._booking["c10"]["state"] == "card"
+    assert pipeline._booking["c10"]["info"] == "https://live.browserbase.com/sess-live"
+
+
+def test_cinema_card_wall_message_mentions_payment_once(monkeypatch):
+    """רגרסיית ניסוח: הווריאנט השלישי אמר 'את התשלום אני משאיר לך... נשאר רק
+    התשלום' — 'התשלום' פעמיים באותה הודעה. עוגן: מוזכר בדיוק פעם אחת."""
+    _reset()
+
+    async def fake_book(**kwargs):
+        return ActionResult(
+            success=True,
+            summary="SUMMARY_REACHED 21:30 | שורה 7 CARD_REQUIRED",
+            details={"card_required": True, "time": "21:30", "seats": "שורה 7"},
+        )
+
+    for i in range(12):  # מגלגל את כל וריאנטי _vary
+        sent, _ = _wire(monkeypatch, book=fake_book)
+        asyncio.run(pipeline.run_booking(f"c11-{i}", dict(_FIELDS)))
+        assert sent[-1].count("תשלום") == 1, sent[-1]
+
+
+def test_run_commit_cinema_success_message_talks_tickets_not_tables(monkeypatch):
+    """הודעת ה'סגור ✅' של commit קולנוע: כרטיסים והקרנה — בלי 'סועדים'/'שולחן'/
+    'מסעדה' על סרט; מסעדות נשארות עם הנוסח הקיים."""
+    _reset()
+    sent = []
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def fake_book(**kwargs):
+        return ActionResult(success=True, summary="BOOKED 777", details={"confirmation": "777"})
+
+    async def fake_log(*a, **k):
+        pass
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "log_booking", fake_log)
+
+    job = {
+        "restaurant": "האודיסאה",
+        "page_url": "http://planet",
+        "platform": "planet",
+        "date": "15.7",
+        "time": "21:30",
+        "party_size": 2,
+        "name": "אלון",
+        "task_type": "cinema",
+        "movie": "האודיסאה",
+        "city": "ראשון לציון",
+    }
+    for i in range(12):  # מגלגל את כל וריאנטי _vary
+        pipeline._pending_commit[f"c12-{i}"] = dict(job)
+        asyncio.run(pipeline.run_commit(f"c12-{i}"))
+        final = sent[-1]
+        assert "האודיסאה" in final and "21:30" in final and "כרטיסים" in final
+        assert "777" in final  # מספר האישור עדיין מצורף
+        for banned in ("סועדים", "שולחן", "מסעדה"):
+            assert banned not in final, final
+        assert pipeline._booking[f"c12-{i}"]["state"] == "done"
+
+
 def test_book_table_bu_job_carries_cinema_fields_and_seats_back(monkeypatch, tmp_path):
     """book_table_bu: task_type/movie/city נכנסים ל-job של ה-runner, ו-seats מהתוצאה
     חוזר ב-details (הצינור של הודעת קיר-הכרטיס)."""

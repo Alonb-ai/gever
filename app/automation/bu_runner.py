@@ -240,10 +240,12 @@ def _parse_result(final: str, *, commit: bool) -> dict:
     # FAILED/BOOKED כהגנה על agent שערבב markers בשורה אחת (נצפה חי באיטרציה 1:
     # "... | שורה 5 מושבים 7,8 / MISSING:last_name") — התיאור ללקוח נשאר נקי.
     # מסעדות לא פולטות | בשורת הסיום — נשאר ריק, אין רגרסיה.
+    # "|" ב-strip: נצפה חי — agent שכתב "... מושבים 7,8 | CARD_REQUIRED" השאיר
+    # פייפ יתום בקצה אחרי חיתוך ה-marker ("שורה 5 מושבים 7,8 |").
     seats = ""
     if "|" in last:
         seats = re.split(r"CARD_REQUIRED|MISSING:|FAILED:|BOOKED", last.split("|", 1)[1])[0]
-        seats = seats.strip(" :–-./")[:120]
+        seats = seats.strip(" :–-./|")[:120]
     # PERK: פרטים ששווים ללקוח (הנחה/מבצע/מגבלה) שה-agent ראה בדף — עוברים להודעה.
     perks = [
         ln.split("PERK:", 1)[1].strip().replace("[", "").replace("]", "")[:120]
