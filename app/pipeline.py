@@ -129,6 +129,9 @@ _pending_pick: dict = {}
 # בזמן שהלקוח עונה על שעה/כמות, ו-run_booking קוטף תוצאה מוכנה במקום לחכות לה.
 # phone -> {"name": str, "task": asyncio.Task[found]}
 _preresolve: dict = {}
+# עצירת MISSING עם אופציות ששלחנו: phone -> {"fields","field","options"}. תשובה
+# שתואמת אופציה אחת-לאחת נורית דטרמיניסטית (בלי לסמוך על ה-extract — המלצת התחקיר).
+_await_answer: dict = {}
 
 # פער שאחריו פותחים "דף חדש": שיחה טרייה במקום לגרור את ההיסטוריה הישנה.
 SESSION_GAP_S = 3 * 60 * 60  # ~3 שעות
@@ -239,6 +242,7 @@ async def _save_flow(phone: str) -> None:
         "resume": _resume.get(phone),
         "resolved": _resolved.get(phone),
         "pending_pick": _pending_pick.get(phone),
+        "await_answer": _await_answer.get(phone),
         "ts": time.time(),
     }
     prof = await memory.get_profile(phone)
@@ -269,6 +273,7 @@ def _restore_flow(phone: str, flow: dict | None) -> None:
         ("pending_commit", _pending_commit),
         ("resume", _resume),
         ("resolved", _resolved),
+        ("await_answer", _await_answer),
     ):
         if flow.get(key):
             target[phone] = flow[key]
@@ -661,6 +666,7 @@ async def run_booking(phone: str, fields: dict) -> None:
         )
         return
     _booking[phone] = {"state": "working", "info": name}
+    _await_answer.pop(phone, None)  # ריצה חדשה — שאלה פתוחה קודמת כבר לא רלוונטית
     log.info(
         "run_booking start: %s -> %s (%s %s)", phone, name, fields.get("date"), fields.get("time")
     )
@@ -971,6 +977,9 @@ async def run_booking(phone: str, fields: dict) -> None:
             # _safe_option ולא _safe_label — אופציה היא טקסט-דף, לא כותרת חיפוש.
             real = [_safe_option(o) for o in (res.details.get("options") or [])]
             real = list(dict.fromkeys(o for o in real if o))[:10]
+            # ההקשר נשמר: תשובה שתואמת אופציה אחת-לאחת תיירה דטרמיניסטית ב-handle_inbound,
+            # בלי לסמוך על ה-extract (נצפה חי: ניסוח-מחדש של המודל הפיל resume).
+            _await_answer[phone] = {"fields": dict(fields), "field": field, "options": real}
             requested_time = (fields.get("time") or "").strip()
             if field == "time" and real and requested_time:
                 # השעה שביקש תפוסה אבל יש חלופות אמיתיות — מציעים לסגור, לא "נכשלתי":
@@ -1223,6 +1232,37 @@ async def run_commit(phone: str) -> None:
 async def handle_inbound(phone: str, text: str, message_id: str | None = None) -> None:
     """נקודת הכניסה מה-webhook: שיחה, תשובה, וכשמוכן — הזמנה/סגירה ברקע."""
     await send_typing(message_id)  # 'מקליד…' בזמן שגבר חושב; התשובה תנקה אותו
+    # resume דטרמיניסטי (המלצת התחקיר): עומדת שאלת MISSING עם אופציות ששלחנו,
+    # והתשובה (טאפ/הקלדה) תואמת אופציה אחת-לאחת — יורים ישר בלי מודל באמצע.
+    pend = _await_answer.get(phone)
+    if pend and _booking.get(phone, {}).get("state") == "missing" and pend.get("options"):
+        match = next((o for o in pend["options"] if _norm_place(text) == _norm_place(o)), None)
+        if match:
+            _await_answer.pop(phone, None)
+            fields = dict(pend["fields"])
+            if pend["field"] == "time":
+                fields["time"] = match  # שעה חלופית נכנסת לשדה עצמו
+            else:
+                answer = f"{pend['field']}: {match}"
+                fields["notes"] = "; ".join(p for p in [fields.get("notes") or "", answer] if p)
+            # התור נכנס לזיכרון השיחה גם בלי converse — שההיסטוריה תשקף מה סוכם
+            _turns[phone] = [*(_turns.get(phone) or []), {"role": "user", "text": text}][
+                -CHAT_TURNS:
+            ]
+            await _send_and_record(
+                phone,
+                _vary(
+                    "קיבלתי — ממשיך בדיוק מאיפה שעצרתי 🦾",
+                    "על זה — ממשיך מאותה נקודה 🤝",
+                    "מעולה, לוקח את זה מהמקום שעצרנו 🎯",
+                ),
+            )
+            _booking[phone] = {
+                "state": "working",
+                "info": (fields.get("restaurant") or "").strip(),
+            }
+            _spawn(run_booking(phone, fields))
+            return
     result = await converse(phone, text)
     # or ולא default: reply="" עובר סכמה אבל מטא דוחה הודעה ריקה — הלקוח בלי תשובה
     reply = result.get("reply") or _vary("רגע 🔄", "רגע איתי 🔄", "עוד רגע אני פה 🔄")
