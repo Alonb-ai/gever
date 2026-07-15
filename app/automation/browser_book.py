@@ -223,7 +223,7 @@ async def book_table_bu(
         return ActionResult(
             success=False,
             summary="אחי זה נתקע לי, לקח יותר מדי. ננסה שוב?",
-            details={"stage": "timeout"},
+            details={"stage": "timeout", "steps_tail": _steps_tail(steps_path, 1500)},
         )
     except Exception as e:  # noqa: BLE001 — כשל הופך להודעה כנה, לא ל-traceback
         await release_session(session_id)
@@ -270,5 +270,8 @@ async def book_table_bu(
             "restaurant": restaurant,
             "record_dir": record_dir,
             "session_id": session_id if waiting else None,
+            # זנב יומן-הצעדים חוזר עם התוצאה — נשמר ב-_flow ושורד redeploy
+            # (נלמד 15.7: הזנב שנכתב רק ללוג הקונטיינר מת יחד איתו בכל deploy).
+            "steps_tail": _steps_tail(steps_path, 1500),
         },
     )

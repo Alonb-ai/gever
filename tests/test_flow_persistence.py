@@ -132,3 +132,35 @@ def test_restored_pick_fires_without_resolve(monkeypatch):
 
     assert resolve_calls == []  # לא היה חיפוש — הבחירה המשוחזרת שימשה ישירות
     assert book_calls[0]["page_url"] == "http://b"
+
+
+def test_steps_tail_persisted_with_flow(monkeypatch):
+    """זנב יומן-הצעדים נשמר עם ה-flow — תחקיר ריצה שורד redeploy (הלוגים של
+    A.K.A נמחקו פעמיים עם הקונטיינר, 15.7)."""
+    _reset()
+    saved = []
+
+    async def fake_send_text(phone, msg):
+        pass
+
+    async def fake_book(**kwargs):
+        return ActionResult(
+            success=False,
+            summary="FAILED:no_availability",
+            details={"failed": "no_availability", "steps_tail": "step1: חיפשתי\nstep2: אין"},
+        )
+
+    async def fake_get_profile(phone):
+        return {"prefs": {}}
+
+    async def fake_upsert(phone, name=None, email=None, prefs=None):
+        saved.append(prefs)
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "book_table_bu", fake_book)
+    monkeypatch.setattr(memory, "get_profile", fake_get_profile)
+    monkeypatch.setattr(memory, "upsert_profile", fake_upsert)
+    pipeline._resolved["p1"] = {"name": "אסה", "url": "http://x", "platform": "ontopo"}
+    asyncio.run(pipeline.run_booking("p1", {"restaurant": "אסה", "time": "20:00"}))
+    flows = [p["_flow"] for p in saved if p and "_flow" in p]
+    assert flows and flows[-1]["booking"]["tail"].startswith("step1")

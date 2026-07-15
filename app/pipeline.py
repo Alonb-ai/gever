@@ -724,6 +724,7 @@ async def run_booking(phone: str, fields: dict) -> None:
         return
     _booking[phone] = {"state": "working", "info": name}
     _await_answer.pop(phone, None)  # ריצה חדשה — שאלה פתוחה קודמת כבר לא רלוונטית
+    res = None  # מוגדר לפני ה-try — ה-finally קורא ממנו גם כשנפלנו לפני הריצה
     log.info(
         "run_booking start: %s -> %s (%s %s)", phone, name, fields.get("date"), fields.get("time")
     )
@@ -1174,6 +1175,13 @@ async def run_booking(phone: str, fields: dict) -> None:
         )
     finally:
         await memory.clear_inflight(phone)
+        # זנב יומן-הצעדים נצמד למצב המותמד — תחקיר ריצה שורד redeploy (נלמד 15.7:
+        # הזנב שחי רק בלוג הקונטיינר נמחק עם כל deploy, פעמיים באותו יום).
+        b = _booking.get(phone)
+        if isinstance(b, dict) and res is not None:
+            tail = (res.details or {}).get("steps_tail") or ""
+            if tail:
+                b["tail"] = tail
         await _save_flow(phone)  # המצב התייצב — שורד redeploy מכאן
         log.info("run_booking done: %s -> state=%s", phone, _booking.get(phone, {}).get("state"))
 
