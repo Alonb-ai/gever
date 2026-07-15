@@ -25,6 +25,7 @@ from app.automation.browser_book import (
     live_view_url,
     release_session,
 )
+from app import live_link
 from app.automation.resolve import resolve_reservation_url
 from app.config import settings
 from app.db import memory
@@ -942,7 +943,9 @@ async def run_booking(phone: str, fields: dict) -> None:
                 # עדיפות ל-Live View של הסשן החי: הלקוח נוחת בדיוק על מסך הכרטיס עם
                 # כל מה שכבר מולא (לינק דף רגיל = SPA מאופסת). state="card" מיישר את
                 # הפרסונה (לא לטעון שסגר, לא לנסות שוב).
-                link = await live_view_url(d0.get("session_id")) or _card_link(d0, used_url)
+                link = live_link.wrap(await live_view_url(d0.get("session_id"))) or _card_link(
+                    d0, used_url
+                )
                 _booking[phone] = {"state": "card", "info": link}
                 recap = _card_recap(
                     fields.get("date") or "",
@@ -1249,7 +1252,9 @@ async def run_commit(phone: str) -> None:
             # זרוע C — קיר כרטיס: המקום דורש תשלום מראש, לא סוגרים אוטומטית (PCI).
             # Live View של הסשן החי קודם (ממשיך מאותו מסך); אין → לינק דף רגיל.
             d = res.details or {}
-            link = await live_view_url(d.get("session_id")) or _card_link(d, job["page_url"])
+            link = live_link.wrap(await live_view_url(d.get("session_id"))) or _card_link(
+                d, job["page_url"]
+            )
             _booking[phone] = {"state": "card", "info": link}
             await _send_and_record(
                 phone,

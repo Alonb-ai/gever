@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     whatsapp_api_version: str = "v21.0"
     whatsapp_app_secret: str = ""  # אימות חתימת webhook (X-Hub-Signature-256). ריק → דילוג (dev)
 
+    # הדומיין הציבורי שלנו — בסיס ללינקים ממותגים (דפדפן גבר: /b/{token}).
+    public_base_url: str = "https://geverai.duckdns.org"
+
     # Supabase — זיכרון בין שיחות (זרוע 4). ריק → memory layer הוא no-op מלא.
     supabase_url: str = ""
     supabase_service_key: str = ""

@@ -14,7 +14,9 @@ import logging
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import HTMLResponse
 
+from app import live_link
 from app.automation.browser_book import sweep_orphan_sessions
 from app.config import settings
 from app.db import memory
@@ -92,6 +94,16 @@ def _valid_signature(body: bytes, header: str | None) -> bool:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok", "service": "gever"}
+
+
+@app.get("/b/{token}")
+async def gever_browser(token: str) -> HTMLResponse:
+    """דפדפן גבר — עמוד עטיפה ממותג ל-Live View של סשן חי (קיר-כרטיס).
+    הלקוח מקבל https://geverai.duckdns.org/b/xxx בוואטסאפ; browserbase לא נחשף."""
+    html = live_link.page_for(token)
+    if not html:
+        return HTMLResponse(live_link.EXPIRED_HTML, status_code=404)
+    return HTMLResponse(html)
 
 
 @app.get("/webhook")

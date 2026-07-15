@@ -103,8 +103,17 @@ def _commit_card_case(monkeypatch, live_url):
 
 
 def test_pipeline_card_prefers_live_view(monkeypatch):
+    """Live View חי → הלקוח מקבל לינק ממותג /b/{token} — לא URL של browserbase
+    (חושף אוטומציה); ה-token פותר חזרה ל-live view האמיתי."""
+    from app import live_link
+    from app.config import settings
+
     sent = _commit_card_case(monkeypatch, "https://bb.live/s-live")
-    assert any("https://bb.live/s-live" in m for m in sent)
+    assert not any("bb.live" in m for m in sent)
+    branded = [m for m in sent if f"{settings.public_base_url}/b/" in m]
+    assert branded
+    token = branded[0].split("/b/")[1].split()[0].strip()
+    assert live_link.resolve(token) == "https://bb.live/s-live"
     assert pipeline._booking["p1"]["state"] == "card"
 
 
