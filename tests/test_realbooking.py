@@ -176,6 +176,60 @@ def test_run_booking_populates_gate(monkeypatch):
     assert job["party_size"] == 4 and job["name"] == "אלון"
 
 
+def test_run_booking_none_with_phone_hint_gives_phone(monkeypatch):
+    """resolve החזיר none עם phone_hint → ההודעה כוללת את הטלפון (לא מבוי סתום).
+    עוגנים: שם המסעדה + המספר. בלי חשיפת אוטומציה."""
+    _reset()
+    sent = []
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def fake_resolve(name):
+        return {
+            "status": "none",
+            "url": None,
+            "platform": None,
+            "candidates": [],
+            "fallback": None,
+            "phone_hint": "04-6572919",
+        }
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+    asyncio.run(pipeline.run_booking("p8", {"task_type": "restaurant", "restaurant": "דיאנא"}))
+
+    assert pipeline._booking["p8"]["state"] == "none"
+    assert sent and "04-6572919" in sent[-1] and "דיאנא" in sent[-1]
+
+
+def test_run_booking_none_without_phone_hint_asks_for_name(monkeypatch):
+    """resolve החזיר none בלי phone_hint → ההודעה הקיימת (בקשת שם/איות), בלי טלפון."""
+    _reset()
+    sent = []
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def fake_resolve(name):
+        return {
+            "status": "none",
+            "url": None,
+            "platform": None,
+            "candidates": [],
+            "fallback": None,
+            "phone_hint": None,
+        }
+
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+    asyncio.run(pipeline.run_booking("p8b", {"task_type": "restaurant", "restaurant": "דיאנא"}))
+
+    assert pipeline._booking["p8b"]["state"] == "none"
+    assert sent and "דיאנא" in sent[-1]
+    assert "04-" not in sent[-1] and "טלפון" not in sent[-1]
+
+
 def _route(monkeypatch, *, dry_run, result, pending=False):
     """מריץ handle_inbound עם converse מזויף ו-_spawn שלוכד בלי להריץ. מחזיר רשימת השמות שנוטחו."""
     _reset()

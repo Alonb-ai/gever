@@ -762,14 +762,22 @@ async def run_booking(phone: str, fields: dict) -> None:
                 }
         if found["status"] == "none":
             _booking[phone] = {"state": "none", "info": name}
-            await _send_and_record(
-                phone,
-                _vary(
+            hint = found.get("phone_hint")
+            if hint:
+                # יש טלפון מהחיפוש — במקום מבוי סתום נותנים ללקוח לאן להתקשר.
+                # עוגנים בכל וריאנט: שם המסעדה + המספר.
+                msg = _vary(
+                    f"לא מצאתי איפה מזמינים ל'{name}' אונליין — הטלפון שלהם: {hint}",
+                    f"נראה ש'{name}' לא מקבלים הזמנות אונליין. אפשר לסגור טלפונית: {hint}",
+                    f"'{name}' לא נסגר אונליין — הכי פשוט להתקשר אליהם: {hint}",
+                )
+            else:
+                msg = _vary(
                     f"לא מצאתי איפה מזמינים מקום ל'{name}' — יש אולי שם אחר או איות אחר?",
                     f"חיפשתי ולא מצאתי איפה סוגרים ל'{name}'. אולי זה כתוב קצת אחרת?",
                     f"'{name}' לא עולה לי בשום מקום — לא מצאתי איפה מזמינים. שם מדויק יותר?",
-                ),
-            )
+                )
+            await _send_and_record(phone, msg)
             return
         if found["status"] == "many":
             # תוויות נקיות (בלי רעשי פלטפורמה ובלי חיתוך באמצע מילה); סוגריים

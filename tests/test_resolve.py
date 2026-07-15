@@ -17,9 +17,9 @@ from app.automation.resolve import (  # noqa: E402
 )
 
 
-def _fake_search(cands):
+def _fake_search(cands, raw=None):
     async def fake(name, city=""):
-        return cands
+        return cands, (raw or [])
 
     return fake
 
@@ -124,12 +124,28 @@ def test_resolve_no_strong_match_never_picks_arbitrary_one(monkeypatch):
     assert res["url"] is None
 
 
+def _no_extra_brave(monkeypatch, results=None):
+    """חוסם את חיפוש-הטלפון הנוסף (בלי רשת אמיתית בטסטים) ומאפס את מרווח הקצב."""
+    calls = []
+
+    async def fake_raw(query):
+        calls.append(query)
+        return results or []
+
+    monkeypatch.setattr(resolve, "_brave_raw", fake_raw)
+    monkeypatch.setattr(resolve, "_BRAVE_GAP_S", 0)
+    monkeypatch.setattr(resolve.settings, "brave_api_key", "test-key")
+    return calls
+
+
 def test_resolve_no_candidates_is_none(monkeypatch):
     monkeypatch.setattr(resolve, "search_reservation", _fake_search([]))
+    _no_extra_brave(monkeypatch)
     res = asyncio.run(resolve_reservation_url("רוטשילד"))
     assert res["status"] == "none"
     assert res["url"] is None
     assert res["platform"] is None
+    assert res["phone_hint"] is None
 
 
 def test_resolve_prefers_ontopo_when_both_match(monkeypatch):
@@ -267,6 +283,163 @@ def test_resolve_url_title_enriched_from_page(monkeypatch):
     assert res["status"] == "one"
     assert res["url"] == "https://ontopo.com/he/il/page/58397013"
     assert "A.K.A" in res["candidates"][0]["title"]
+
+
+def _fake_site_http(monkeypatch, bodies):
+    """מזייף httpx.AsyncClient למשיכת דפי אתר-המסעדה; מחזיר את רשימת ה-URLים שנמשכו."""
+    fetched = []
+
+    class _Resp:
+        def __init__(self, text):
+            self.text = text
+
+    class _HTTP:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            fetched.append(url)
+            return _Resp(bodies.get(url, "<html>אין כאן לינק</html>"))
+
+    monkeypatch.setattr(resolve.httpx, "AsyncClient", _HTTP)
+    return fetched
+
+
+def test_site_fallback_finds_platform_link_on_restaurant_site(monkeypatch):
+    """Phase 4-lite: אפס דפי פלטפורמה בחיפוש, אבל האתר של המסעדה עצמה מקשר ל-Ontopo
+    (דלי A במחקר, ~30% מהפספוסים) → status=one עם ה-URL הקנוני, בלי לוותר."""
+    raw = [
+        {"title": "הרמיטאז' טבריה - האתר הרשמי", "url": "https://hermitage.co.il/"},
+    ]
+    monkeypatch.setattr(resolve, "search_reservation", _fake_search([], raw))
+    extra = _no_extra_brave(monkeypatch)
+    fetched = _fake_site_http(
+        monkeypatch,
+        {"https://hermitage.co.il/": '<a href="https://ontopo.com/he/il/page/58569787">הזמינו</a>'},
+    )
+    res = asyncio.run(resolve_reservation_url("הרמיטאז"))
+    assert res["status"] == "one"
+    assert res["platform"] == "ontopo"
+    assert res["url"] == "https://ontopo.com/he/il/page/58569787"
+    assert fetched == ["https://hermitage.co.il/"]
+    assert extra == []  # מצאנו פלטפורמה — אין חיפוש-טלפון נוסף
+
+
+def test_site_fallback_prefers_ontopo_when_page_links_both(monkeypatch):
+    """הדף מקשר גם ל-Ontopo וגם ל-Tabit → סדר העדיפויות הקיים נשמר (Ontopo)."""
+    raw = [{"title": "פסטורי אילת", "url": "https://www.pastory.co.il/"}]
+    monkeypatch.setattr(resolve, "search_reservation", _fake_search([], raw))
+    _no_extra_brave(monkeypatch)
+    body = (
+        '<a href="https://www.tabitisrael.co.il/site/pastory">טאביט</a>'
+        '<a href="https://ontopo.com/he/il/page/111">אונטופו</a>'
+    )
+    _fake_site_http(monkeypatch, {"https://www.pastory.co.il/": body})
+    res = asyncio.run(resolve_reservation_url("פסטורי"))
+    assert res["status"] == "one"
+    assert res["platform"] == "ontopo"
+    assert res["url"] == "https://ontopo.com/he/il/page/111"
+
+
+def test_site_fallback_skips_indexes_and_caps_at_two_pages(monkeypatch):
+    """אינדקסים/רשתות (rest.co.il, פייסבוק) לא נמשכים; תקרת בקשות — שני דפים לכל היותר;
+    כותרת שלא תואמת את השם לא נחשבת האתר-העצמי."""
+    raw = [
+        {"title": "דיאנא נצרת - הזמנות", "url": "https://www.rest.co.il/reservations/80205267/"},
+        {"title": "דיאנא נצרת", "url": "https://facebook.com/diana"},
+        {"title": "מסעדה אחרת לגמרי", "url": "https://other.co.il/"},
+        {"title": "דיאנא המסעדה", "url": "https://site1.co.il/"},
+        {"title": "דיאנא נצרת האתר הרשמי", "url": "https://site2.co.il/"},
+        {"title": "דיאנא סניף שלישי", "url": "https://site3.co.il/"},
+    ]
+    monkeypatch.setattr(resolve, "search_reservation", _fake_search([], raw))
+    _no_extra_brave(monkeypatch)
+    fetched = _fake_site_http(monkeypatch, {})  # אף דף לא מכיל לינק פלטפורמה
+    res = asyncio.run(resolve_reservation_url("דיאנא"))
+    assert fetched == ["https://site1.co.il/", "https://site2.co.il/"]  # 2 לכל היותר, בלי אינדקסים
+    assert res["status"] == "none"
+
+
+def test_site_fallback_survives_fetch_error(monkeypatch):
+    """האתר הראשון נופל → ממשיכים לשני; חריגת רשת לא מפילה את ה-resolve."""
+    raw = [
+        {"title": "דיאנא המסעדה", "url": "https://dead.co.il/"},
+        {"title": "דיאנא נצרת", "url": "https://alive.co.il/"},
+    ]
+    monkeypatch.setattr(resolve, "search_reservation", _fake_search([], raw))
+    _no_extra_brave(monkeypatch)
+
+    class _Resp:
+        text = '<a href="https://www.tabitisrael.co.il/site/diana">הזמינו</a>'
+
+    class _HTTP:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            if "dead" in url:
+                raise RuntimeError("network down")
+            return _Resp()
+
+    monkeypatch.setattr(resolve.httpx, "AsyncClient", _HTTP)
+    res = asyncio.run(resolve_reservation_url("דיאנא"))
+    assert res["status"] == "one"
+    assert res["platform"] == "tabit"
+    assert res["url"] == "https://www.tabitisrael.co.il/site/diana"
+
+
+def test_phone_hint_from_existing_snippets_no_extra_search(monkeypatch):
+    """הטלפון כבר יושב ב-snippet של תוצאת חיפוש (אינדקסים כמו easy) → phone_hint,
+    בלי בקשת Brave נוספת ובלי משיכת דפים."""
+    raw = [
+        {
+            "title": "דיאנא נצרת - easy",
+            "url": "https://easy.co.il/page/10031158",
+            "description": "מסעדה בנצרת. טלפון: 04-6572919, פתוח כל השבוע",
+        }
+    ]
+    monkeypatch.setattr(resolve, "search_reservation", _fake_search([], raw))
+    extra = _no_extra_brave(monkeypatch)
+    res = asyncio.run(resolve_reservation_url("דיאנא"))
+    assert res["status"] == "none"
+    assert res["phone_hint"] == "04-6572919"
+    assert extra == []  # לא היה צורך בחיפוש נוסף
+
+
+def test_phone_hint_via_one_extra_search(monkeypatch):
+    """אין טלפון בתוצאות הקיימות → בדיוק חיפוש Brave אחד נוסף ("<שם> טלפון")."""
+    raw = [{"title": "בלה בלה", "url": "https://easy.co.il/x", "description": "בלי מספר"}]
+    monkeypatch.setattr(resolve, "search_reservation", _fake_search([], raw))
+    extra = _no_extra_brave(
+        monkeypatch,
+        results=[{"title": "פקין דאק", "url": "https://x", "description": "חייגו 03-5222922"}],
+    )
+    res = asyncio.run(resolve_reservation_url("פקין דאק"))
+    assert res["status"] == "none"
+    assert res["phone_hint"] == "03-5222922"
+    assert extra == ["פקין דאק טלפון"]  # בדיוק בקשה אחת נוספת
+
+
+def test_phone_hint_absent_stays_none(monkeypatch):
+    """אין טלפון בשום מקום → phone_hint=None וה-none נשאר כמו שהיה."""
+    raw = [{"title": "בלה", "url": "https://easy.co.il/x", "description": "כלום"}]
+    monkeypatch.setattr(resolve, "search_reservation", _fake_search([], raw))
+    _no_extra_brave(monkeypatch)
+    res = asyncio.run(resolve_reservation_url("אבו חסן"))
+    assert res["status"] == "none"
+    assert res["phone_hint"] is None
 
 
 def test_real_titles_leaves_textual_titles_and_survives_fetch_error(monkeypatch):
