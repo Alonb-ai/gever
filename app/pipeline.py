@@ -303,6 +303,16 @@ async def _heartbeat(phone: str) -> None:
         )
 
 
+def _agreed_line(details: dict | None) -> str:
+    """תמצית ההסכמות (צ'קבוקסים) שה-agent סימן בשם הלקוח — שקיפות בהודעת הסיום
+    (בקשת אלון 15.7): שום תקנון/תנאי לא נחתם בשקט. ריק כשלא סומן כלום."""
+    agreed = (details or {}).get("agreed") or []
+    if not agreed:
+        return ""
+    head = _vary("אישרתי בשמך:", "דרך אגב — אישרתי בשמך:", "סימנתי בשמך בדרך:")
+    return f"\n{head} " + " · ".join(agreed)
+
+
 def _card_link(details: dict | None, fallback: str) -> str:
     """הלינק ללקוח בקיר-כרטיס: הכתובת שבה הדפדפן עצר (URL: מהדיווח — עם ההזמנה
     שכבר מולאה) עדיפה על דף ההתחלה. רק https ורק אותו דומיין — לא נותנים לטקסט
@@ -881,7 +891,8 @@ async def run_booking(phone: str, fields: dict) -> None:
                         f"וזה כבר שלך 🤝\nממשיכים בדיוק מאיפה שעצרתי:\n{link}",
                         f"הכל מסודר חוץ מדבר אחד: {name} מבקשים כרטיס אשראי, ושם אני "
                         f"עוצר 🥷\nההזמנה מחכה לך כאן:\n{link}",
-                    ),
+                    )
+                    + _agreed_line(d0),
                 )
                 return
             # DRY_RUN: הגענו למסך האישור — זו *לא* הזמנה אמיתית. לכן לא "done", לא
@@ -941,7 +952,7 @@ async def run_booking(phone: str, fields: dict) -> None:
             await _send_and_record(
                 phone,
                 f"{head}\n{when}בשעה {at} ל-{fields.get('party_size') or 2} — {ready_word}"
-                f"{perk_line}\n{closer}",
+                f"{perk_line}{_agreed_line(d)}\n{closer}",
             )
         elif (res.details or {}).get("missing"):
             # באג 3: שדה חובה בטופס היה ריק (ה-runner לא המציא, עצר ודיווח MISSING).
@@ -1000,7 +1011,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                         _vary(
                             f"ה-{requested_time} תפוס 😮‍💨 אלו השעות שכן פנויות — לסגור אחת?",
                             f"אין {requested_time}, אבל יש חלופות פנויות — איזו לסגור?",
-                            f"{requested_time} נחטף. מה שכן פנוי — בחירה שלך ואני סוגר:",
+                            f"{requested_time} נחטף. אלו השעות הפנויות — איזו לסגור?",
                         ),
                         real,
                     )
@@ -1164,6 +1175,7 @@ async def run_commit(phone: str) -> None:
             )
             if conf:
                 msg += "\n" + _vary(f"מספר אישור: {conf}", f"מספר האישור שלך: {conf}")
+            msg += _agreed_line(d)
             await _send_and_record(phone, msg)
         elif (res.details or {}).get("card_required"):
             # זרוע C — קיר כרטיס: המקום דורש תשלום מראש, לא סוגרים אוטומטית (PCI).
@@ -1178,7 +1190,8 @@ async def run_commit(phone: str) -> None:
                     f"במקומך 🥷 הנה הלינק לסגור בעצמך:\n{link}",
                     f"עצרתי רגע לפני הסוף — {job['restaurant']} מבקשים כרטיס אשראי, "
                     f"וזה שלך 🤝 ממשיכים מכאן:\n{link}",
-                ),
+                )
+                + _agreed_line(d),
             )
         else:
             # כמו ב-run_booking: סיבה מוכרת → אמת ספציפית; אחרת הפלט הגולמי לא

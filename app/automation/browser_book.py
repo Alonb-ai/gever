@@ -264,6 +264,7 @@ async def book_table_bu(
             "failed": r.get("failed"),
             "time": r.get("time"),
             "perk": r.get("perk"),
+            "agreed": r.get("agreed") or [],
             "restaurant": restaurant,
             "record_dir": record_dir,
             "session_id": session_id if waiting else None,
