@@ -7,8 +7,9 @@
 - אם חזר details.session_id — משחררים את הסשן מיד (לא מדליפים keepAlive של Browserbase).
 
 הרצה (מתוך שורש ה-worktree, בשביל ה-.env):
-    .venv/bin/python poc/spike_cinema.py ["שם סרט"] ["עיר"] [DD.MM] [HH:MM] [כרטיסים]
-ברירות מחדל: "האודיסאה", "ראשון לציון", מחר, 20:00, 2.
+    .venv/bin/python poc/spike_cinema.py ["שם סרט"] ["עיר"] [DD.MM] [HH:MM] [כרטיסים] [רשת]
+ברירות מחדל: "האודיסאה", "ראשון לציון", מחר, 20:00, 2, בלי רשת (סדר התיעדוף הרגיל).
+רשת (ארג' 6, אופציונלי): planet / rav-hen / cinema-city — מכוון את ה-resolve לרשת אחת.
 """
 
 import asyncio
@@ -37,12 +38,13 @@ async def main() -> None:
     when = _arg(3, f"{_TOMORROW.day}.{_TOMORROW.month}")
     at = _arg(4, "20:00")
     party = int(_arg(5, "2"))
+    chain = _arg(6, "") or None
 
     if settings.bu_browser != "browserbase":
         print(f"אזהרה: BU_BROWSER={settings.bu_browser!r} (לא browserbase) — רץ לפי ה-.env")
 
-    print(f"spike cinema: resolve('{movie}')...", flush=True)
-    found = await resolve_cinema_url(movie)
+    print(f"spike cinema: resolve('{movie}', chain={chain!r})...", flush=True)
+    found = await resolve_cinema_url(movie, chain=chain)
     print("resolve:", json.dumps(found, ensure_ascii=False, indent=2), flush=True)
     if found["status"] != "one":
         print(f"resolve לא חד-משמעי (status={found['status']}) — אין ריצת דפדפן.")

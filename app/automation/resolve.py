@@ -53,6 +53,9 @@ _CINEMA_PLATFORMS: list[tuple[str, re.Pattern, str]] = [
 ]
 
 
+_CC_TITLE_SUFFIX = re.compile(r"\s*[-–|]\s*סינמה סיטי\s*$")
+
+
 def _clean(t: str) -> str:
     return html.unescape(_TAG.sub("", t)).strip()
 
@@ -148,6 +151,10 @@ def _candidate(url: str, raw_title: str, seen: set, platforms=_PLATFORMS) -> dic
             continue
         seen.add((platform, m.group(1)))
         title = _clean(raw_title)
+        if platform == "cinema-city":
+            # כותרות סינמה סיטי חיות: "<סרט> - סינמה סיטי" — שם האתר אינו מילה
+            # מבחינה בין גרסאות (מדובב/לרוסית), והוא שובר את _is_clean_name.
+            title = _CC_TITLE_SUFFIX.sub("", title)
         if platform == "tabit":
             # כותרות Tabit בתוצאות חיפוש גנריות ("הזמנת מקום - טאביט") — שם המסעדה
             # יושב ב-slug של ה-URL. מוסיפים אותו לכותרת כדי שהדיסאמביגואציה תעבוד.
@@ -211,14 +218,17 @@ async def resolve_reservation_url(name: str) -> dict:
     return _pick(name, candidates, _PLATFORMS, drop_listings=True)
 
 
-async def resolve_cinema_url(movie: str) -> dict:
+async def resolve_cinema_url(movie: str, chain: str | None = None) -> dict:
     """כמו resolve_reservation_url, לסרטים: אותו חוזה החזרה בדיוק, על _CINEMA_PLATFORMS.
     בלי סינון _is_listing (ה-regex כבר משאיר רק דפי רשתות); כלל הברזל נשמר — אין
     match חזק → many/none, לעולם לא בוחרים סרט לבד (שם דו-משמעי / גרסה מחודשת).
-    העיר לא משתתפת כאן — דף הסרט ארצי, בחירת הסניף קורית בתוך זרימת הרכישה."""
+    העיר לא משתתפת כאן — דף הסרט ארצי, בחירת הסניף קורית בתוך זרימת הרכישה.
+    chain (למשל "cinema-city"): הלקוח ביקש רשת ספציפית → מתעלמים מהאחרות
+    (בלעדיהם פלאנט תמיד מנצחת, כי היא ראשונה בסדר התיעדוף)."""
     candidates = await search_cinema(movie)
     await _real_titles(candidates)  # כותרות-URL קורות גם כאן
-    return _pick(movie, candidates, _CINEMA_PLATFORMS, drop_listings=False)
+    platforms = [p for p in _CINEMA_PLATFORMS if p[0] == chain] if chain else _CINEMA_PLATFORMS
+    return _pick(movie, candidates, platforms, drop_listings=False)
 
 
 def _pick(name: str, candidates: list[dict], platforms, *, drop_listings: bool) -> dict:

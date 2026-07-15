@@ -395,6 +395,62 @@ def test_resolve_cinema_city_only_no_fallback(monkeypatch):
     assert res["fallback"] is None
 
 
+def test_resolve_cinema_chain_steers_past_planet(monkeypatch):
+    """chain="cinema-city": הלקוח ביקש רשת ספציפית → פלאנט לא משתתפת, גם כשיש לה
+    match חזק (בלי chain היא תמיד מנצחת — ראשונה בסדר התיעדוף). נצפה חי 15.07.26:
+    'חינה אמריקאית' קיים בשתי הרשתות ותמיד נפתר לפלאנט."""
+    cands = [
+        {
+            "title": "חינה אמריקאית",
+            "url": "https://www.planetcinema.co.il/films/american-hina/8256s2r",
+            "platform": "planet",
+        },
+        {
+            "title": "חינה אמריקאית",
+            "url": "https://www.cinema-city.co.il/movie/6117",
+            "platform": "cinema-city",
+        },
+    ]
+    monkeypatch.setattr(resolve, "search_cinema", _fake_search(cands))
+    res = asyncio.run(resolve.resolve_cinema_url("חינה אמריקאית", chain="cinema-city"))
+    assert res["status"] == "one" and res["platform"] == "cinema-city"
+    assert res["url"] == "https://www.cinema-city.co.il/movie/6117"
+    assert res["fallback"] is None  # רשת אחת בלבד בתור — אין fallback
+    # בלי chain — ההתנהגות הקיימת לא משתנה: פלאנט מנצחת
+    res = asyncio.run(resolve.resolve_cinema_url("חינה אמריקאית"))
+    assert res["platform"] == "planet"
+
+
+def test_from_brave_cinema_city_strips_site_name_suffix():
+    """כותרות סינמה סיטי חיות ("<סרט> - סינמה סיטי") — שם האתר נחתך, כך שגרסה
+    מדובבת-לרוסית נשארת מובחנת והגרסה המבוקשת המדויקת נבחרת (נצפה חי 15.07.26:
+    'סופר מריו גלקסי הסרט-מדובב' מול '...מדובב לרוסית')."""
+    data = {
+        "web": {
+            "results": [
+                {
+                    "url": "https://www.cinema-city.co.il/movie/6054",
+                    "title": "סופר מריו גלקסי הסרט-מדובב - סינמה סיטי",
+                },
+                {
+                    "url": "https://www.cinema-city.co.il/movie/6113",
+                    "title": "סופר מריו גלקסי הסרט-מדובב לרוסית - סינמה סיטי",
+                },
+            ]
+        }
+    }
+    out = _from_brave(data, resolve._CINEMA_PLATFORMS)
+    assert [c["title"] for c in out] == [
+        "סופר מריו גלקסי הסרט-מדובב",
+        "סופר מריו גלקסי הסרט-מדובב לרוסית",
+    ]
+    # ומקצה לקצה: הבקשה המדויקת בוחרת את הגרסה הנכונה ("one"), לא נופלת ל-many
+    status, chosen, _ = resolve._match_restaurant(
+        "סופר מריו גלקסי הסרט-מדובב", [c["title"] for c in out]
+    )
+    assert status == "one" and chosen == "סופר מריו גלקסי הסרט-מדובב"
+
+
 def test_real_titles_leaves_textual_titles_and_survives_fetch_error(monkeypatch):
     """כותרת טקסטואלית לא נוגעים בה (בלי GET מיותר); כשל fetch לא מפיל את ה-resolve."""
 
