@@ -64,7 +64,9 @@ def test_two_free_times_become_tap_list(monkeypatch):
     sent = _run_missing_time(monkeypatch, ["19:30", "21:15"])
     kind, body, labels = sent[-1]
     assert kind == "list" and labels == ("19:30", "21:15")
-    assert "20:00" in body and "סגור" in body
+    # עוגן הסגירה סובל את שני הניסוחים ("לסגור" / "ואני סוגר") — הווריאנט
+    # השלישי של _vary היה מפיל את הטסט אקראית.
+    assert "20:00" in body and ("סגור" in body or "סוגר" in body)
     # הסשן חי וממתין — הבחירה תמשיך מאותו מסך
     assert pipeline._resume["p1"]["session_id"] == "s-t"
     assert pipeline._booking["p1"]["state"] == "missing"

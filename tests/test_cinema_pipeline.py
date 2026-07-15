@@ -259,7 +259,9 @@ def test_cinema_none_and_empty_movie_messages(monkeypatch):
 
     sent, _ = _wire(monkeypatch, book=fake_book, resolve=fake_resolve)
     asyncio.run(pipeline.run_booking("c7", dict(_FIELDS)))
-    assert "כרטיסים" in sent[-1] and "האודיסאה" in sent[-1]
+    # עוגנים ולא ניסוח: שם הסרט + "לא" (לא נמצא) — הווריאנט השלישי של _vary
+    # ("'X' לא עולה לי בשום מקום...") לא מכיל "כרטיסים", והטסט היה מהבהב עליו.
+    assert "האודיסאה" in sent[-1] and "לא" in sent[-1]
     assert pipeline._booking["c7"]["state"] == "none"
 
     asyncio.run(pipeline.run_booking("c8", {**_FIELDS, "movie": ""}))
