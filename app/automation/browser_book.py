@@ -22,6 +22,13 @@ log = logging.getLogger("gever")
 _RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bu_runner.py")
 BU_TIMEOUT_S = 600  # ponytail: תקרה קשיחה (10 דק') — browser-use עובר את כל זרימת Ontopo
 # עד הסיכום; 5 דק' קטעו ריצות חיות באמצע (dry-run #2). agent תקוע נכשל בקול, לא בדממה.
+BU_CINEMA_TIMEOUT_S = 900  # קולנוע ארוך ממסעדה (מפת מושבים SVG + סוגי כרטיסים + טופס
+# פרטים): ריצה חיה (iter 2) נהרגה ב-600s קליק אחד לפני קיר-התשלום. 15 דק' עדיין תקרה.
+
+
+def _timeout_s(job: dict) -> int:
+    """תקרת הריצה לפי סוג המשימה — קולנוע מקבל את התקרה הארוכה."""
+    return BU_CINEMA_TIMEOUT_S if job.get("task_type") == "cinema" else BU_TIMEOUT_S
 
 
 async def _run_subprocess(job: dict) -> None:
@@ -44,7 +51,9 @@ async def _run_subprocess(job: dict) -> None:
             env=env,
         )
         try:
-            await asyncio.wait_for(proc.communicate(json.dumps(job).encode()), timeout=BU_TIMEOUT_S)
+            await asyncio.wait_for(
+                proc.communicate(json.dumps(job).encode()), timeout=_timeout_s(job)
+            )
         except asyncio.TimeoutError:
             proc.kill()  # ponytail: הורג את ה-runner; browser-use סוגר את Chrome ביציאה
             await proc.wait()

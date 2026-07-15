@@ -59,9 +59,10 @@ async def main() -> None:
         date=when,
         time=at,
         party_size=party,
-        name="אלון",
-        email="abazak@gmail.com",
-        phone="0542773331",
+        # פרטי בדיקה מלאים (שם פרטי + משפחה) — כדי לעבור את טופס הפרטים עד קיר-הכרטיס.
+        name="אלון ישראלי",
+        email="alon.test@example.com",
+        phone="0501234567",
         dry_run=True,  # חוק ברזל: לעולם לא False באבטיפוס
         task_type="cinema",
         movie=movie,

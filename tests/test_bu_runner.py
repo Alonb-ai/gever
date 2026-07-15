@@ -214,6 +214,9 @@ def test_cinema_task_keeps_contract_and_is_principled_not_recipe():
     assert "אל תתלבט" in recon  # כלל האנטי-התלבטות המשותף
     # שורת הסיום המורחבת: שעה | מושבים
     assert "SUMMARY_REACHED 21:30 | שורה 7 מושבים 11,12" in recon
+    # לקחי iter 2 (ריצה חיה): SVG — לבדוק מבנה לפני script, ואימות אבטחה — סבלנות
+    assert "SVG" in recon and "אל תנחש" in recon
+    assert "אימות אבטחה" in recon
 
 
 def test_cinema_task_seat_default_is_declared_choice():
