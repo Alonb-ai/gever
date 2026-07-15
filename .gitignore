@@ -29,3 +29,6 @@ bu_recordings/
 
 # Supabase CLI local link state (ref, pooler url) — never commit
 supabase/.temp/
+# סימלינקים של venv בתוך worktrees (התבנית .venv/ לא תופסת symlink)
+.venv
+.venv-bu
