@@ -54,3 +54,33 @@ def test_route_serves_wrapper_and_404s_dead_token():
     dead = client.get("/b/xxxxxxxx")
     assert dead.status_code == 404
     assert "לא בתוקף" in dead.text
+
+
+def test_cdp_ws_extracted_from_fullscreen_url():
+    """שלב ב': ה-endpoint ל-CDP נחלץ מפרמטר ה-wss של ה-live view (כולל ?debug פנימי)."""
+    from app import live_link
+
+    url = (
+        "https://www.browserbase.com/devtools-fullscreen/inspector.html"
+        "?wss=connect.browserbase.com/debug/0d354159-ab/devtools/page/4E7B?debug=true"
+    )
+    assert live_link._cdp_ws(url).startswith("wss://connect.browserbase.com/debug/0d354159-ab")
+    assert live_link._cdp_ws("https://x.com/no-wss-here") == ""
+
+
+def test_page_embeds_keyboard_bar_with_cdp():
+    """העמוד מכיל את פס ההקלדה וה-CDP מוזרק; בלי wss — הפלייסהולדר לא נשאר בעמוד."""
+    from app import live_link
+
+    tok = live_link.wrap(
+        "https://www.browserbase.com/devtools-fullscreen/inspector.html"
+        "?wss=connect.browserbase.com/debug/s1/devtools/page/P1?debug=true"
+    ).split("/b/")[1]
+    html = live_link.page_for(tok)
+    assert 'id="kb-in"' in html and "Input.insertText" in html
+    assert "wss://connect.browserbase.com/debug/s1" in html
+    assert "__CDP__" not in html and "__LIVE__" not in html
+
+    tok2 = live_link.wrap("https://somewhere.example/live-no-wss").split("/b/")[1]
+    html2 = live_link.page_for(tok2)
+    assert "__CDP__" not in html2  # ריק → הפס מוסתר ב-JS, אין שאריות תבנית
