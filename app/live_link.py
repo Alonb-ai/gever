@@ -114,7 +114,7 @@ PAGE_HTML = """<!doctype html>
            autocapitalize="off" spellcheck="false" enterkeyhint="next"
            placeholder="טאפ על שדה למעלה, ואז הקלד כאן">
   </div>
-  <p class="hint">"הבא" במקלדת קופץ לשדה הבא · ההקלדה עוברת ישירות לדף המאובטח — לא נשמרת אצל גבר.</p>
+  <p class="hint">סיימת שדה? אנטר עובר לשדה הבא · ההקלדה עוברת ישירות לדף המאובטח — לא נשמרת אצל גבר.</p>
 </footer>
 <script>
 window.addEventListener("message", function (ev) {
@@ -172,6 +172,16 @@ window.addEventListener("message", function (ev) {
       key("rawKeyDown", "Tab", "Tab", 9); key("keyUp", "Tab", "Tab", 9);
       inp.value = ""; prev = "";
     }
+  });
+  /* החלפת שדה בטאפ על הטופס (לא באנטר): הפס שלנו נשאר עם הטקסט הישן, ומחיקתו
+     שלחה backspace-ים לשדה החדש (משוב אלון 15.7). טאפ על ה-iframe מזיז את
+     הפוקוס מהעמוד שלנו → מנקים את הפס אוטומטית — שדה חדש מתחיל נקי. */
+  window.addEventListener("blur", function () {
+    setTimeout(function () {
+      if (document.activeElement && document.activeElement.tagName === "IFRAME") {
+        inp.value = ""; prev = "";
+      }
+    }, 0);
   });
   /* מקלדת iOS מקטינה את ה-viewport — מכווצים את העמוד לגובה הנראה כדי שהטופס
      המרוחק ופס ההקלדה יישארו שניהם על המסך (הזום "ברח" מהטופס בטסט 15.7). */
