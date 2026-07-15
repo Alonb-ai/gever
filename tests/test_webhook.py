@@ -39,3 +39,47 @@ if __name__ == "__main__":
     test_wrong_or_missing_signature()
     settings.whatsapp_app_secret = ""
     print("ok")
+
+
+def test_duplicate_message_id_handled_once():
+    """Meta retry/כפילות: אותו msg id פעמיים → עיבוד אחד (נצפה חי 15.7: תשובת
+    סיום כפולה כי ה-200 חיכה לכל העיבוד ומטא שלחה שוב)."""
+    import asyncio
+
+    from app import pipeline
+
+    main._seen_msg_ids.clear()
+    calls = []
+
+    async def fake_inbound(phone, text, msg_id=None):
+        calls.append(text)
+
+    orig = main.handle_inbound
+    main.handle_inbound = fake_inbound
+    try:
+        payload = {
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "value": {
+                                "messages": [
+                                    {
+                                        "type": "text",
+                                        "id": "wamid.X1",
+                                        "from": "972",
+                                        "text": {"body": "היי"},
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+        asyncio.run(main._process_webhook(payload))
+        asyncio.run(main._process_webhook(payload))  # ה-retry של מטא
+    finally:
+        main.handle_inbound = orig
+    assert calls == ["היי"]
+    assert pipeline is not None

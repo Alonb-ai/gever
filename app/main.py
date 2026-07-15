@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import logging
+from collections import OrderedDict
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request, Response
@@ -20,7 +21,7 @@ from app import live_link
 from app.automation.browser_book import sweep_orphan_sessions
 from app.config import settings
 from app.db import memory
-from app.pipeline import _vary, handle_inbound
+from app.pipeline import _spawn, _vary, handle_inbound
 from app.whatsapp.client import send_text
 
 log = logging.getLogger("gever")
@@ -118,19 +119,34 @@ async def verify(request: Request) -> Response:
     return Response(status_code=403)
 
 
-@app.post("/webhook")
-async def receive(request: Request) -> Response:
-    """הודעות נכנסות מ-Meta. עונים 200 מהר; השיחה/ההזמנה מטופלות ב-pipeline."""
-    body = await request.body()
-    if not _valid_signature(body, request.headers.get("X-Hub-Signature-256")):
-        log.warning("rejected webhook: bad X-Hub-Signature-256")
-        return Response(status_code=403)
+# dedupe להודעות נכנסות: Meta שולחת את אותו webhook שוב אם לא ענינו 200 מהר,
+# ולפעמים סתם פעמיים — בלי זה הלקוח קיבל שתי תשובות פרידה מלאות ושונות על
+# אותה הודעת סיום (נצפה חי 15.7).
+_seen_msg_ids: OrderedDict = OrderedDict()  # msg_id -> None, מוגבל ל-500 אחרונים
+
+
+def _already_handled(msg_id: str | None) -> bool:
+    """True אם ההודעה הזאת כבר טופלה (retry/כפילות של Meta). בלי id — מטפלים."""
+    if not msg_id:
+        return False
+    if msg_id in _seen_msg_ids:
+        return True
+    _seen_msg_ids[msg_id] = None
+    while len(_seen_msg_ids) > 500:
+        _seen_msg_ids.popitem(last=False)
+    return False
+
+
+async def _process_webhook(data: dict) -> None:
+    """העיבוד עצמו — רץ ברקע אחרי שה-200 כבר נשלח למטא (סדרתי בתוך ה-payload,
+    כדי ששתי הודעות של אותו לקוח לא ירוצו במקביל זו על זו)."""
     try:
-        # בתוך ה-try: גוף לא-JSON החזיר 500 ומטא עשה retry בלולאה — עכשיו 200 ולוג
-        data = json.loads(body or b"{}")
         for entry in data.get("entry", []):
             for change in entry.get("changes", []):
                 for msg in change.get("value", {}).get("messages", []):
+                    if _already_handled(msg.get("id")):
+                        log.info("duplicate webhook message skipped: %s", msg.get("id"))
+                        continue
                     if msg.get("type") == "text":
                         await handle_inbound(msg["from"], msg["text"]["body"], msg.get("id"))
                     elif msg.get("type") == "interactive":
@@ -143,4 +159,21 @@ async def receive(request: Request) -> Response:
                             await handle_inbound(msg["from"], choice, msg.get("id"))
     except Exception:
         log.exception("webhook handling failed")
+
+
+@app.post("/webhook")
+async def receive(request: Request) -> Response:
+    """הודעות נכנסות מ-Meta. 200 *מיידי* — העיבוד (Gemini+שליחות, שניות ארוכות)
+    רץ ברקע. לחכות איתו לפני ה-200 גרם ל-retry של מטא ותשובות כפולות (15.7)."""
+    body = await request.body()
+    if not _valid_signature(body, request.headers.get("X-Hub-Signature-256")):
+        log.warning("rejected webhook: bad X-Hub-Signature-256")
+        return Response(status_code=403)
+    try:
+        # בתוך ה-try: גוף לא-JSON החזיר 500 ומטא עשה retry בלולאה — עכשיו 200 ולוג
+        data = json.loads(body or b"{}")
+    except Exception:
+        log.exception("webhook body parse failed")
+        return Response(status_code=200)
+    _spawn(_process_webhook(data))
     return Response(status_code=200)
