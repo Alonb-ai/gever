@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.automation.bu_runner import (  # noqa: E402
     _build_task,
     _il_tz_hook,
+    _make_llm,
     _parse_result,
     _profile_kwargs,
 )
@@ -88,6 +89,31 @@ def test_perk_lines_collected_for_customer():
     # ברירת מחדל מסומנת = בחירה — ההנחיה קיימת ב-task
     assert "ברירת מחדל" in _build_task({**_JOB, "dry_run": True})
     assert "PERK" in _build_task({**_JOB, "dry_run": True})
+
+
+def test_make_llm_picks_provider_by_model_prefix(monkeypatch):
+    """השוואת מודלים: קידומת שם המודל בוחרת ספק — bu-/claude-/gpt-, וכל השאר Google
+    (המסלול הקיים, אפס שינוי התנהגות). browser_use לא מותקן ב-.venv — מוזרק fake."""
+    import types
+
+    class _Chat:
+        def __init__(self, model=None):
+            self.model = model
+
+    llm_mod = types.ModuleType("browser_use.llm")
+    for name in ("ChatGoogle", "ChatBrowserUse", "ChatAnthropic", "ChatOpenAI"):
+        setattr(llm_mod, name, type(name, (_Chat,), {}))
+    pkg = types.ModuleType("browser_use")
+    pkg.llm = llm_mod
+    monkeypatch.setitem(sys.modules, "browser_use", pkg)
+    monkeypatch.setitem(sys.modules, "browser_use.llm", llm_mod)
+
+    assert type(_make_llm("bu-2-0")).__name__ == "ChatBrowserUse"
+    assert type(_make_llm("claude-haiku-4-5")).__name__ == "ChatAnthropic"
+    assert type(_make_llm("gpt-5.4-mini")).__name__ == "ChatOpenAI"
+    llm = _make_llm("gemini-3-flash-preview")
+    assert type(llm).__name__ == "ChatGoogle"
+    assert llm.model == "gemini-3-flash-preview"  # המודל עובר כמו שהוא, בלי עיבוד
 
 
 def test_browserbase_profile_keeps_browser_alive_for_resume():

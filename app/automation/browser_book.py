@@ -32,6 +32,15 @@ async def _run_subprocess(job: dict) -> None:
     if settings.gemini_api_key:
         env["GEMINI_API_KEY"] = settings.gemini_api_key
         env["GOOGLE_API_KEY"] = settings.gemini_api_key
+    # מפתחות ספקי-נווט חלופיים (השוואת מודלים: MODEL_NAME בקידומת claude-/gpt-/bu-) —
+    # עוברים רק אם מולאו; בשוטף ריקים וה-env לא משתנה.
+    for env_var, value in (
+        ("ANTHROPIC_API_KEY", settings.anthropic_api_key),
+        ("OPENAI_API_KEY", settings.openai_api_key),
+        ("BROWSER_USE_API_KEY", settings.browser_use_api_key),
+    ):
+        if value:
+            env[env_var] = value
     # ה-reasoning של ה-agent (browser-use מדפיס כל צעד: הערכה, זיכרון, מטרה הבאה)
     # נכתב לקובץ במקום להיזרק — ניתן לקריאה live (tail) וגם אחרי timeout/kill.
     with open(job["steps_path"], "wb") as steps:
