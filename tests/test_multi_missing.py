@@ -53,6 +53,23 @@ def test_single_missing_behaves_exactly_like_today():
     assert r["options"] == ["בפנים", "בר גבוה", "מרפסת מעשנים"]
 
 
+def test_field_and_options_glued_on_one_line_are_split():
+    """נצפה חי (ביטוח, ריצה חיה 2): ה-agent הדביק FIELD ו-OPTIONS באותה שורה עם '·' —
+    בלי ההפרדה options_by_field חזר ריק והתווית נשאבה עם כל טקסט האופציות."""
+    final = "FIELD p1_gender: מגדר (נוסע 1) · OPTIONS p1_gender: זכר|נקבה\nMISSING:p1_gender"
+    r = _parse_result(final, commit=False)
+    assert r["field_labels"]["p1_gender"] == "מגדר (נוסע 1)"
+    assert r["options_by_field"]["p1_gender"] == ["זכר", "נקבה"]
+
+
+def test_options_cap_keeps_all_eleven_live_destinations():
+    """דף היעד החי הציג 11 מדינות ו-cap 10 חתך את גרמניה (ריצה חיה 1) — cap 15 שומר את כולן."""
+    opts = " | ".join(f"מדינה{i}" for i in range(1, 12))
+    r = _parse_result(f"OPTIONS destination: {opts}\nMISSING:destination", commit=False)
+    assert len(r["options_by_field"]["destination"]) == 11
+    assert r["options_by_field"]["destination"][-1] == "מדינה11"
+
+
 def test_keyed_options_on_single_field_bridge_to_legacy_options():
     """agent שהשתמש בצורה הממופתחת על שדה בודד — המסלול הישן (רשימת טאפ) עדיין עובד."""
     final = "OPTIONS seating_area: בפנים | בחוץ\nMISSING:seating_area"

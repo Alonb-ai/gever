@@ -61,7 +61,8 @@ _EXTRACT = (
     "· task_type: 'restaurant' (וגם ברירת המחדל), 'insurance' (ביטוח נסיעות לחו\"ל) "
     "או 'other'. ב-other לעולם אין ready — אין עדיין מי שיבצע, אתה רק עונה בכנות.\n"
     "· בביטוח נסיעות לחו\"ל (task_type='insurance') ready=true רק כשכל אלה מלאים "
-    "וחד-משמעיים: destination (מדינה או אזור), date (תאריך יציאה DD.MM), return_date "
+    "וחד-משמעיים: destination (מדינה ספציפית — האתר עובד לפי מדינות; 'אירופה' או יבשת "
+    "אינה יעד, בקש את המדינה), date (תאריך יציאה DD.MM), return_date "
     "(תאריך חזרה DD.MM), travelers_birth_dates (תאריך לידה מלא DD.MM.YYYY לכל נוסע — "
     "מספר הנוסעים נגזר מכאן), health_issues. את health_issues אתה ממלא רק אחרי ששאלת "
     "במפורש שאלה אחת מרוכזת: האם מישהו מהנוסעים אובחן או טופל במחלה קשה (סרטן, לב, "
@@ -388,6 +389,7 @@ def _human_field(key: str, from_page: dict) -> str:
         "first_name": "שם פרטי",
         "last_name": "שם משפחה",
         "pickup_point": "נקודת איסוף הכרטיס",
+        "destination": "מדינת היעד",
         "destination_region": "אזור היעד",
         "email": "מייל",
         "phone": "טלפון",

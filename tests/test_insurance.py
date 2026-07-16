@@ -25,7 +25,7 @@ from app.llm.intent import character_leaks  # noqa: E402
 from app.models.schemas import ActionResult  # noqa: E402
 
 _INS = {
-    "destination": "אירופה",
+    "destination": "יוון",
     "return_date": "17.08",
     "travelers": ["15.05.1990", "20.11.1992"],
     "health": "אין",
@@ -57,14 +57,16 @@ def test_resolve_insurance_is_fixed_single_provider():
 def test_insurance_task_carries_trip_iron_rules_and_markers():
     task = _build_task({**_JOB, "dry_run": True})
     # פרטי הנסיעה מוזרקים
-    assert INSURANCE_URL in task and "אירופה" in task and "17.08" in task
+    assert INSURANCE_URL in task and "יוון" in task and "17.08" in task
     assert "15.05.1990" in task and "20.11.1992" in task
     # חוקי ברזל: לקוח חדש, לא ממציאים פרטים, הצהרת בריאות = רק מהלקוח
     assert "לקוח קיים" in task
     assert "אסור להמציא" in task
     assert "הצהרה משפטית" in task
     # פרוטוקול האיסוף המרוכז: FIELD/OPTIONS ממופתחים + MISSING בשורה אחת
-    assert "FIELD" in task and "OPTIONS destination_region:" in task
+    # (סבב 2: היעד הוא מדינה מחיפוש טקסט חופשי — לא אזור/יבשת; לקח ריצה חיה 1)
+    assert "FIELD" in task and "OPTIONS destination:" in task
+    assert "MISSING:destination" in task and "שדה החיפוש" in task
     assert "מופרדים ב-| בלי" in task
     # markers + כישלונות ייחודיים
     assert "SUMMARY_REACHED" in task and "CARD_REQUIRED" in task
@@ -128,7 +130,7 @@ def test_book_table_bu_passes_insurance_job_and_extra(monkeypatch):
 
     res = asyncio.run(
         book_table_bu(
-            restaurant="ביטוח נסיעות לאירופה",
+            restaurant="ביטוח נסיעות ליוון",
             page_url=INSURANCE_URL,
             date="03.08",
             time="",
@@ -141,7 +143,7 @@ def test_book_table_bu_passes_insurance_job_and_extra(monkeypatch):
     )
     job = jobs[0]
     assert job["task_type"] == "insurance"
-    assert job["insurance"]["destination"] == "אירופה"
+    assert job["insurance"]["destination"] == "יוון"
     assert job["form_answers"] == {"id_number": "123456782"}
     assert job["max_steps"] == 80
     assert res.details["extra"] == "פרמיה $127.40 לכל הנסיעה"
@@ -169,7 +171,7 @@ def test_restaurant_job_keeps_forty_steps(monkeypatch):
 
 def test_failure_reply_insurance_reasons_anchor_9912():
     for reason in ("manual_underwriting", "phone_only", "blocked"):
-        hit = pipeline._failure_reply(reason, "ביטוח נסיעות לאירופה", task_type="insurance")
+        hit = pipeline._failure_reply(reason, "ביטוח נסיעות ליוון", task_type="insurance")
         assert hit is not None, reason
         info, msg = hit
         assert "*9912" in msg
@@ -209,7 +211,7 @@ def _reset():
 
 _FIELDS = {
     "task_type": "insurance",
-    "destination": "אירופה",
+    "destination": "יוון",
     "date": "03.08",
     "return_date": "17.08",
     "travelers_birth_dates": ["15.05.1990", "20.11.1992"],
@@ -310,7 +312,7 @@ def test_insurance_card_wall_message_carries_quote_and_link(monkeypatch):
     # book_table_bu קיבל את חבילת הביטוח, בלי שעה, ו-party לפי מספר הנוסעים
     call = book.calls[0]
     assert call["task_type"] == "insurance"
-    assert call["insurance"]["destination"] == "אירופה"
+    assert call["insurance"]["destination"] == "יוון"
     assert call["time"] == "" and call["party_size"] == 2
     assert call["page_url"] == INSURANCE_URL
 
@@ -369,7 +371,7 @@ def test_run_commit_passes_insurance_through(monkeypatch):
     monkeypatch.setattr(pipeline, "_persist_chat", fake_noop)
     monkeypatch.setattr(pipeline, "_save_flow", fake_noop)
     pipeline._pending_commit["p1"] = {
-        "restaurant": "ביטוח נסיעות לאירופה",
+        "restaurant": "ביטוח נסיעות ליוון",
         "page_url": INSURANCE_URL,
         "platform": "passportcard",
         "date": "03.08",
@@ -385,7 +387,7 @@ def test_run_commit_passes_insurance_through(monkeypatch):
     asyncio.run(pipeline.run_commit("p1"))
     call = calls[0]
     assert call["task_type"] == "insurance"
-    assert call["insurance"]["destination"] == "אירופה"
+    assert call["insurance"]["destination"] == "יוון"
     assert call["form_answers"] == {"id_number": "123456782"}
     assert call["dry_run"] is False
     assert pipeline._booking["p1"]["state"] == "card"  # קיר-כרטיס → Live View/לינק

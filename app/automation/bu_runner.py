@@ -173,9 +173,11 @@ def _build_insurance_task(job: dict) -> str:
 
 אתה נווט אוטונומי. הבן כל מסך ופעל לפי העקרונות:
 - זו רכישה של לקוח חדש (לא "לקוח קיים") — אל תיכנס למסלול לקוח קיים ואל תנסה להתחבר.
-- יעד: בחר את האזור/היבשת שמתאים ליעד שנמסר (ארה"ב היא אזור נפרד). אינך בטוח איזו
-  אפשרות בדף מתאימה ליעד — אל תנחש: עצור עם MISSING:destination_region ושורת
-  OPTIONS destination_region: עם האפשרויות בדיוק כפי שמופיעות בדף.
+- יעד: דף היעד מציג מדינות + שדה חיפוש טקסט חופשי. הקלד בשדה החיפוש את שם המדינה
+  שנמסרה ובחר את ההתאמה המדויקת. אין שם אזורים/יבשות ("אירופה" לא מחזיר כלום) — רק
+  מדינות. המדינה שנמסרה לא מופיעה גם אחרי חיפוש, או שאינך בטוח איזו אפשרות מתאימה —
+  אל תנחש: עצור עם MISSING:destination ושורת OPTIONS destination: עם האפשרויות
+  בדיוק כפי שמופיעות בדף.
 - הצהרת הבריאות: תשובות הלקוח — "{ins.get("health") or "אין"}". "אין" פירושו שהלקוח ענה
   שלילית בשיחה על שלוש הקטגוריות (מחלות קשות מהרשימה / מחלה כרונית או תרופות קבועות /
   טיפול או טיפול צפוי בחצי השנה האחרונה) — רק לשאלות שתואמות בדיוק את הקטגוריות האלה
@@ -287,7 +289,8 @@ def _parse_result(final: str, *, commit: bool) -> dict:
         s = ln.strip()
         m = re.match(r"OPTIONS(?:[ \t]+([a-z0-9_]+))?:", s)
         if m:
-            vals = [o.strip()[:60] for o in s.split(":", 1)[1].split("|") if o.strip()][:10]
+            # cap 15: דף היעד של פספורטכארד הציג 11 מדינות ו-cap 10 חתך את גרמניה (ריצה חיה 1)
+            vals = [o.strip()[:60] for o in s.split(":", 1)[1].split("|") if o.strip()][:15]
             if m.group(1):
                 options_by_field[m.group(1)] = vals
             else:
@@ -295,7 +298,18 @@ def _parse_result(final: str, *, commit: bool) -> dict:
             continue
         m = re.match(r"FIELD[ \t]+([a-z0-9_]+):", s)
         if m:
-            field_labels[m.group(1)] = s.split(":", 1)[1].strip()[:80]
+            label = s.split(":", 1)[1].strip()
+            # ה-agent לפעמים מדביק FIELD ו-OPTIONS באותה שורה ("מגדר · OPTIONS p1_gender:
+            # זכר|נקבה" — נצפה חי בריצת ביטוח 2): מפרידים, כדי שהאופציות ייקלטו
+            # ב-options_by_field והתווית תישאר נקייה.
+            om = re.search(r"OPTIONS[ \t]+([a-z0-9_]+):", label)
+            if om:
+                tail_vals = label[om.end() :].split("|")
+                options_by_field[om.group(1)] = [o.strip()[:60] for o in tail_vals if o.strip()][
+                    :15
+                ]
+                label = label[: om.start()].strip(" ·-–")
+            field_labels[m.group(1)] = label[:80]
     # גישור: agent שהשתמש בצורה הממופתחת על שדה בודד — לא שוברים את המסלול הישן
     if not options and len(missing_fields) == 1 and missing_fields[0] in options_by_field:
         options = options_by_field[missing_fields[0]]
