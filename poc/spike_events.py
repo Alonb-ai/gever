@@ -7,9 +7,11 @@
 - אם חזר details.session_id — משחררים את הסשן מיד (לא מדליפים keepAlive של Browserbase).
 
 הרצה (מתוך שורש ה-worktree, בשביל ה-.env):
-    .venv/bin/python poc/spike_events.py ["אמן/מופע"] [DD.MM] [כרטיסים] ["היכל/עיר"]
+    .venv/bin/python poc/spike_events.py ["אמן/מופע"] [DD.MM] [כרטיסים] ["היכל/עיר"] ["העדפות"]
 ברירות מחדל: "קובי פרץ" (שני מועדים קרובים בלאן — היכל מנורה 10-11/08/26, נבדק
 15.07.26), בלי תאריך (מתרגל את נתיב MISSING:date+OPTIONS), 2 כרטיסים, בלי היכל.
+ארגומנט 5 = notes (העדפת קטגוריית מחיר וכו') — עובר ל-task כמו בצינור האמיתי,
+כדי לתרגל את ריצת-ההמשך שאחרי MISSING:price_category עד קיר-הכרטיס.
 """
 
 import asyncio
@@ -34,6 +36,7 @@ async def main() -> None:
     when = _arg(2, "")  # בלי ברירת מחדל — ריבוי מועדים אמור לעצור ב-MISSING:date
     party = int(_arg(3, "2"))
     venue = _arg(4, "")
+    notes = _arg(5, "")
 
     if settings.bu_browser != "browserbase":
         print(f"אזהרה: BU_BROWSER={settings.bu_browser!r} (לא browserbase) — רץ לפי ה-.env")
@@ -65,6 +68,7 @@ async def main() -> None:
         task_type="events",
         artist=artist,
         venue=venue,
+        notes=notes,
     )
 
     print("\n================ SPIKE RESULT ================")
