@@ -91,6 +91,8 @@ async def _bb_create_session() -> tuple[str, str]:
             "proxies": True,
             "keepAlive": True,
             "timeout": 1800,
+            # תג בעלות — sweep_orphan_sessions משחרר רק סשנים עם ה-owner שלו.
+            "userMetadata": {"owner": settings.bb_session_owner},
         },
     )
     return data["id"], data["connectUrl"]
@@ -108,13 +110,20 @@ async def _bb_live_connect_url(session_id: str) -> str | None:
 
 async def sweep_orphan_sessions() -> int:
     """שחרור סשני keepAlive יתומים — ריצה שמתה (redeploy/קריסה) משאירה סשן חי שמחויב
-    עד ה-timeout (30 דק'). רץ בעליית השרת: בנקודה הזאת אין לנו שום ריצה חיה (ה-state
-    בזיכרון התהליך), אז כל סשן RUNNING בפרויקט הוא יתום. מחזיר כמה שוחררו."""
+    עד ה-timeout (30 דק'). רץ בעליית השרת, ומשחרר רק סשנים שנוצרו על ידי ה-owner הזה
+    (userMetadata.owner) — ריצה חיה מ-dev/בנצ' על אותו פרויקט לא נרצחת ב-deploy
+    (קרה ב-17.07 00:23: 3 סשנים של ספייק חי שוחררו ב-1.2 שניות). סשן בלי תג
+    (ישן/זר) לא נוגעים בו — פוקע לבד ב-timeout. מחזיר כמה שוחררו."""
     data = await _bb("GET", f"/sessions?projectId={settings.browserbase_project_id}&status=RUNNING")
     sessions = data if isinstance(data, list) else []
-    for s in sessions:
+    mine = [
+        s
+        for s in sessions
+        if (s.get("userMetadata") or {}).get("owner") == settings.bb_session_owner
+    ]
+    for s in mine:
         await release_session(s.get("id"))
-    return len(sessions)
+    return len(mine)
 
 
 async def live_view_url(session_id: str | None) -> str | None:

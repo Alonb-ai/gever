@@ -104,21 +104,70 @@ def test_timeout_releases_session(monkeypatch):
     assert calls["released"] == ["sess-new-1"]  # גם תקיעה לא מדליפה סשן
 
 
-def test_sweep_releases_all_running_orphans(monkeypatch):
-    """בעליית השרת אין ריצה חיה — כל סשן RUNNING בפרויקט משוחרר (redeploy באמצע ריצה)."""
+def test_empty_owner_env_falls_back_to_prod(monkeypatch):
+    """BB_SESSION_OWNER= ריק ב-.env (העתקת example בלי למלא) = prod, כמו לא-מוגדר."""
+    from app.config import Settings
+
+    monkeypatch.setenv("BB_SESSION_OWNER", "")
+    assert Settings(_env_file=None).bb_session_owner == "prod"
+
+
+def test_create_session_tags_owner(monkeypatch):
+    """כל סשן חדש נושא userMetadata.owner — התג שמבדיל אותו מריצות dev/בנצ' ב-sweep."""
+    bodies = []
+
+    async def fake_bb(method, path, body=None):
+        bodies.append(body)
+        return {"id": "s1", "connectUrl": "wss://s1"}
+
+    monkeypatch.setattr(browser_book, "_bb", fake_bb)
+    monkeypatch.setattr(browser_book.settings, "bb_session_owner", "prod")
+    asyncio.run(browser_book._bb_create_session())
+    assert bodies[0]["userMetadata"] == {"owner": "prod"}
+
+
+def _sweep(monkeypatch, sessions, owner="prod"):
     released = []
 
     async def fake_bb(method, path, body=None):
         assert method == "GET" and "status=RUNNING" in path
-        return [{"id": "a1"}, {"id": "b2"}]
+        return sessions
 
     async def fake_release(session_id):
         released.append(session_id)
 
     monkeypatch.setattr(browser_book, "_bb", fake_bb)
     monkeypatch.setattr(browser_book, "release_session", fake_release)
+    monkeypatch.setattr(browser_book.settings, "bb_session_owner", owner)
     n = asyncio.run(browser_book.sweep_orphan_sessions())
+    return n, released
+
+
+def test_sweep_releases_only_own_running_orphans(monkeypatch):
+    """בעליית השרת משוחררים רק סשנים עם ה-owner שלנו (redeploy באמצע ריצה שלנו)."""
+    n, released = _sweep(
+        monkeypatch,
+        [
+            {"id": "a1", "userMetadata": {"owner": "prod"}},
+            {"id": "b2", "userMetadata": {"owner": "prod"}},
+        ],
+    )
     assert n == 2 and released == ["a1", "b2"]
+
+
+def test_sweep_skips_untagged_and_foreign_owner(monkeypatch):
+    """סשן של dev/בנצ' או בלי תג (ישן/זר) לא נרצח ב-deploy — פוקע לבד ב-timeout.
+    הבאג: deploy ב-17.07 00:23 שחרר 3 סשנים של ספייק חי ב-1.2 שניות."""
+    n, released = _sweep(
+        monkeypatch,
+        [
+            {"id": "dev1", "userMetadata": {"owner": "dev"}},
+            {"id": "old1"},  # בלי userMetadata בכלל
+            {"id": "old2", "userMetadata": None},
+            {"id": "mine", "userMetadata": {"owner": "prod"}},
+        ],
+    )
+    assert n == 1 and released == ["mine"]
 
 
 # ─── שכבת ה-task: ניסוח ההמשך ────────────────────────────────────────────────

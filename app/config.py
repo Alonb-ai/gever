@@ -1,5 +1,6 @@
 """הגדרות מרכזיות — נטענות מ-.env דרך pydantic-settings."""
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,6 +10,15 @@ class Settings(BaseSettings):
     # Browserbase — תשתית דפדפן (stealth/captcha/proxy) למצב bu_browser=browserbase
     browserbase_api_key: str = ""
     browserbase_project_id: str = ""
+    # תג בעלות על סשנים (userMetadata.owner): ה-sweep בעליית השרת משחרר רק סשנים שלו.
+    # ברירת מחדל prod (Coolify לא מגדיר כלום); במכונות פיתוח: BB_SESSION_OWNER=dev.
+    bb_session_owner: str = "prod"
+
+    @field_validator("bb_session_owner")
+    @classmethod
+    def _empty_owner_is_prod(cls, v: str) -> str:
+        return v or "prod"  # BB_SESSION_OWNER= ריק ב-.env (העתקת example) = prod
+
     model_name: str = "google/gemini-3-flash-preview"  # ה-driver של ה-agent (browser-use)
 
     # browser-use — שכבת הניווט האוטונומית, רצה ב-venv נפרד כ-subprocess
