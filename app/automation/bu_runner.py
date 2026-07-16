@@ -323,10 +323,14 @@ def _parse_result(final: str, *, commit: bool) -> dict:
     card = "CARD_REQUIRED" in last
     missing = _marker_arg(last, "MISSING:") if "MISSING:" in last else ""
     failed = _marker_arg(last, "FAILED:") if "FAILED:" in last else ""
-    # דיווח סופי ריק = ה-agent מת בלי שורת סיום (נצפה חי ev iter 1: סשן Browserbase
-    # נפל באמצע — keepalive timeout → HTTP 410 — וה-agent נעצר אחרי 5 כשלים רצופים).
-    # בלי זה התוצאה כולה ריקה: אין failed, אין info ל-truth_note, ואין זכר שהדפדפן מת.
-    if not final:
+    # שורת סיום בלי שום marker = ה-agent מת בלי לדווח. נצפה חי פעמיים: ev iter 1 —
+    # final ריק (סשן Browserbase נפל, HTTP 410, עצירה אחרי 5 כשלים); ev4 — final
+    # לא-ריק אבל זבל ("Waited for 5 seconds": history.final_result() מהדהד את הפעולה
+    # האחרונה כשה-agent נקטע בלי done). החוזה מחייב marker בשורה האחרונה — בלעדיו
+    # אין תוצאה, יש דפדפן שמת באמצע: failed=browser_error מפורש, לא שתיקה.
+    if not any(
+        m in last for m in ("SUMMARY_REACHED", "CARD_REQUIRED", "BOOKED", "MISSING:", "FAILED:")
+    ):
         failed = "browser_error"
     # השעה שנבחרה בפועל (החוזה: אחרי SUMMARY_REACHED) — כדי שגבר יציע חלופה ללקוח
     # ("יש 21:00 במקום 20:30, מתאים?") לפני הסגירה, וה-commit יסגור את מה שאושר.

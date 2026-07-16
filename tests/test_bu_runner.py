@@ -59,16 +59,24 @@ def test_markers_only_from_last_line_case_sensitive():
     assert r["success"] is False
 
 
-def test_empty_final_report_is_browser_error():
+def test_markerless_final_report_is_browser_error():
     # ev iter 1 (ריצה חיה מול לאן): סשן Browserbase מת באמצע (keepalive→410) וה-agent
     # נעצר בלי שורת סיום — final ריק. חייב לצאת failed=browser_error, לא תוצאה ריקה.
     for commit in (False, True):
         r = _parse_result("", commit=commit)
         assert r["success"] is False
         assert r["failed"] == "browser_error"
-    # רווחים בלבד = אותו דין; דיווח לא-ריק בלי markers נשאר בלי failed (כמו היום).
+    # רווחים בלבד = אותו דין.
     assert _parse_result("   \n ", commit=False)["failed"] == "browser_error"
-    assert _parse_result("נתקעתי בבורר", commit=False)["failed"] == ""
+    # ev4 (ריצה חיה מול קופת): הדפדפן נהרג באמצע (sweep) ו-history.final_result()
+    # החזיר את הד הפעולה האחרונה — לא-ריק ובלי marker. גם זה browser_error, לא שתיקה.
+    for garbage in ("Waited for 5 seconds", "נתקעתי בבורר"):
+        r = _parse_result(garbage, commit=False)
+        assert r["success"] is False
+        assert r["failed"] == "browser_error"
+    # marker אמיתי בשורה האחרונה — הרשת לא נדרכת.
+    assert _parse_result("הכל תקין\nCARD_REQUIRED", commit=False)["failed"] == ""
+    assert _parse_result("BOOKED 42", commit=True)["failed"] == ""
 
 
 def test_failed_marker_reports_reason():
