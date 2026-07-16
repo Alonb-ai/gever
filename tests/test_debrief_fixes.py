@@ -31,6 +31,7 @@ def test_failure_reply_covers_all_agent_reasons():
         "no_online_booking",
         "login_required",
         "broken_page",
+        "browser_error",
     ):
         hit = pipeline._failure_reply(reason, "הדסון")
         assert hit is not None, reason
@@ -178,3 +179,39 @@ def test_unrecognized_failure_releases_leaked_session(monkeypatch):
 
     asyncio.run(_go())
     assert released == ["s-leak"]
+
+
+def test_empty_report_is_browser_error():
+    """דפדפן שמת באמצע (CDP נפל) → דיווח ריק ממופה ל-browser_error מפורש, לא
+    לכישלון אילם (אוחד מענפי ההופעות/הביטוח, 15.7-16.7)."""
+    from app.automation.bu_runner import _parse_result
+
+    for commit in (False, True):
+        r = _parse_result("", commit=commit)
+        assert r["failed"] == "browser_error"
+        assert r["success"] is False
+
+
+def test_converse_crash_sends_fallback_not_silence(monkeypatch):
+    """Gemini נפל (מכסה/רשת — קרה חי 16.7) → הלקוח מקבל 'עמוס לי רגע', לא דממה."""
+    _reset()
+    sent = []
+
+    async def fake_converse(phone, text):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+    async def fake_send_text(phone, msg):
+        sent.append(msg)
+
+    async def fake_typing(message_id):
+        pass
+
+    async def fake_noop(phone):
+        pass
+
+    monkeypatch.setattr(pipeline, "converse", fake_converse)
+    monkeypatch.setattr(pipeline, "send_text", fake_send_text)
+    monkeypatch.setattr(pipeline, "send_typing", fake_typing)
+    monkeypatch.setattr(pipeline, "_persist_chat", fake_noop)
+    asyncio.run(pipeline.handle_inbound("p1", "שלום"))
+    assert sent and any("שוב" in m for m in sent)  # הודעת גישור נשלחה

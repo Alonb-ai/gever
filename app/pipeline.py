@@ -428,6 +428,14 @@ def _failure_reply(reason: str | None, name: str) -> tuple[str, str] | None:
                 "אפשר לנסות שוב עוד מעט, או ללכת על מקום אחר",
             ),
         ),
+        # דפדפן שקרס באמצע (CDP מת, דיווח ריק) — תקלה אצלנו, לא באתר של המקום.
+        "browser_error": (
+            "תקלה טכנית אצלנו באמצע הריצה",
+            _vary(
+                f"נתקעתי טכנית באמצע העבודה על '{name}' 🫠 רץ על זה שוב?",
+                f"נתקע לי משהו טכני באמצע '{name}' — לא באשמת המקום. שאנסה שוב?",
+            ),
+        ),
     }
     for key, pair in table.items():
         if key in reason:
@@ -938,7 +946,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                 res is not None
                 and not res.success
                 and not (res.details or {}).get("missing")
-                and (res.details or {}).get("failed") == "broken_page"
+                and (res.details or {}).get("failed") in ("broken_page", "browser_error")
             ):
                 await _send_and_record(
                     phone,
@@ -1352,6 +1360,23 @@ async def handle_inbound(phone: str, text: str, message_id: str | None = None) -
     await send_typing(message_id)  # 'מקליד…' בזמן שגבר חושב; התשובה תנקה אותו
     # resume דטרמיניסטי (המלצת התחקיר): עומדת שאלת MISSING עם אופציות ששלחנו,
     # והתשובה (טאפ/הקלדה) תואמת אופציה אחת-לאחת — יורים ישר בלי מודל באמצע.
+    # רשת ביטחון לשיחה עצמה: Gemini נפל (מכסה/רשת — קרה חי 16.7: תקרת התקציב
+    # נפרצה וגבר נאלם לגמרי) → הלקוח מקבל לפחות "עמוס לי רגע" במקום דממה.
+    try:
+        return await _handle_inbound_inner(phone, text, message_id)
+    except Exception:
+        log.exception("converse/handling failed for %s", phone)
+        await _send_and_record(
+            phone,
+            _vary(
+                "וואלה עמוס אצלי ברגעים אלו 🫠 כתוב לי שוב בעוד כמה דקות?",
+                "משהו אצלי תקוע רגע — נסה שוב עוד כמה דקות 🔄",
+                "יש עומס קטן בצד שלי, תכתוב לי שוב עוד מעט ואני איתך 🤝",
+            ),
+        )
+
+
+async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = None) -> None:
     pend = _await_answer.get(phone)
     if pend and _booking.get(phone, {}).get("state") == "missing" and pend.get("options"):
         match = next((o for o in pend["options"] if _norm_place(text) == _norm_place(o)), None)

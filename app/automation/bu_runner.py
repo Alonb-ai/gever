@@ -176,9 +176,14 @@ def _parse_result(final: str, *, commit: bool) -> dict:
     # מרקר-הזמנה באמצע דיווח לעולם לא רושם הזמנה פנטום (הגנת R1 נשארת קשיחה).
     last = " ".join(lines[-3:])
     strict_last = lines[-1] if lines else ""
+    # דפדפן שמת באמצע (CDP נפל, timeout של LLM) משאיר דיווח ריק — שם מפורש במקום
+    # כישלון אילם (אוחד משני ענפי הוורטיקלים; נצפה חי 15.7 גם בהופעות וגם בביטוח).
+    empty_report = not lines
     card = "CARD_REQUIRED" in last
     missing = _marker_arg(last, "MISSING:") if "MISSING:" in last else ""
     failed = _marker_arg(last, "FAILED:") if "FAILED:" in last else ""
+    if empty_report:
+        failed = "browser_error"
     # השעה שנבחרה בפועל (החוזה: אחרי SUMMARY_REACHED) — כדי שגבר יציע חלופה ללקוח
     # ("יש 21:00 במקום 20:30, מתאים?") לפני הסגירה, וה-commit יסגור את מה שאושר.
     m = re.search(r"\b(\d{1,2}:\d{2})\b", last)
