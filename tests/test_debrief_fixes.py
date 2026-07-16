@@ -192,6 +192,23 @@ def test_empty_report_is_browser_error():
         assert r["success"] is False
 
 
+def test_markerless_junk_report_is_browser_error():
+    """נצפה חי בענף ההופעות (17.7): הדפדפן נהרג באמצע ו-history.final_result()
+    החזיר הד של הפעולה האחרונה — לא-ריק אבל בלי אף marker. בלי המשמר זו שתיקה
+    מוחלטת (אין failed, אין זכר שהדפדפן מת). אין marker בבלוק הסיום → browser_error."""
+    from app.automation.bu_runner import _parse_result
+
+    for garbage in ("Waited for 5 seconds", "נתקעתי בבורר\nמנסה שוב"):
+        for commit in (False, True):
+            r = _parse_result(garbage, commit=commit)
+            assert r["failed"] == "browser_error"
+            assert r["success"] is False
+    # marker אמיתי בבלוק הסיום — המשמר לא נדרך.
+    assert _parse_result("הכל תקין\nSUMMARY_REACHED 19:00", commit=False)["failed"] == ""
+    assert _parse_result("BOOKED 42", commit=True)["failed"] == ""
+    assert _parse_result("עצרתי על שדה חסר\nMISSING:email", commit=False)["failed"] == ""
+
+
 def test_converse_crash_sends_fallback_not_silence(monkeypatch):
     """Gemini נפל (מכסה/רשת — קרה חי 16.7) → הלקוח מקבל 'עמוס לי רגע', לא דממה."""
     _reset()
