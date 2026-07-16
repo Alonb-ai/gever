@@ -47,6 +47,36 @@ def test_book_table_bu_parses_runner_result(monkeypatch, tmp_path):
     assert res.details["restaurant"] == "הדסון"
 
 
+def test_run_subprocess_passes_provider_keys_only_when_set(monkeypatch, tmp_path):
+    """מפתחות ספקי-הנווט החלופיים (השוואת מודלים) עוברים ל-subprocess רק אם מולאו —
+    pydantic-settings לא כותב ל-os.environ, אז בלי ההעברה המפורשת ה-runner עיוור להם."""
+    captured = {}
+
+    class _FakeProc:
+        async def communicate(self, data=None):
+            return b"", b""
+
+    async def fake_exec(*args, **kwargs):
+        captured["env"] = kwargs["env"]
+        return _FakeProc()
+
+    monkeypatch.setattr(browser_book.asyncio, "create_subprocess_exec", fake_exec)
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "BROWSER_USE_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(settings, "gemini_api_key", "g-key")
+    monkeypatch.setattr(settings, "anthropic_api_key", "a-key")
+    monkeypatch.setattr(settings, "browser_use_api_key", "bu-key")
+    monkeypatch.setattr(settings, "openai_api_key", "")
+
+    asyncio.run(browser_book._run_subprocess({"steps_path": str(tmp_path / "steps.log")}))
+
+    env = captured["env"]
+    assert env["GEMINI_API_KEY"] == "g-key" and env["GOOGLE_API_KEY"] == "g-key"
+    assert env["ANTHROPIC_API_KEY"] == "a-key"
+    assert env["BROWSER_USE_API_KEY"] == "bu-key"
+    assert "OPENAI_API_KEY" not in env  # ריק ב-settings → לא מוזרק
+
+
 def test_book_table_bu_timeout_is_honest(monkeypatch, tmp_path):
     settings.bu_record_dir = str(tmp_path)
     settings.bu_browser = "local"

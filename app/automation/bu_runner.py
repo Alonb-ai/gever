@@ -310,9 +310,24 @@ def _profile_kwargs(job: dict) -> dict:
     return kwargs
 
 
+def _make_llm(model: str):
+    """ספק לפי קידומת שם המודל: bu-→ChatBrowserUse, claude-→ChatAnthropic,
+    gpt-→ChatOpenAI, אחרת ChatGoogle (ברירת המחדל של היום — אפס שינוי למסלול הקיים).
+    המפתחות מגיעים מה-env של ה-subprocess (browser_book מעביר אותם מ-settings):
+    GOOGLE_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / BROWSER_USE_API_KEY."""
+    from browser_use.llm import ChatAnthropic, ChatBrowserUse, ChatGoogle, ChatOpenAI
+
+    if model.startswith("bu-"):
+        return ChatBrowserUse(model=model)
+    if model.startswith("claude-"):
+        return ChatAnthropic(model=model)
+    if model.startswith("gpt-"):
+        return ChatOpenAI(model=model)
+    return ChatGoogle(model=model)
+
+
 async def _run(job: dict) -> dict:
     from browser_use import Agent, BrowserProfile
-    from browser_use.llm import ChatGoogle
 
     key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if key:
@@ -326,7 +341,7 @@ async def _run(job: dict) -> dict:
     profile = BrowserProfile(**_profile_kwargs(job))
     # בלי fallback מקודד — המודל מגיע תמיד מה-job (settings.model_name); שם מיושן
     # כאן היה נשלף בשקט בדיבוג ידני ומסתיר את הקונפיגורציה האמיתית.
-    llm = ChatGoogle(model=job["model"])
+    llm = _make_llm(job["model"])
     agent_kwargs: dict = {
         "task": _build_task(job),
         "llm": llm,

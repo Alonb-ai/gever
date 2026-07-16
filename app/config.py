@@ -21,6 +21,12 @@ class Settings(BaseSettings):
 
     model_name: str = "google/gemini-3-flash-preview"  # ה-driver של ה-agent (browser-use)
 
+    # מפתחות ספקי-נווט חלופיים — נקראים רק בהשוואת מודלים (MODEL_NAME בקידומת
+    # claude-/gpt-/bu-). ריקים בשוטף; browser_book מעביר אותם ל-subprocess רק אם מולאו.
+    anthropic_api_key: str = ""
+    openai_api_key: str = ""
+    browser_use_api_key: str = ""
+
     # browser-use — שכבת הניווט האוטונומית, רצה ב-venv נפרד כ-subprocess
     # (browser-use מצמיד google-genai==1.65, מתנגש עם ה-app על 2.8 → בידוד).
     bu_venv_path: str = ".venv-bu/bin/python"
