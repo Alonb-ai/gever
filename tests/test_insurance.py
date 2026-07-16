@@ -184,6 +184,20 @@ def test_failure_reply_insurance_reasons_anchor_9912():
     assert "חיתום" in pipeline._failure_reply("manual_underwriting", "x", task_type="insurance")[0]
 
 
+def test_persona_offers_travel_insurance_as_active_capability():
+    """סבב 4 (חיווט pipeline): הפער שמנע הפעלה מוואטסאפ — הפרסונה הציבה 'ביטוח'
+    ברשימת ה'עוד לא', אז מודל השיחה סירב ולעולם לא ירה ready=true למרות שכל
+    המכניקה קיימת. ביטוח נסיעות חייב להיות ב'סוגר היום בפועל', עם קו ה-PCI
+    (התשלום תמיד של הלקוח), ומחוץ לרשימת ה'עוד לא'."""
+    from app.llm.intent import SYSTEM_PROMPT
+
+    active = SYSTEM_PROMPT.split("מה שאתה כבר סוגר היום בפועל")[1].split("דברים אחרים")[0]
+    assert "ביטוח נסיעות" in active
+    assert "הצעת המחיר" in active and "תשלום" in active  # עד ההצעה; התשלום של הלקוח
+    not_yet = SYSTEM_PROMPT.split("דברים אחרים")[1].split("לעולם לא לוקח")[0]
+    assert "ביטוח" not in not_yet
+
+
 def test_schema_and_extract_carry_insurance_fields():
     props = pipeline._SCHEMA["properties"]
     for key in (
@@ -199,6 +213,17 @@ def test_schema_and_extract_carry_insurance_fields():
     assert "answers" in pipeline._EXTRACT and "health_issues" in pipeline._EXTRACT
     # סבב 3: השאלה המרוכזת בשיחה מכסה גם הריון (לקח ריצה חיה 2 — הטופס שואל כל נוסעת)
     assert "בהריון" in pipeline._EXTRACT
+    # סבב 4 (לקח ריצה חיה דרך המסלול המחווט): בלי required ה-decoding המוגבל השמיט
+    # בשיטתיות את שדות הביטוח (ready=true עם "0 נוסעים") — required מכריח פליטה.
+    for key in (
+        "task_type",
+        "destination",
+        "return_date",
+        "travelers_birth_dates",
+        "health_issues",
+        "addons",
+    ):
+        assert key in pipeline._SCHEMA["required"], key
 
 
 def _reset():
@@ -211,6 +236,65 @@ def _reset():
     pipeline._await_answer.clear()
     pipeline._last_out.clear()
     pipeline._turns.clear()
+    pipeline._ins_draft.clear()
+
+
+def test_insurance_draft_accumulates_across_turns():
+    """סבב 4, ריצה חיה 1 דרך המסלול המחווט: ה-extract הפיל בתור ה-ready את
+    travelers/return_date שנמסרו תור קודם — הריצה יצאה עם '0 נוסעים' ונעצרה על
+    MISSING מיותר. הצבירה דטרמיניסטית: כל תור ביטוח מעדכן טיוטה per-phone,
+    ו-ready יוצא ממוזג ממנה (הערך הטרי מנצח)."""
+    _reset()
+    pipeline._merge_insurance(
+        "p1",
+        {
+            "task_type": "insurance",
+            "ready": False,
+            "destination": "יוון",
+            "date": "03.08",
+            "return_date": "17.08",
+            "travelers_birth_dates": ["15.05.1990", "20.11.1992"],
+        },
+    )
+    merged = pipeline._merge_insurance(
+        "p1",
+        {"task_type": "insurance", "ready": True, "destination": "יוון", "health_issues": "אין"},
+    )
+    assert merged["travelers_birth_dates"] == ["15.05.1990", "20.11.1992"]
+    assert merged["return_date"] == "17.08" and merged["date"] == "03.08"
+    assert merged["health_issues"] == "אין" and merged["ready"] is True
+
+
+def test_insurance_draft_fresh_value_wins_and_stale_draft_expires():
+    _reset()
+    pipeline._merge_insurance(
+        "p1",
+        {
+            "task_type": "insurance",
+            "destination": "יוון",
+            "travelers_birth_dates": ["15.05.1990"],
+        },
+    )
+    merged = pipeline._merge_insurance("p1", {"task_type": "insurance", "destination": "ספרד"})
+    assert merged["destination"] == "ספרד"  # הערך הטרי מנצח
+    assert merged["travelers_birth_dates"] == ["15.05.1990"]  # השאר נשמר
+    # טיוטה בת >3 שעות נזרקת — הצהרת בריאות/נוסעים ישנים לא זולגים לנסיעה חדשה
+    pipeline._ins_draft["p1"]["ts"] -= pipeline.SESSION_GAP_S + 1
+    merged = pipeline._merge_insurance("p1", {"task_type": "insurance", "destination": "קפריסין"})
+    assert merged["destination"] == "קפריסין"
+    assert "travelers_birth_dates" not in merged
+
+
+def test_insurance_draft_cleared_on_other_task_kept_without_task_type():
+    _reset()
+    pipeline._merge_insurance("p1", {"task_type": "insurance", "destination": "יוון"})
+    # תור בלי task_type (למשל תשובת answers באמצע missing) — לא נוגעים בטיוטה
+    out = pipeline._merge_insurance("p1", {"reply": "רגע", "answers": ["id_number: 1"]})
+    assert out == {"reply": "רגע", "answers": ["id_number: 1"]}
+    assert "p1" in pipeline._ins_draft
+    # מעבר מפורש לנושא אחר — הטיוטה נמחקת (לא תזלוג לבקשת ביטוח עתידית)
+    pipeline._merge_insurance("p1", {"task_type": "restaurant", "restaurant": "הדסון"})
+    assert "p1" not in pipeline._ins_draft
 
 
 _FIELDS = {
@@ -289,6 +373,21 @@ def test_unparsable_birth_date_does_not_trip_guard(monkeypatch):
     asyncio.run(pipeline.run_booking("p1", fields))
     assert book.calls  # הגיע לריצה
     assert "*9912" in sent[-1]  # blocked ממופה להודעת ביטוח
+
+
+def test_addons_none_normalized_to_empty(monkeypatch):
+    """סבב 4: 'בלי הרחבות' חוזר מה-extract כ'אין' (required מכריח פליטה) — ה-payload
+    מנרמל לריק כדי שה-task יקבל 'שום הרחבה', לא הרחבה בשם 'אין'."""
+    _reset()
+    res = ActionResult(success=False, summary="FAILED:blocked", details={"failed": "blocked"})
+    _, book = _wire_booking(monkeypatch, book_result=res)
+    asyncio.run(pipeline.run_booking("p1", {**_FIELDS, "addons": "אין"}))
+    assert book.calls[0]["insurance"]["addons"] == ""
+    # הרחבה אמיתית עוברת כמו שהיא
+    _reset()
+    _, book = _wire_booking(monkeypatch, book_result=res)
+    asyncio.run(pipeline.run_booking("p1", {**_FIELDS, "addons": "סקי"}))
+    assert book.calls[0]["insurance"]["addons"] == "סקי"
 
 
 def test_insurance_card_wall_message_carries_quote_and_link(monkeypatch):

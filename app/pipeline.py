@@ -117,7 +117,20 @@ _SCHEMA = {
             },
         },
     },
-    "required": ["reply", "ready"],
+    # שדות הביטוח ב-required — לקח ריצה חיה (סבב 4): בלי זה ה-decoding המוגבל של
+    # Gemini השמיט בשיטתיות בדיוק אותם (return_date/travelers/health) גם כשנאמרו
+    # במפורש, וירה ready=true עם "0 נוסעים". required מכריח פליטה; בתור מסעדה הם
+    # חוזרים ריקים ("" / []) — זהה ל-absent בכל צרכני fields.get().
+    "required": [
+        "reply",
+        "ready",
+        "task_type",
+        "destination",
+        "return_date",
+        "travelers_birth_dates",
+        "health_issues",
+        "addons",
+    ],
 }
 
 log = logging.getLogger("gever")
@@ -155,6 +168,10 @@ _preresolve: dict = {}
 # עצירת MISSING עם אופציות ששלחנו: phone -> {"fields","field","options"}. תשובה
 # שתואמת אופציה אחת-לאחת נורית דטרמיניסטית (בלי לסמוך על ה-extract — המלצת התחקיר).
 _await_answer: dict = {}
+# טיוטת חבילת הביטוח שנצברת על פני תורות: phone -> {"fields", "ts"}. נצפה חי
+# (סבב 4): ה-extract הפיל בתור ה-ready שדות שנמסרו תור קודם (travelers/return_date)
+# והריצה יצאה עם "0 נוסעים" — הצבירה כאן דטרמיניסטית, לא סומכת על זיכרון המודל.
+_ins_draft: dict = {}
 
 # פער שאחריו פותחים "דף חדש": שיחה טרייה במקום לגרור את ההיסטוריה הישנה.
 SESSION_GAP_S = 3 * 60 * 60  # ~3 שעות
@@ -428,6 +445,39 @@ def _ages(birth_dates: list) -> list[int]:
             continue
         out.append(today.year - born.year - ((today.month, today.day) < (born.month, born.day)))
     return out
+
+
+# שדות חבילת-המראש של הביטוח שנצברים בטיוטה (בלי name/email — נפתרים מהפרופיל).
+_INS_KEYS = (
+    "destination",
+    "date",
+    "return_date",
+    "travelers_birth_dates",
+    "health_issues",
+    "addons",
+)
+
+
+def _merge_insurance(phone: str, result: dict) -> dict:
+    """צבירה דטרמיניסטית של חבילת הביטוח על פני תורות שיחה. ה-extract מונחה לשמר
+    שדות מתורות קודמים אבל בפועל מפיל אותם (נצפה חי בסבב 4) — לכן כל תור ביטוח
+    מעדכן טיוטה per-phone בערכים הלא-ריקים, וה-result חוזר ממוזג עליה (הערך הטרי
+    מנצח). טיוטה בת >3 שעות נזרקת — הצהרת בריאות ישנה לעולם לא זולגת לנסיעה חדשה;
+    תור עם task_type אחר מפורש מוחק אותה (עברנו נושא)."""
+    task_type = result.get("task_type")
+    if task_type and task_type != "insurance":
+        _ins_draft.pop(phone, None)
+        return result
+    if task_type != "insurance":  # אין task_type — לא תור ביטוח, לא נוגעים בטיוטה
+        return result
+    draft = _ins_draft.get(phone) or {}
+    fresh = (time.time() - draft.get("ts", 0)) <= SESSION_GAP_S
+    fields = dict(draft.get("fields") or {}) if fresh else {}
+    for k in _INS_KEYS:
+        if result.get(k) not in (None, "", []):
+            fields[k] = result[k]
+    _ins_draft[phone] = {"fields": fields, "ts": time.time()}
+    return {**fields, **{k: v for k, v in result.items() if v not in (None, "", [])}}
 
 
 def _failure_reply(
@@ -1052,13 +1102,18 @@ async def run_booking(phone: str, fields: dict) -> None:
         # ביטוח: מספר הנוסעים נגזר מתאריכי הלידה (לא מ-party_size), אין "שעה",
         # וחבילת הנסיעה עוברת ל-task כמו שהיא. form_answers = תשובות MISSING שנאספו.
         party = (len(birth_dates) or 1) if insurance else (fields.get("party_size") or 2)
+        # "בלי הרחבות" חוזר מה-extract כ"אין"/"לא" (required מכריח פליטה) — מנרמלים
+        # לריק כדי שה-task יקבל את המסלול הקנוני "שום הרחבה", לא הרחבה בשם "אין".
+        addons = (fields.get("addons") or "").strip()
+        if _norm_place(addons) in ("אין", "לא", "בלי", "כלום", "ללא"):
+            addons = ""
         ins_payload = (
             {
                 "destination": (fields.get("destination") or "").strip(),
                 "return_date": fields.get("return_date") or "",
                 "travelers": birth_dates,
                 "health": fields.get("health_issues") or "אין",
-                "addons": fields.get("addons") or "",
+                "addons": addons,
             }
             if insurance
             else None
@@ -1619,6 +1674,9 @@ async def handle_inbound(phone: str, text: str, message_id: str | None = None) -
             _spawn(run_booking(phone, fields))
             return
     result = await converse(phone, text)
+    # ביטוח: צבירת חבילת-המראש על פני תורות — ready שנורה בלי שדה שנמסר קודם
+    # (ה-extract שכח) יוצא בכל זאת עם החבילה המלאה מהטיוטה.
+    result = _merge_insurance(phone, result)
     # MISSING מרובה-שדות: ה-extract מנתב כל תשובה ל-answers ("<מפתח>: <ערך>"), וכאן —
     # לא במודל — נסגרת ההחלטה מתי החבילה מלאה (הירי הדטרמיניסטי, כמו במסלול האופציות).
     pend = _await_answer.get(phone)
