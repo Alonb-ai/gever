@@ -112,6 +112,10 @@ def test_time_flexible_flows_to_job(monkeypatch, tmp_path):
     from app.config import settings
 
     settings.bu_record_dir = str(tmp_path)
+    # בלי browserbase: אחרת הטסט יוצר סשן Browserbase *אמיתי* (ומדליף אותו) בכל ריצה,
+    # ונופל על 401 בסביבה בלי מפתח תקף — נצפה בסבבי המסעדות 16.7.
+    monkeypatch.setattr(settings, "bu_browser", "")
+    monkeypatch.setattr(settings, "bu_chrome_path", "")
     jobs = []
 
     async def fake_run(job):
