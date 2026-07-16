@@ -43,6 +43,10 @@ def _arg(i: int, default: str) -> str:
 
 
 # --- נתוני הבדיקה של לולאת העומק (דמה בלבד — מותרים לפי חוקי הברזל של הספייק) ---
+# לקח ריצה חיה 3.1: ערכי-בדיקה קנוניים (ת"ז 123456782/111111118, טלפון 0501234567,
+# example.com, "ישראלי") מדליקים אצל פספורטכארד soft-block "בהתאם לנתונים שהזנת לא
+# ניתן להתקדם ברכישה באתר" (FAILED:phone_only) אחרי ההצהרה הרפואית — נתוני הדמה
+# חייבים להיראות סבירים: ת"ז אקראית עם ספרת ביקורת תקינה, דומיין מייל אמיתי.
 _P2 = re.compile(r"p2|passenger_?2|traveler_?2|second")
 # שאלות רפואיות = הצהרה משפטית: הספייק לעולם לא עונה עליהן, גם לא מנתוני בדיקה.
 _HEALTH = re.compile(
@@ -59,7 +63,7 @@ def _test_answer(key: str, options_by_field: dict) -> str | None:
         return None
     p2 = bool(_P2.search(key))
     if key == "id" or "id_number" in key or key.endswith("_id"):
-        return "111111118" if p2 else "123456782"  # ת"ז דמה עם ספרת ביקורת תקינה
+        return "376435996" if p2 else "389784208"  # ת"ז דמה אקראית עם ספרת ביקורת תקינה
     if "gender" in key or "sex" in key:
         return "נקבה" if p2 else "זכר"
     if "birth" in key:
@@ -67,11 +71,11 @@ def _test_answer(key: str, options_by_field: dict) -> str | None:
     if "first_name" in key:
         return ("Dana" if p2 else "Alon") if "english" in key else ("דנה" if p2 else "אלון")
     if "last_name" in key or "family" in key:
-        return "Israeli" if "english" in key else "ישראלי"
+        return "Levi" if "english" in key else "לוי"
     if "email" in key:
-        return "alon.test@example.com"
+        return "alonlevi1990@gmail.com"
     if "phone" in key or "mobile" in key:
-        return "0501234567"
+        return "0523894716"
     opts = options_by_field.get(key) or []
     if opts and _SAFE_CHOICE.search(key):
         return opts[0]
@@ -114,9 +118,9 @@ async def main() -> None:
         time="",
         party_size=2,
         # נתוני דמה מלאים — כדי להגיע רחוק ככל האפשר לפני עצירת MISSING כנה.
-        name="אלון ישראלי",
-        email="alon.test@example.com",
-        phone="0501234567",
+        name="אלון לוי",
+        email="alonlevi1990@gmail.com",
+        phone="0523894716",
         dry_run=DRY_RUN,  # חוק ברזל: לעולם לא False באבטיפוס
         task_type="insurance",
         insurance={

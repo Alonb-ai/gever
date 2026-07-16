@@ -63,6 +63,8 @@ def test_insurance_task_carries_trip_iron_rules_and_markers():
     assert "לקוח קיים" in task
     assert "אסור להמציא" in task
     assert "הצהרה משפטית" in task
+    # סבב 3: "אין" מכסה ארבע קטגוריות כולל הריון — שאלת ההריון (עצירת סבב 2) נענית כדין
+    assert "ארבע הקטגוריות" in task and "אף נוסעת אינה בהריון" in task
     # פרוטוקול האיסוף המרוכז: FIELD/OPTIONS ממופתחים + MISSING בשורה אחת
     # (סבב 2: היעד הוא מדינה מחיפוש טקסט חופשי — לא אזור/יבשת; לקח ריצה חיה 1)
     assert "FIELD" in task and "OPTIONS destination:" in task
@@ -195,6 +197,8 @@ def test_schema_and_extract_carry_insurance_fields():
         assert key in props, key
     assert "insurance" in pipeline._SCHEMA["properties"]["task_type"]["enum"]
     assert "answers" in pipeline._EXTRACT and "health_issues" in pipeline._EXTRACT
+    # סבב 3: השאלה המרוכזת בשיחה מכסה גם הריון (לקח ריצה חיה 2 — הטופס שואל כל נוסעת)
+    assert "בהריון" in pipeline._EXTRACT
 
 
 def _reset():
