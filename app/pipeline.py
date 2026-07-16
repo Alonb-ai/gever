@@ -319,6 +319,64 @@ async def _heartbeat(phone: str) -> None:
         await _send_and_record(phone, msg)
 
 
+NUDGE_DELAY_S = 300  # ~5 דק' בלי מענה על שאלה/אישור/כרטיס → תזכורת אחת ויחידה
+
+
+# ניסוחי הנדנוד לפי הקשר ההמתנה. עוגנים ל-_vary: question="תשובה",
+# confirm=שורש סגירה ("לסגור"/"סוגר"), card="לינק" — הטסטים נועלים עוגן, לא נוסח.
+NUDGE_MSGS = {
+    "question": (
+        "עוד מחכה לתשובה שלך פה — זה כל מה שחסר לי כדי להמשיך 🤙",
+        "רגע, בלי תשובה אני תקוע — ברגע שיש אני ממשיך 🔄",
+        "עדיין פה 🦾 מחכה רק לתשובה שלך וממשיך מאותה נקודה",
+    ),
+    "confirm": (
+        "ההזמנה עוד מוכנה אצלי ומחכה רק למילה שלך — לסגור? 🎯",
+        "רק מזכיר: הכל ערוך ומוכן אצלי, אישור אחד ממך ואני סוגר 🤙",
+        "ההזמנה עדיין על השולחן — אומרים לי לסגור ואני סוגר 🔄",
+    ),
+    "card": (
+        "הלינק ששלחתי עוד מחכה לך — שווה לסגור לפני שהוא פג 🤙",
+        "רק מזכיר: הלינק עוד חי, אבל לא לנצח — כמה דקות והוא שלך 🔄",
+        "ההזמנה עוד פתוחה בלינק ששלחתי — הוא לא יחכה שם לנצח 🎯",
+    ),
+}
+
+# טיימר הנדנוד הפעיל per-phone (אחד לכל היותר). בכוונה לא נשמר ב-_flow ולא
+# משוחזר ב-_restore_flow: נדנוד הוא best-effort — redeploy באמצע ההמתנה פשוט
+# מוותר על התזכורת, לא שווה עוד state מותמד.
+_nudge: dict = {}
+
+
+def _cancel_nudge(phone: str) -> None:
+    """הודעה נכנסת מהלקוח = הוא כאן — הנדנוד הממתין מתבטל."""
+    t = _nudge.pop(phone, None)
+    if t:
+        t.cancel()
+
+
+def _arm_nudge(phone: str, kind: str) -> None:
+    """נדנוד עדין: גבר שאל ומחכה ללקוח (שאלה/אישור/כרטיס) — אחרי NUDGE_DELAY_S
+    בלי הודעה נכנסת נשלחת תזכורת *אחת* בדמות, וזהו (לא לולאה — יותר מזה נודניק).
+    arming חדש מחליף טיימר קודם, כך שלעולם אין שניים במקביל."""
+    _cancel_nudge(phone)
+
+    async def _later() -> None:
+        await asyncio.sleep(NUDGE_DELAY_S)
+        await _send_and_record(phone, _vary(*NUDGE_MSGS[kind]))
+
+    task = asyncio.create_task(_later())
+    _nudge[phone] = task  # strong ref לכל חיי הטיימר — GC לא מעלים אותו
+
+    def _done(t: asyncio.Task) -> None:
+        if _nudge.get(phone) is t:
+            del _nudge[phone]
+        if not t.cancelled() and t.exception() is not None:
+            log.error("nudge task died: %r", t.exception())
+
+    task.add_done_callback(_done)
+
+
 def _agreed_line(details: dict | None) -> str:
     """תמצית ההסכמות (צ'קבוקסים) שה-agent סימן בשם הלקוח — שקיפות בהודעת הסיום
     (בקשת אלון 15.7): שום תקנון/תנאי לא נחתם בשקט. ריק כשלא סומן כלום."""
@@ -989,6 +1047,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                     + recap
                     + _agreed_line(d0),
                 )
+                _arm_nudge(phone, "card")  # הסשן ממתין — תזכורת אחת אם הלקוח נעלם
                 return
             # DRY_RUN: הגענו למסך האישור — זו *לא* הזמנה אמיתית. לכן לא "done", לא
             # log_booking, ולא לזייף "סגור" (חוק הברזל). שומרים רק פרופיל (שם/מייל)
@@ -1049,6 +1108,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                 f"{head}\n{when}בשעה {at} ל-{fields.get('party_size') or 2} — {ready_word}"
                 f"{perk_line}{_agreed_line(d)}\n{closer}",
             )
+            _arm_nudge(phone, "confirm")  # "לסגור?" נשלח — מחכים לאישור הלקוח
         elif (res.details or {}).get("missing"):
             # באג 3: שדה חובה בטופס היה ריק (ה-runner לא המציא, עצר ודיווח MISSING).
             # מנגנון אחד כמו none/ambiguous: גבר מבקש מהלקוח את השדה וממתין — בלי
@@ -1110,6 +1170,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                         ),
                         real,
                     )
+                _arm_nudge(phone, "question")  # שאלה פתוחה — תזכורת אחת בלי מענה
                 return
             if len(real) >= 2:
                 # הכותרת אומרת *מה* בוחרים (המלצת תחקיר) — בלי הסוגריים הגנריים
@@ -1132,6 +1193,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                         f"צריך ממך רק {_human} ואני סוגר את זה",
                     ),
                 )
+            _arm_nudge(phone, "question")  # שאלה פתוחה — תזכורת אחת בלי מענה
             return
         else:
             # res.summary הוא הטקסט הגולמי (אנגלית) של browser-use — לעולם לא ללקוח
@@ -1304,6 +1366,7 @@ async def run_commit(phone: str) -> None:
                 )
                 + _agreed_line(d),
             )
+            _arm_nudge(phone, "card")  # הלינק מחכה — תזכורת אחת אם הלקוח נעלם
         else:
             # כמו ב-run_booking: סיבה מוכרת → אמת ספציפית; אחרת הפלט הגולמי לא
             # ללקוח ולא ל-truth_note — debug בלבד.
@@ -1357,6 +1420,7 @@ async def run_commit(phone: str) -> None:
 
 async def handle_inbound(phone: str, text: str, message_id: str | None = None) -> None:
     """נקודת הכניסה מה-webhook: שיחה, תשובה, וכשמוכן — הזמנה/סגירה ברקע."""
+    _cancel_nudge(phone)  # הלקוח ענה — תזכורת ממתינה כבר מיותרת
     await send_typing(message_id)  # 'מקליד…' בזמן שגבר חושב; התשובה תנקה אותו
     # resume דטרמיניסטי (המלצת התחקיר): עומדת שאלת MISSING עם אופציות ששלחנו,
     # והתשובה (טאפ/הקלדה) תואמת אופציה אחת-לאחת — יורים ישר בלי מודל באמצע.
