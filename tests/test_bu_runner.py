@@ -347,6 +347,8 @@ def test_concert_task_keeps_contract_and_event_rules():
     assert "MISSING:date" in recon and "OPTIONS:" in recon
     assert "MISSING:price_category" in recon
     assert "FAILED:sold_out" in recon and "FAILED:no_event_in_city" in recon
+    # לקח ריצה חיה (ev2): תבניות "אזלו" נסתרות ב-SPA לא קובעות sold_out — רק מה שמוצג
+    assert "תבניות טקסט נסתרות" in recon and "חזותית" in recon
     assert "MISSING:id_number" in recon and "לעולם אל תמציא" in recon
     assert "MISSING:seats" in recon
     assert "FAILED:login_required" in recon
