@@ -60,10 +60,11 @@ async def main() -> None:
         date=when,
         time="",  # אין שעה מבוקשת בהופעות — נגזרת מהמופע
         party_size=party,
-        # פרטי בדיקה מלאים (שם פרטי + משפחה) — כדי לעבור את טופס הפרטים עד קיר-הכרטיס.
-        name="אלון ישראלי",
-        email="alon.test@example.com",
-        phone="0501234567",
+        # פרטי הלקוח האמיתיים (באישור אלון, סבב 4) — כדי לעבור את טופס הפרטים עד
+        # קיר-הכרטיס. ת"ז/תשלום לעולם לא: אלה עוצרים MISSING:id_number/CARD_REQUIRED.
+        name="אלון בזק",
+        email="abazak@gmail.com",
+        phone="0544820137",
         dry_run=True,  # חוק ברזל: לעולם לא False באבטיפוס
         task_type="events",
         artist=artist,
