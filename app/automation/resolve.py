@@ -34,16 +34,18 @@ _PLATFORMS: list[tuple[str, re.Pattern, str]] = [
 # קולנוע (סדר = תיעדוף): פלאנט ורב-חן חולקות פלטפורמה (אותם movie ids, נבדק חי 14.07.26),
 # ולכן רב-חן היא ה-fallback הטבעי כשבעיר אין פלאנט. yesplanet באלטרנציה — Brave עלול
 # עוד להחזיר את הדומיין הישן (redirect 302); הקנוני תמיד planetcinema.
+_PLANET_FILM = re.compile(r"(?:planetcinema|yesplanet)\.co\.il/films/([a-z0-9-]+/\d+s\d+r)")
+_RAVHEN_CANON = "https://www.rav-hen.co.il/films/{}"
 _CINEMA_PLATFORMS: list[tuple[str, re.Pattern, str]] = [
     (
         "planet",
-        re.compile(r"(?:planetcinema|yesplanet)\.co\.il/films/([a-z0-9-]+/\d+s\d+r)"),
+        _PLANET_FILM,
         "https://www.planetcinema.co.il/films/{}",
     ),
     (
         "rav-hen",
         re.compile(r"rav-hen\.co\.il/films/([a-z0-9-]+/\d+s\d+r)"),
-        "https://www.rav-hen.co.il/films/{}",
+        _RAVHEN_CANON,
     ),
     (
         "cinema-city",
@@ -218,15 +220,39 @@ async def resolve_reservation_url(name: str) -> dict:
     return _pick(name, candidates, _PLATFORMS, drop_listings=True)
 
 
+async def _ravhen_from_planet(candidates: list[dict]) -> list[dict]:
+    """רב-חן כמעט לא מאונדקסת ב-Brave (נצפה חי 16.07.26: אפס תוצאות rav-hen לסרט
+    שרץ בפועל ברב-חן) — אבל היא חולקת פלטפורמה ומזהי סרטים עם פלאנט, ולכן דף הסרט
+    נגזר ישירות מה-match של פלאנט (אותו נתיב /films/<slug>/<id>). GET *בלי* redirects
+    מאמת שהסרט באמת מוקרן ברב-חן: 200 = דף סרט חי, 302 = לא קיים שם (נבדק חי
+    16.07.26 מול סרטי planet-only). best-effort — כשל רשת מדלג, לא מפיל."""
+    out = []
+    async with httpx.AsyncClient(timeout=10, headers={"User-Agent": UA}) as http:
+        for c in [c for c in candidates if c["platform"] == "planet"][:3]:
+            m = _PLANET_FILM.search(c["url"])
+            if not m:
+                continue
+            url = _RAVHEN_CANON.format(m.group(1))
+            try:
+                if (await http.get(url)).status_code == 200:
+                    out.append({"title": c["title"], "url": url, "platform": "rav-hen"})
+            except Exception:  # noqa: BLE001
+                pass
+    return out
+
+
 async def resolve_cinema_url(movie: str, chain: str | None = None) -> dict:
     """כמו resolve_reservation_url, לסרטים: אותו חוזה החזרה בדיוק, על _CINEMA_PLATFORMS.
     בלי סינון _is_listing (ה-regex כבר משאיר רק דפי רשתות); כלל הברזל נשמר — אין
     match חזק → many/none, לעולם לא בוחרים סרט לבד (שם דו-משמעי / גרסה מחודשת).
     העיר לא משתתפת כאן — דף הסרט ארצי, בחירת הסניף קורית בתוך זרימת הרכישה.
     chain (למשל "cinema-city"): הלקוח ביקש רשת ספציפית → מתעלמים מהאחרות
-    (בלעדיהם פלאנט תמיד מנצחת, כי היא ראשונה בסדר התיעדוף)."""
+    (בלעדיהם פלאנט תמיד מנצחת, כי היא ראשונה בסדר התיעדוף). chain="rav-hen"
+    בלי תוצאת rav-hen מ-Brave → גזירה מפלאנט (_ravhen_from_planet)."""
     candidates = await search_cinema(movie)
     await _real_titles(candidates)  # כותרות-URL קורות גם כאן
+    if chain == "rav-hen" and not any(c["platform"] == "rav-hen" for c in candidates):
+        candidates += await _ravhen_from_planet(candidates)
     platforms = [p for p in _CINEMA_PLATFORMS if p[0] == chain] if chain else _CINEMA_PLATFORMS
     return _pick(movie, candidates, platforms, drop_listings=False)
 

@@ -421,6 +421,93 @@ def test_resolve_cinema_chain_steers_past_planet(monkeypatch):
     assert res["platform"] == "planet"
 
 
+class _FakeHTTP:
+    """AsyncClient מזויף ל-_ravhen_from_planet: מחזיר status קבוע (או זורק)."""
+
+    status = 200
+    calls: list = []
+
+    def __init__(self, *a, **k):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url):
+        _FakeHTTP.calls.append(url)
+        if isinstance(_FakeHTTP.status, Exception):
+            raise _FakeHTTP.status
+        return type("R", (), {"status_code": _FakeHTTP.status})()
+
+
+_HINA_PLANET_ONLY = [
+    {
+        "title": "חינה אמריקאית",
+        "url": "https://www.planetcinema.co.il/films/american-hina/8256s2r",
+        "platform": "planet",
+    },
+    {
+        "title": "חינה אמריקאית",
+        "url": "https://www.cinema-city.co.il/movie/6117",
+        "platform": "cinema-city",
+    },
+]
+
+
+def test_resolve_cinema_chain_ravhen_derives_from_planet(monkeypatch):
+    """chain="rav-hen" כש-Brave לא מחזיר אף תוצאת rav-hen (נצפה חי 16.07.26 —
+    רב-חן כמעט לא מאונדקסת): דף הסרט נגזר מה-match של פלאנט (אותה פלטפורמה,
+    אותם movie ids), אחרי אימות GET שהחזיר 200."""
+    monkeypatch.setattr(resolve, "search_cinema", _fake_search(list(_HINA_PLANET_ONLY)))
+    monkeypatch.setattr(resolve.httpx, "AsyncClient", _FakeHTTP)
+    _FakeHTTP.status, _FakeHTTP.calls = 200, []
+    res = asyncio.run(resolve.resolve_cinema_url("חינה אמריקאית", chain="rav-hen"))
+    assert res["status"] == "one" and res["platform"] == "rav-hen"
+    assert res["url"] == "https://www.rav-hen.co.il/films/american-hina/8256s2r"
+    assert _FakeHTTP.calls == ["https://www.rav-hen.co.il/films/american-hina/8256s2r"]
+
+
+def test_resolve_cinema_chain_ravhen_302_means_not_showing(monkeypatch):
+    """הסרט לא מוקרן ברב-חן → ה-GET מחזיר 302 (נבדק חי מול סרטי planet-only) —
+    אין גזירה, ולעולם לא ממציאים "one" על רשת שאין בה את הסרט. גם כשל רשת
+    (best-effort) לא מפיל את ה-resolve."""
+    monkeypatch.setattr(resolve, "search_cinema", _fake_search(list(_HINA_PLANET_ONLY)))
+    monkeypatch.setattr(resolve.httpx, "AsyncClient", _FakeHTTP)
+    _FakeHTTP.status, _FakeHTTP.calls = 302, []
+    res = asyncio.run(resolve.resolve_cinema_url("חינה אמריקאית", chain="rav-hen"))
+    assert res["status"] != "one"
+    assert res["url"] is None
+
+    _FakeHTTP.status = RuntimeError("network down")
+    res = asyncio.run(resolve.resolve_cinema_url("חינה אמריקאית", chain="rav-hen"))
+    assert res["status"] != "one"
+
+
+def test_resolve_cinema_ravhen_no_derivation_without_chain(monkeypatch):
+    """בלי chain אין גזירה (פלאנט ממילא מנצחת — אין מה לשלם GET מיותר), וכשיש
+    תוצאת rav-hen אמיתית מ-Brave היא מנצחת בלי GET."""
+    monkeypatch.setattr(resolve, "search_cinema", _fake_search(list(_HINA_PLANET_ONLY)))
+    monkeypatch.setattr(resolve.httpx, "AsyncClient", _FakeHTTP)
+    _FakeHTTP.status, _FakeHTTP.calls = 200, []
+    res = asyncio.run(resolve.resolve_cinema_url("חינה אמריקאית"))
+    assert res["platform"] == "planet" and _FakeHTTP.calls == []
+
+    real_ravhen = list(_HINA_PLANET_ONLY) + [
+        {
+            "title": "חינה אמריקאית",
+            "url": "https://www.rav-hen.co.il/films/american-hina/8256s2r",
+            "platform": "rav-hen",
+        }
+    ]
+    monkeypatch.setattr(resolve, "search_cinema", _fake_search(real_ravhen))
+    res = asyncio.run(resolve.resolve_cinema_url("חינה אמריקאית", chain="rav-hen"))
+    assert res["status"] == "one" and res["platform"] == "rav-hen"
+    assert _FakeHTTP.calls == []
+
+
 def test_from_brave_cinema_city_strips_site_name_suffix():
     """כותרות סינמה סיטי חיות ("<סרט> - סינמה סיטי") — שם האתר נחתך, כך שגרסה
     מדובבת-לרוסית נשארת מובחנת והגרסה המבוקשת המדויקת נבחרת (נצפה חי 15.07.26:
