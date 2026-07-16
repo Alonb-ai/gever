@@ -265,6 +265,32 @@ def _parse_result(final: str, *, commit: bool) -> dict:
     }
 
 
+def _il_tz_hook(resume: bool):
+    """on_step_start: שעון ישראל לדפדפן (Emulation.setTimezoneOverride).
+
+    הדפדפן של Browserbase רץ בחו"ל, ואתר שמרנדר שעות ב-JS לפי שעון הדפדפן מציג
+    ללקוח שעה אמריקאית — נצפה חי בסבב 3 של ההופעות (לאן, אירוע 5237): הדף הציג
+    "13:00" (17:00 UTC בשעון החוף המזרחי) למופע שמתחיל 20:00 שעון ישראל.
+    ההזרקה רצה בכל צעד (idempotent, מילישניות) כי טאבים/targets מתחלפים; reload
+    חד-פעמי כי הדף הראשון כבר רונדר לפני ה-override — אבל לא ב-resume, שם המסך
+    החי מחזיק בחירות (מושבים) ש-reload היה מוחק."""
+    state = {"first": True}
+
+    async def hook(agent) -> None:
+        try:
+            s = await agent.browser_session.get_or_create_cdp_session()
+            await s.cdp_client.send.Emulation.setTimezoneOverride(
+                params={"timezoneId": "Asia/Jerusalem"}, session_id=s.session_id
+            )
+            if state["first"] and not resume:
+                await s.cdp_client.send.Page.reload(session_id=s.session_id)
+            state["first"] = False
+        except Exception:  # noqa: BLE001 — best-effort: שעה שגויה עדיפה על ריצה שמתה
+            pass
+
+    return hook
+
+
 def _profile_kwargs(job: dict) -> dict:
     kwargs: dict = {"headless": job.get("headless", True)}
     if job.get("cdp_url"):  # browserbase / remote — stealth+captcha חיים שם
@@ -320,7 +346,10 @@ async def _run(job: dict) -> dict:
         agent_kwargs["save_conversation_path"] = os.path.join(rec, "conversation")
 
     agent = Agent(**agent_kwargs)
-    history = await agent.run(max_steps=job.get("max_steps", 40))
+    history = await agent.run(
+        max_steps=job.get("max_steps", 40),
+        on_step_start=_il_tz_hook(bool(job.get("resume"))),
+    )
     final = (history.final_result() or "").strip()
     return _parse_result(final, commit=not job.get("dry_run", True))
 

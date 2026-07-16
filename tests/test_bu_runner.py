@@ -7,7 +7,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.automation.bu_runner import _build_task, _parse_result, _profile_kwargs  # noqa: E402
+from app.automation.bu_runner import (  # noqa: E402
+    _build_task,
+    _il_tz_hook,
+    _parse_result,
+    _profile_kwargs,
+)
 
 _JOB = {
     "url": "https://tabitisrael.co.il/site/גרקו",
@@ -189,3 +194,87 @@ if __name__ == "__main__":
     import pytest
 
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+# --- _il_tz_hook: שעון ישראל לדפדפן (נצפה חי ev3: לאן הציגה 13:00 EDT למופע של 20:00 IL) ---
+
+
+class _FakeCDPSession:
+    """מדמה CDPSession של browser-use: מקליט קריאות Emulation/Page."""
+
+    def __init__(self, calls: list, fail: bool = False):
+        self.session_id = "sess-1"
+        self._calls = calls
+        self._fail = fail
+        outer = self
+
+        class _Emulation:
+            async def setTimezoneOverride(self, params, session_id=None):
+                if outer._fail:
+                    raise RuntimeError("cdp down")
+                outer._calls.append(("tz", params["timezoneId"], session_id))
+
+        class _Page:
+            async def reload(self, session_id=None):
+                outer._calls.append(("reload", session_id))
+
+        class _Send:
+            Emulation = _Emulation()
+            Page = _Page()
+
+        class _Client:
+            send = _Send()
+
+        self.cdp_client = _Client()
+
+
+class _FakeAgent:
+    def __init__(self, calls: list, fail: bool = False):
+        outer_session = _FakeCDPSession(calls, fail=fail)
+
+        class _BS:
+            async def get_or_create_cdp_session(self):
+                return outer_session
+
+        self.browser_session = _BS()
+
+
+def test_il_tz_hook_sets_israel_tz_and_reloads_once():
+    """ריצה טרייה: כל צעד מזריק Asia/Jerusalem; reload רק בצעד הראשון (הדף הראשון
+    כבר רונדר בשעון חו"ל לפני ה-override)."""
+    import asyncio
+
+    calls: list = []
+    hook = _il_tz_hook(resume=False)
+    agent = _FakeAgent(calls)
+    asyncio.run(hook(agent))
+    asyncio.run(hook(agent))
+    assert calls == [
+        ("tz", "Asia/Jerusalem", "sess-1"),
+        ("reload", "sess-1"),
+        ("tz", "Asia/Jerusalem", "sess-1"),
+    ]
+
+
+def test_il_tz_hook_resume_never_reloads():
+    """resume: המסך החי מחזיק בחירות (מושבים) — reload היה מוחק אותן."""
+    import asyncio
+
+    calls: list = []
+    hook = _il_tz_hook(resume=True)
+    agent = _FakeAgent(calls)
+    asyncio.run(hook(agent))
+    asyncio.run(hook(agent))
+    assert all(c[0] == "tz" for c in calls) and len(calls) == 2
+
+
+def test_il_tz_hook_swallows_cdp_failure_and_retries_reload():
+    """best-effort: כשל CDP לא מפיל את הריצה, וה-reload החד-פעמי עוד ינוסה בצעד הבא."""
+    import asyncio
+
+    calls: list = []
+    hook = _il_tz_hook(resume=False)
+    asyncio.run(hook(_FakeAgent(calls, fail=True)))  # נופל בשקט
+    assert calls == []
+    asyncio.run(hook(_FakeAgent(calls)))  # הצעד הבא: tz + reload (first עוד דלוק)
+    assert calls == [("tz", "Asia/Jerusalem", "sess-1"), ("reload", "sess-1")]
