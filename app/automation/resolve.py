@@ -25,13 +25,27 @@ BRAVE = "https://api.search.brave.com/res/v1/web/search"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
 _PAGE = re.compile(r"ontopo\.com/[a-z]{2}/[a-z]{2}/page/(\d+)")
 _TABIT = re.compile(r"tabitisrael\.co\.il/site/([^/?&\"#]+)")
+# דיפ-לינק ההזמנות של טאביט (orgId) — נצפה חי (גרקו הרצליה, 16.7): דף הטאביט היחיד
+# בתוצאות החיפוש היה online-reservations/create-reservation?orgId=..., והרגקס של
+# /site/ פספס אותו → אחרי פסילת דף-הרפאים של Ontopo נשאר none במקום טאביט חי.
+_TABIT_ORG = re.compile(
+    r"tabitisrael\.co\.il/online-reservations/[^\s\"'<>]*?orgId=([0-9a-fA-F]{6,})"
+)
 _TAG = re.compile(r"<[^>]+>")
 
-# סדר = תיעדוף: שתיהן קיימות → Ontopo. ה-regex לוכד מזהה קנוני (page id / slug) ל-dedup.
+# סדר = תיעדוף: שתיהן קיימות → Ontopo. ה-regex לוכד מזהה קנוני (page id / slug / orgId)
+# ל-dedup. אותה פלטפורמה יכולה להופיע עם כמה תבניות URL.
 _PLATFORMS: list[tuple[str, re.Pattern, str]] = [
     ("ontopo", _PAGE, "https://ontopo.com/he/il/page/{}"),
     ("tabit", _TABIT, "https://www.tabitisrael.co.il/site/{}"),
+    (
+        "tabit",
+        _TABIT_ORG,
+        "https://www.tabitisrael.co.il/online-reservations/create-reservation?step=search&orgId={}",
+    ),
 ]
+# סדר התיעדוף בין פלטפורמות (בלי כפילויות) — ל-_select, שעובר פלטפורמה-פלטפורמה.
+_PLATFORM_ORDER = tuple(dict.fromkeys(p for p, _, _ in _PLATFORMS))
 
 
 def _clean(t: str) -> str:
@@ -65,6 +79,23 @@ def _is_clean_name(req: str, title: str) -> bool:
     req_words = set(req.split())
     extra = [w for w in title.split() if w not in req_words]
     return all(w in _NOISE_WORDS for w in extra)
+
+
+def _brand_first(requested: str, pool: list[dict]) -> list[dict]:
+    """סדר כנות לרשימת ה-many החלשה (אף מועמד לא עבר match חזק): קודם מי שמכיל את
+    מילת המותג — המילה הראשונה בבקשה — ואז לפי חפיפת שאר המילים. נצפה חי (הדסון
+    ראשון לציון, 16.7): "דדה ראשון לציון" עמדה ראשונה רק כי חלקה את שם העיר עם
+    הבקשה, וסניפי הדסון האמיתיים נדחקו מתחתיה."""
+    words = [w for w in _norm(requested).split() if len(w) >= 2]
+    if not words:
+        return pool
+    brand, rest = words[0], words[1:]
+
+    def _key(c: dict) -> tuple[bool, int]:
+        nc = _norm(c["title"])
+        return (brand in nc, sum(w in nc for w in rest))
+
+    return sorted(pool, key=_key, reverse=True)  # יציב: שוויון שומר את סדר Brave
 
 
 def _match_restaurant(requested: str, candidates: list[str]) -> tuple[str, str | None, list[str]]:
@@ -149,9 +180,10 @@ def _candidate(url: str, raw_title: str, seen: set) -> dict | None:
             continue
         seen.add((platform, m.group(1)))
         title = _clean(raw_title)
-        if platform == "tabit":
+        if pattern is _TABIT:
             # כותרות Tabit בתוצאות חיפוש גנריות ("הזמנת מקום - טאביט") — שם המסעדה
             # יושב ב-slug של ה-URL. מוסיפים אותו לכותרת כדי שהדיסאמביגואציה תעבוד.
+            # (רק לתבנית /site/ — ב-orgId המזהה הוא hex חסר-משמעות, לא שם.)
             slug = urllib.parse.unquote(m.group(1)).replace("-", " ").strip()
             if slug and slug not in title:
                 title = f"{title} | {slug}"
@@ -300,7 +332,7 @@ async def resolve_reservation_url(name: str) -> dict:
 
     def _select(pool: list[dict]) -> tuple[str | None, dict | None, dict | None]:
         primary, fallback = None, None
-        for platform, _, _ in _PLATFORMS:
+        for platform in _PLATFORM_ORDER:
             plat = [c for c in pool if c["platform"] == platform]
             if not plat:
                 continue
@@ -356,7 +388,7 @@ async def resolve_reservation_url(name: str) -> dict:
             "status": "many",
             "url": None,
             "platform": None,
-            "candidates": pool,
+            "candidates": _brand_first(name, pool),
             "fallback": None,
         }
     # אפס דפי פלטפורמה בחיפוש — לפני שמוותרים: לינק פלטפורמה מהאתר של המסעדה עצמה

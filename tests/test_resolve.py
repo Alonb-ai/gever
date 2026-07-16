@@ -75,6 +75,115 @@ def test_tabit_no_match_on_other_paths():
     assert _TABIT.search("https://www.tabitisrael.co.il/online-reservations/create") is None
 
 
+def test_tabit_org_deeplink_becomes_candidate():
+    """דיפ-לינק orgId של טאביט (תרחיש גרקו הרצליה, 16.7) → מועמד tabit עם URL קנוני,
+    בלי לזהם את הכותרת ב-hex."""
+    data = {
+        "web": {
+            "results": [
+                {
+                    "url": "https://tabitisrael.co.il/online-reservations/create-reservation"
+                    "?step=search&orgId=5a005ba1b697f322003f3020",
+                    "title": "גרקו הרצליה - הזמנת מקום, הזמנת שולחן",
+                }
+            ]
+        }
+    }
+    out = _from_brave(data)
+    assert len(out) == 1
+    assert out[0]["platform"] == "tabit"
+    assert out[0]["url"] == (
+        "https://www.tabitisrael.co.il/online-reservations/create-reservation"
+        "?step=search&orgId=5a005ba1b697f322003f3020"
+    )
+    assert "5a005ba1" not in out[0]["title"]  # ה-hex לא נוסף לכותרת
+
+
+def test_dead_ontopo_falls_to_tabit_org_deeplink(monkeypatch):
+    """התרחיש המלא של גרקו הרצליה (נצפה חי 16.7): דף Ontopo רפאים + דיפ-לינק orgId
+    בתוצאות → הרפאים נפסל וטאביט (דיפ-לינק) זוכה, במקום none."""
+    org_url = (
+        "https://www.tabitisrael.co.il/online-reservations/create-reservation"
+        "?step=search&orgId=5a005ba1b697f322003f3020"
+    )
+
+    async def fake_search(name):
+        return [
+            {
+                "title": "גרקו הרצליה הרצליה: הזמנת מקום | אונטופו",
+                "url": "https://ontopo.com/he/il/page/96550266",
+                "platform": "ontopo",
+            },
+            {
+                "title": "גרקו הרצליה - הזמנת מקום, הזמנת שולחן",
+                "url": org_url,
+                "platform": "tabit",
+            },
+        ], []
+
+    async def fake_titles(c):
+        pass
+
+    async def fake_dead(url):
+        return "ontopo.com" in url
+
+    monkeypatch.setattr(resolve, "search_reservation", fake_search)
+    monkeypatch.setattr(resolve, "_real_titles", fake_titles)
+    monkeypatch.setattr(resolve, "_ontopo_dead", fake_dead)
+    r = asyncio.run(resolve_reservation_url("גרקו הרצליה"))
+    assert r["status"] == "one"
+    assert r["platform"] == "tabit"
+    assert r["url"] == org_url
+
+
+def test_site_fallback_finds_tabit_org_deeplink_in_body(monkeypatch):
+    """אתר-המסעדה מקשר להזמנות דרך דיפ-לינק orgId (ולא /site/) → נלכד, URL קנוני."""
+    raw = [{"title": "גרקו הרצליה - האתר הרשמי", "url": "https://www.greco.co.il/"}]
+    monkeypatch.setattr(resolve, "search_reservation", _fake_search([], raw))
+    _no_extra_brave(monkeypatch)
+    body = (
+        '<a href="https://tabitisrael.co.il/online-reservations/create-reservation'
+        '?step=search&amp;orgId=5a005ba1b697f322003f3020">הזמינו שולחן</a>'
+    )
+    _fake_site_http(monkeypatch, {"https://www.greco.co.il/": body})
+    res = asyncio.run(resolve_reservation_url("גרקו הרצליה"))
+    assert res["status"] == "one"
+    assert res["platform"] == "tabit"
+    assert res["url"].endswith("orgId=5a005ba1b697f322003f3020")
+
+
+def test_weak_many_puts_brand_word_first(monkeypatch):
+    """תרחיש הדסון ראשון לציון (נצפה חי 16.7): אין match חזק לאף מועמד — הרשימה
+    ללקוח חייבת להתחיל בסניפי המותג המבוקש, לא במסעדה שחולקת רק את שם העיר."""
+    monkeypatch.setattr(
+        resolve,
+        "search_reservation",
+        _fake_search(
+            [
+                {
+                    "title": "דדה ראשון לציון: הזמנת מקום | אונטופו",
+                    "url": "https://ontopo.com/he/il/page/68790380",
+                    "platform": "ontopo",
+                },
+                {
+                    "title": "הדסון לילינבלום תל אביב-יפו: הזמנת מקום | אונטופו",
+                    "url": "https://ontopo.com/he/il/page/22512632",
+                    "platform": "ontopo",
+                },
+                {
+                    "title": "Book now Hudson Ramat Hahayal Tel Aviv-Yafo | ontopo",
+                    "url": "https://ontopo.com/he/il/page/92184508",
+                    "platform": "ontopo",
+                },
+            ]
+        ),
+    )
+    res = asyncio.run(resolve_reservation_url("הדסון ראשון לציון"))
+    assert res["status"] == "many"
+    assert "הדסון" in res["candidates"][0]["title"]  # המותג ראשון
+    assert len(res["candidates"]) == 3  # אף מועמד לא נזרק — רק הסדר השתנה
+
+
 def test_from_brave_extracts_platform_candidates_and_dedups():
     # פורמט התשובה של Brave web search: data["web"]["results"] עם url+title.
     data = {
