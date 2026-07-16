@@ -180,13 +180,17 @@ def _parse_result(final: str, *, commit: bool) -> dict:
     # מרקר-הזמנה באמצע דיווח לעולם לא רושם הזמנה פנטום (הגנת R1 נשארת קשיחה).
     last = " ".join(lines[-3:])
     strict_last = lines[-1] if lines else ""
-    # דפדפן שמת באמצע (CDP נפל, timeout של LLM) משאיר דיווח ריק — שם מפורש במקום
-    # כישלון אילם (אוחד משני ענפי הוורטיקלים; נצפה חי 15.7 גם בהופעות וגם בביטוח).
-    empty_report = not lines
     card = "CARD_REQUIRED" in last
     missing = _marker_arg(last, "MISSING:") if "MISSING:" in last else ""
     failed = _marker_arg(last, "FAILED:") if "FAILED:" in last else ""
-    if empty_report:
+    # בלוק סיום בלי אף marker = ה-agent מת בלי לדווח → browser_error מפורש, לא שתיקה.
+    # נצפה חי פעמיים בענף ההופעות: דיווח ריק (סשן Browserbase נפל, HTTP 410, עצירה
+    # אחרי 5 כשלים) וגם דיווח זבל לא-ריק ("Waited for 5 seconds" —
+    # history.final_result() מהדהד את הפעולה האחרונה כשה-agent נקטע בלי done).
+    # החוזה מחייב marker בשורת הסיום — בלעדיו אין תוצאה, יש דפדפן שמת באמצע.
+    if not any(
+        m in last for m in ("SUMMARY_REACHED", "CARD_REQUIRED", "BOOKED", "MISSING:", "FAILED:")
+    ):
         failed = "browser_error"
     # השעה שנבחרה בפועל (החוזה: אחרי SUMMARY_REACHED) — כדי שגבר יציע חלופה ללקוח
     # ("יש 21:00 במקום 20:30, מתאים?") לפני הסגירה, וה-commit יסגור את מה שאושר.
