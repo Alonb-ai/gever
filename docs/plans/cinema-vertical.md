@@ -148,6 +148,32 @@ planet-only). הגזירה רצה רק עם chain מפורש — בלי chain פ
 
 `ruff check` + `ruff format --check` + `pytest` (176) ירוקים.
 
+### חיווט chain — מהשיחה ועד ה-resolve (17.07.26)
+
+הפער האחרון לפני merge: הרשת הגיעה רק דרך הספייק (ארג' 6) — עכשיו מחווטת
+מקצה לקצה. קריטי לרב-חן, שה-resolve שלה תלוי ב-chain מפורש (`_ravhen_from_planet`).
+
+- **extract** (`app/pipeline.py`): שדה `chain` בסכמה (enum `_CINEMA_CHAINS` =
+  planet / rav-hen / cinema-city) + הנחיה ב-`_EXTRACT`: רק כשהלקוח נקב ברשת או
+  בשם סניף שלה; לא נקב → משמיטים (רשת היא לא ניחוש); "רב חן גבעתיים" =
+  chain **וגם** city.
+- **run_booking**: `chain` נקרא מה-fields עם בלימה של ערך זר מהמודל (chain לא
+  מוכר היה מרוקן את הפלטפורמות ב-resolve ומחזיר none מבלבל) → עובר
+  ל-`resolve_cinema_url(name, chain=...)`. קאש `_resolved`: "תנסה ברב חן" על
+  אותו סרט אחרי resolve לפלאנט — chain ששונה מהפלטפורמה שבקאש פוסל אותו.
+- **טסטים** (3 חדשים, 179 ירוקים): chain מגיע ל-resolver ונבלם כשהוא זר; פסילת
+  הקאש; וטסט חוזה — `_CINEMA_CHAINS` ⇔ מפתחות `_CINEMA_PLATFORMS` ⇔ ה-enum בסכמה.
+- **extract חי (Gemini אמיתי)**: "ברב חן גבעתיים" → `chain=rav-hen` +
+  `city=גבעתיים`; "בסינמה סיטי ראשון" → `cinema-city`; בלי רשת → chain ריק
+  (לא הומצאה העדפה). שלוש/שלוש.
+- **אימות חי (DRY_RUN)**: fields כמו-מה-extract עם `chain="rav-hen"` דרך
+  `run_booking` האמיתי (וואטסאפ/Supabase מדומים; resolve + דפדפן אמיתיים) —
+  resolve חזר one/rav-hen, והריצה נעצרה בכנות על קיר-הכרטיס:
+  `SUMMARY_REACHED 20:00 | שורה 6 מושבים 5,6` + `CARD_REQUIRED`,
+  `tickets5.rav-hen.co.il/order/284741` (ההקרנה אומתה מראש מול ה-API הציבורי:
+  חינה אמריקאית, גבעתיים, 18.7 20:00 אולם 6; פרטי לקוח אמיתיים באישור אלון).
+  הסשן שוחרר. הקלטה: `bu_recordings/1784240129614_46b571/`.
+
 ## סנכרון מול main
 
 נקודת המיזוג האחרונה מ-main היא `152cb80` (כולל main עד `d2df6ea` — חלופות
@@ -167,8 +193,8 @@ planet-only). הגזירה רצה רק עם chain מפורש — בלי chain פ
   בעולם האמיתי (סרט עם כמה פורמטים, אולם כמעט מלא) מקצה לקצה.
 - ~~לכסות live גם רב-חן~~ — הושג בסבב רב-חן 1 (16.07.26); כל שלוש הרשתות
   מכוסות בפועל.
-- חיווט chain ל-pipeline: המשתמש אומר "בסינמה סיטי" → extract → resolve_cinema_url
-  עם chain (כרגע רק הספייק מעביר אותו).
+- ~~חיווט chain ל-pipeline~~ — הושג (17.07.26): extract → run_booking →
+  resolve_cinema_url, כולל extract חי ואימות DRY_RUN על רב-חן.
 
 ## איך מריצים את הספייק
 

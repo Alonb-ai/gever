@@ -1,6 +1,7 @@
 """בדיקות pipeline לוורטיקל הקולנוע: routing ל-resolve_cinema_url, העברת
 task_type/movie/city ל-book_table_bu, הודעת קיר-כרטיס עם סיכום מלא (סרט/שעה/מושבים),
-דילוג alt_time, _human לשדות קולנוע, _failure_reply קולנוע, ושחזור ב-run_commit."""
+דילוג alt_time, _human לשדות קולנוע, _failure_reply קולנוע, שחזור ב-run_commit,
+וחיווט chain מה-extract של השיחה אל resolve_cinema_url (כולל פסילת קאש)."""
 
 import asyncio
 import json
@@ -46,7 +47,7 @@ def _wire(monkeypatch, *, book, resolve=None, sent=None, lists=None):
     async def fake_send_list(phone, body, options, button="בחירה"):
         lists.append((body, options))
 
-    async def default_resolve(name):
+    async def default_resolve(name, chain=None):
         return {
             "status": "one",
             "url": "https://www.planetcinema.co.il/films/the-odyssey/7460s2r",
@@ -220,7 +221,7 @@ def test_cinema_no_cinema_in_city_triggers_existing_fallback_loop(monkeypatch):
     _reset()
     calls = []
 
-    async def fake_resolve(name):
+    async def fake_resolve(name, chain=None):
         return {
             "status": "one",
             "url": "http://planet",
@@ -250,7 +251,7 @@ def test_cinema_none_and_empty_movie_messages(monkeypatch):
     _reset()
     resolves = []
 
-    async def fake_resolve(name):
+    async def fake_resolve(name, chain=None):
         resolves.append(name)
         return {"status": "none", "url": None, "platform": None, "candidates": []}
 
@@ -448,6 +449,83 @@ def test_book_table_bu_job_carries_cinema_fields_and_seats_back(monkeypatch, tmp
     assert captured["movie"] == "האודיסאה" and captured["city"] == "ראשון לציון"
     assert res.details["seats"] == "שורה 7 מושבים 11,12"
     assert res.details["card_required"] is True
+
+
+_CARD_RESULT = ActionResult(
+    success=True,
+    summary="SUMMARY_REACHED 20:00 | שורה 8 CARD_REQUIRED",
+    details={"card_required": True, "time": "20:00", "seats": "שורה 8"},
+)
+
+
+def test_cinema_chain_from_extract_steers_resolver(monkeypatch):
+    """הלקוח אמר "ברב חן" → chain מה-extract מגיע ל-resolve_cinema_url; בלי chain —
+    ההתנהגות הקיימת (chain=None, סדר התיעדוף הרגיל). ערך זר מהמודל נבלם ל-None
+    (chain לא מוכר היה מרוקן את הפלטפורמות ומחזיר none מבלבל)."""
+    _reset()
+    seen = []
+
+    async def fake_resolve(name, chain=None):
+        seen.append(chain)
+        return {
+            "status": "one",
+            "url": "https://www.rav-hen.co.il/films/american-hina/8256s2r",
+            "platform": "rav-hen",
+            "candidates": [],
+            "fallback": None,
+        }
+
+    async def fake_book(**kwargs):
+        return _CARD_RESULT
+
+    _wire(monkeypatch, book=fake_book, resolve=fake_resolve)
+    asyncio.run(pipeline.run_booking("ch1", {**_FIELDS, "chain": "rav-hen"}))
+    asyncio.run(pipeline.run_booking("ch2", dict(_FIELDS)))
+    asyncio.run(pipeline.run_booking("ch3", {**_FIELDS, "chain": "hot-cinema"}))
+    assert seen == ["rav-hen", None, None]
+
+
+def test_cinema_chain_change_busts_resolved_cache(monkeypatch):
+    """retry על אותו סרט: בלי chain (או אותה רשת) הקאש של _resolved תופס כרגיל;
+    "תנסה ברב חן" אחרי resolve לפלאנט → הקאש נפסל וה-resolve רץ עם הרשת החדשה."""
+    _reset()
+    seen = []
+    captured = {}
+
+    async def fake_resolve(name, chain=None):
+        seen.append(chain)
+        return {
+            "status": "one",
+            "url": "http://rav-hen/film",
+            "platform": "rav-hen",
+            "candidates": [],
+            "fallback": None,
+        }
+
+    async def fake_book(**kwargs):
+        captured.update(kwargs)
+        return _CARD_RESULT
+
+    _wire(monkeypatch, book=fake_book, resolve=fake_resolve)
+    cached = {"name": "האודיסאה", "url": "http://planet/film", "platform": "planet"}
+
+    pipeline._resolved["ch4"] = dict(cached)
+    asyncio.run(pipeline.run_booking("ch4", dict(_FIELDS)))
+    assert seen == [] and captured["page_url"] == "http://planet/film"  # קאש כרגיל
+
+    pipeline._resolved["ch4"] = dict(cached)
+    asyncio.run(pipeline.run_booking("ch4", {**_FIELDS, "chain": "rav-hen"}))
+    assert seen == ["rav-hen"] and captured["page_url"] == "http://rav-hen/film"
+
+
+def test_cinema_chain_contract_aligned_with_resolve_and_schema():
+    """חוזה: ערכי chain שהמודל רשאי להחזיר (_SCHEMA) הם בדיוק מפתחות הפלטפורמות
+    ב-resolve — ערך שנוסף בצד אחד בלי השני נתפס כאן; וה-extract מנחה על chain."""
+    from app.automation import resolve as resolve_mod
+
+    assert list(pipeline._CINEMA_CHAINS) == [p[0] for p in resolve_mod._CINEMA_PLATFORMS]
+    assert pipeline._SCHEMA["properties"]["chain"]["enum"] == list(pipeline._CINEMA_CHAINS)
+    assert "chain" in pipeline._EXTRACT and "rav-hen" in pipeline._EXTRACT
 
 
 if __name__ == "__main__":
