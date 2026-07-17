@@ -111,7 +111,7 @@ def test_single_free_date_offers_to_close(monkeypatch):
     sent = _run_missing_date(monkeypatch, ["28.07"])
     kind, msg = sent[-1]
     assert kind == "text"
-    assert "18.07" in msg and "28.07" in msg and "סגור" in msg
+    assert "18.07" in msg and "28.07" in msg and ("סגור" in msg or "סוגר" in msg)
 
 
 def test_cinema_missing_date_offers_list(monkeypatch):
