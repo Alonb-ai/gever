@@ -1207,9 +1207,11 @@ async def run_booking(phone: str, fields: dict) -> None:
                             f"נשאר רק התשלום — כאן:\n{link}",
                             f"'{name}' מסודר עד הרגע האחרון{summary_line}\n"
                             f"את התשלום אני משאיר לך 🥷 זה כאן:\n{link}",
-                        ),
+                        )
+                        + _agreed_line(d0),
                     )
-                    _arm_nudge(phone, "card")  # הסשן ממתין — תזכורת אחת אם הלקוח נעלם
+                    # הסשן ממתין — תזכורת אחת אם הלקוח נעלם, ושחרור אם גם היא לא עזרה
+                    _arm_nudge(phone, "card", session_id=d0.get("session_id"))
                     return
                 recap = _card_recap(
                     fields.get("date") or "",

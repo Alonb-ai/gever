@@ -101,7 +101,8 @@ def test_cinema_routes_to_cinema_resolver_and_passes_vertical_fields(monkeypatch
 
 def test_cinema_card_wall_message_carries_full_summary_and_link(monkeypatch):
     """העצירה המוצלחת הסטנדרטית של האבטיפוס: קיר-כרטיס → הודעה עם סרט, שעת ההקרנה,
-    המושבים, 'נשאר רק התשלום' ולינק. state='card', בלי gate לאישור."""
+    המושבים, 'נשאר רק התשלום', לינק, וגילוי ההסכמות שאושרו בדרך (_agreed_line —
+    החלטת אלון 17.7: כמו במסעדות). state='card', בלי gate לאישור."""
     _reset()
 
     async def fake_book(**kwargs):
@@ -112,6 +113,7 @@ def test_cinema_card_wall_message_carries_full_summary_and_link(monkeypatch):
                 "card_required": True,
                 "time": "21:30",
                 "seats": "שורה 7 מושבים 11,12",
+                "agreed": ["תקנון האתר"],
             },
         )
 
@@ -123,6 +125,7 @@ def test_cinema_card_wall_message_carries_full_summary_and_link(monkeypatch):
     assert "האודיסאה" in final and "21:30" in final and "שורה 7 מושבים 11,12" in final
     assert "התשלום" in final
     assert "https://www.planetcinema.co.il/films/" in final  # לינק (fallback לדף)
+    assert "בשמך" in final and "תקנון האתר" in final  # שום תקנון לא נחתם בשקט
     assert "c2" not in pipeline._pending_commit  # אין מה לאשר — הלקוח סוגר בעצמו
 
 
@@ -337,9 +340,18 @@ def test_cinema_card_wall_link_is_live_view_when_session_alive(monkeypatch):
 
     sent, _ = _wire(monkeypatch, book=fake_book)
     monkeypatch.setattr(pipeline, "live_view_url", fake_live_view)
+    nudges = []
+    monkeypatch.setattr(
+        pipeline,
+        "_arm_nudge",
+        lambda phone, kind, **kw: nudges.append((kind, kw.get("session_id"))),
+    )
     asyncio.run(pipeline.run_booking("c10", dict(_FIELDS)))
 
     assert live_calls == ["sess-live"]  # ה-session_id של הריצה הגיע ל-live_view_url
+    # החלטת אלון 17.7: הנדנוד על קיר-כרטיס קולנועי חמוש עם ה-session — כמו במסעדות,
+    # card-idle (נדנוד → שחרור הסשן הנטוש) חל גם על קולנוע.
+    assert nudges == [("card", "sess-live")]
     final = sent[-1]
     from app import live_link
     from app.config import settings
