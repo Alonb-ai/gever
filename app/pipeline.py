@@ -61,8 +61,13 @@ _EXTRACT = (
     "· צימוד מוחלט בין דיבור למעשה: אמרת ללקוח שאתה על זה או שתעדכן אותו ⇔ סימנת "
     "דגל באותו JSON. בלי דגל — אין הבטחה ואין 'שנייה', יש שאלה; וגם עם דגל הביצוע "
     "לוקח כמה דקות — תדבר בהתאם.\n"
-    "· task_type: 'restaurant' (וגם ברירת המחדל), 'cinema' (כשמבקשים כרטיסים לסרט) "
-    "או 'other'. ב-other לעולם אין ready — אין עדיין מי שיבצע, אתה רק עונה בכנות.\n"
+    "· task_type: 'restaurant', 'cinema', 'other' או 'unsure'. סווג לפי ההקשר של "
+    "הבקשה, לא לפי היכרות עם השם: סרט/קולנוע/כרטיסים/הקרנה → cinema; "
+    "שולחן/מסעדה/אוכל/סועדים/אנשים בשעה מסוימת → restaurant. שם שנשמע ככותר של "
+    "יצירה בלי אף סימן מסעדה ('תזמין לי את האודיסאה בכפר סבא') — חשד לסרט. "
+    "לא בטוח אם מסעדה או סרט → אל תנחש: task_type='unsure', ready=false, ושאלת "
+    "הבהרה קצרה אחת ('זו מסעדה או סרט?'). ב-other לעולם אין ready — אין עדיין מי "
+    "שיבצע, אתה רק עונה בכנות.\n"
     "· בקולנוע (task_type='cinema') ready=true רק כשחמישה שדות מלאים וחד-משמעיים: "
     "movie (סרט אחד), date (DD.MM), city (עיר או סניף), party_size (מספר כרטיסים), "
     "time. בקולנוע time הוא מרכז חלון: 'בערב'→20:00, 'אחר הצהריים'→16:00, "
@@ -92,7 +97,7 @@ _SCHEMA = {
         "reply": {"type": "string"},
         "ready": {"type": "boolean"},
         "confirm": {"type": "boolean"},
-        "task_type": {"type": "string", "enum": ["restaurant", "cinema", "other"]},
+        "task_type": {"type": "string", "enum": ["restaurant", "cinema", "other", "unsure"]},
         "restaurant": {"type": "string"},
         "movie": {"type": "string"},
         "chain": {"type": "string", "enum": list(_CINEMA_CHAINS)},
@@ -704,6 +709,20 @@ INTENTS: dict[str, dict] = {
         "fallback": None,
         "site": "run_booking (task_type=other, inline)",
         "test": "tests/test_router_switch.py",
+    },
+    "clarify_task_type": {
+        "goal": (
+            "ה-extract לא הכריע מההקשר אם הבקשה היא מסעדה או סרט — אל תנחש ואל "
+            "תצא לדרך: שאלת הבהרה קצרה אחת שמבררת מה סוגרים"
+        ),
+        "ctx": ("name",),
+        "forbid": _NOT_DONE,
+        "must": (r"מסעדה", r"סרט", r"\?"),
+        "must_ctx": ("name",),
+        "max_chars": 120,
+        "fallback": None,
+        "site": "run_booking (task_type=unsure, inline)",
+        "test": "tests/test_task_type_clarify.py",
     },
     "ask_place_name": {
         "goal": (
@@ -1627,6 +1646,29 @@ async def run_booking(phone: str, fields: dict) -> None:
     chain = (fields.get("chain") or "").strip() if cinema else ""
     if chain not in _CINEMA_CHAINS:
         chain = ""
+    if task_type == "unsure":
+        # ממצא בטא #5 ("האודיסאה"): השם לבדו לא מכריע בין מסעדה לסרט — ה-extract
+        # מונחה לא לנחש, וזו רשת הביטחון אם בכל זאת ירה ready: לא יוצאים לריצה,
+        # שאלת הבהרה קצרה אחת, והתשובה תחזור כבקשה מלאה מסווגת.
+        _booking.pop(phone, None)
+        what = name or (fields.get("restaurant") or fields.get("movie") or "").strip()
+        pool = (
+            (
+                f"רגע — '{what}' זו מסעדה או סרט?",
+                f"רק כדי לא לפספס — '{what}' זה סרט או מסעדה?",
+                f"'{what}' — מדברים על מסעדה או על סרט?",
+            )
+            if what
+            else (
+                "רגע — מסעדה או סרט אנחנו סוגרים?",
+                "רק כדי לא לפספס — זה סרט או מסעדה?",
+                "מה סוגרים פה — מסעדה או סרט?",
+            )
+        )
+        await _send_and_record(
+            phone, await _say("clarify_task_type", {"name": what}, fallback=pool)
+        )
+        return
     if task_type not in ("restaurant", "cinema"):
         _booking[phone] = {"state": "failed", "info": "לא נתמך עדיין"}
         await _send_and_record(
