@@ -76,17 +76,19 @@ def _setup(monkeypatch):
 # ── #1 — fresh page after restart ──────────────────────────────────────────
 
 
-def test_restart_opens_fresh_when_no_live_session(monkeypatch):
-    """המקרה שנצפה: _chat ישן מותמד, אך אחרי restart אין _last_seen ואין סשן הזמנה
-    חי — התור הראשון נפתח נקי (history ריק), לא גורר את התורות הישנים."""
+def test_restart_restores_chat_when_ts_fresh(monkeypatch):
+    """התהפך ב-fix/chat-memory (רגרסיית פרוד 17.7): ts טרי (<3h) אחרי restart —
+    ההיסטוריה משוחזרת גם בלי סשן הזמנה חי. היוריסטיקת no_live_session הישנה
+    מחקה את זיכרון השיחה של כל המשתמשים בכל deploy; flow חי ממילא משוחזר
+    ב-_restore_flow, אז שחזור התורות כבר לא מטעה. ts ישן עדיין פותח דף חדש
+    (test_restart_with_old_ts_is_stale_even_with_live_session)."""
     fake, store = _setup(monkeypatch)
     phone = "+972500000010"
-    # _chat ישן מ-Supabase, ts טרי (פחות מ-3h) — בכל זאת צריך להיפתח נקי כי אין סשן חי.
     store[phone] = {
         "prefs": {"_chat": {"turns": [{"role": "user", "text": "רוסטיקו"}], "ts": time.time()}}
     }
     asyncio.run(pipeline.converse(phone, "שלום"))
-    assert fake.chats.last_history == []  # לא ירש את התור הישן
+    assert len(fake.chats.last_history) == 1  # התור הישן שוחזר — deploy לא מוחק שיחה
 
 
 def test_restart_opens_fresh_with_legacy_chat_no_ts(monkeypatch):

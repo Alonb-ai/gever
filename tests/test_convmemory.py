@@ -8,6 +8,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -85,6 +86,90 @@ def test_survives_restart_via_supabase(monkeypatch):
     pipeline._turns.clear()  # === restart ===: הזיכרון-בתהליך נמחק
     asyncio.run(pipeline.converse(phone, "עוד הודעה"))  # תור 3: שחזור מ-Supabase
     assert len(fake.chats.last_history) == 4  # זכר את 4 התורות מה-DB, לא התחיל מאפס
+
+
+def _simulate_restart():
+    """restart אמיתי: *כל* הזיכרון-בתהליך נמחק — כולל _last_seen, מה שהטסט הישן
+    (test_survives_restart_via_supabase) פספס ולכן הרגרסיה מפרוד 17.7 חמקה."""
+    pipeline._turns.clear()
+    pipeline._last_seen.clear()
+    pipeline._booking.clear()
+    pipeline._pending_commit.clear()
+
+
+def test_survives_true_cold_restart(monkeypatch):
+    """הרגרסיה מפרוד 17.7 (הבטא החיה): אחרי deploy, ההודעה הראשונה של כל משתמש
+    פתחה דף ריק וה-persist דרס את ההיסטוריה ב-prefs._chat (20→2 תורות).
+    הסימפטום המדויק: שתי הודעות → 4 תורות; restart מלא + הודעה → ההיסטוריה
+    חוזרת מה-DB, נצברת ל-6, וה-DB מכיל את כולן — לא נדרס."""
+    fake, store = _setup(monkeypatch, supabase_on=True)
+    phone = "+972500000144"
+
+    asyncio.run(pipeline.converse(phone, "היי"))
+    asyncio.run(pipeline.converse(phone, "מה שלומך"))
+    assert len(pipeline._turns[phone]) == 4  # הצבירה החמה תקינה
+    assert len(store[phone]["prefs"]["_chat"]["turns"]) == 4
+
+    _simulate_restart()
+
+    asyncio.run(pipeline.converse(phone, "עוד הודעה"))
+    assert len(fake.chats.last_history) == 4  # ה-history נבנה מהתורות ששוחזרו מה-DB
+    assert len(pipeline._turns[phone]) == 6  # שוחזר לזיכרון החם ונצבר, לא התאפס
+    assert len(store[phone]["prefs"]["_chat"]["turns"]) == 6  # ה-persist לא דרס
+
+
+def test_cold_restart_mechanical_send_appends(monkeypatch):
+    """המקרה שנצפה אצל אלון: converse נפל (Gemini) מיד אחרי restart → הודעת
+    busy_error מכנית. אחרי ש-_chat_for שחזר את התורות לזיכרון החם, _record_out+
+    _persist_chat צוברים עליהן — לא דורסים את ה-DB בתור בודד."""
+    fake, store = _setup(monkeypatch, supabase_on=True)
+    phone = "+972500000145"
+    asyncio.run(pipeline.converse(phone, "היי"))
+    _simulate_restart()
+
+    # ה-restore רץ בתחילת converse; מדמים קריסה של Gemini אחרי בניית ה-chat
+    def boom(msg):
+        raise RuntimeError("gemini down")
+
+    orig_create = fake.chats.create
+
+    def create_boom(*, model, config, history):
+        chat = orig_create(model=model, config=config, history=history)
+        chat.send_message = boom
+        return chat
+
+    monkeypatch.setattr(fake.chats, "create", create_boom)
+    try:
+        asyncio.run(pipeline.converse(phone, "עוד"))
+    except RuntimeError:
+        pass
+    # התורות שוחזרו לזיכרון החם למרות הקריסה — הודעה מכנית עכשיו צוברת
+    assert len(pipeline._turns[phone]) == 2
+    pipeline._record_out(phone, "וואלה עמוס אצלי")
+    asyncio.run(pipeline._persist_chat(phone))
+    assert len(store[phone]["prefs"]["_chat"]["turns"]) == 3  # 2 ישנים + המכנית
+
+
+def test_cold_restart_old_ts_opens_fresh_page(monkeypatch):
+    """הסמנטיקה הישנה נשמרת: gap אמיתי >~3h לפי ts המותמד — דף חדש גם אחרי restart."""
+    fake, store = _setup(monkeypatch, supabase_on=True)
+    phone = "+972500000146"
+    asyncio.run(pipeline.converse(phone, "היי"))
+    store[phone]["prefs"]["_chat"]["ts"] = time.time() - pipeline.SESSION_GAP_S - 60
+    _simulate_restart()
+    asyncio.run(pipeline.converse(phone, "בוקר טוב"))
+    assert fake.chats.last_history == []  # דף חדש — לא גוררים שיחה מאתמול
+
+
+def test_cold_restart_legacy_chat_without_ts(monkeypatch):
+    """backward-compat: _chat ישן בלי ts → ה-fallback השמרני (בלי סשן חי = דף חדש)."""
+    fake, store = _setup(monkeypatch, supabase_on=True)
+    phone = "+972500000147"
+    asyncio.run(pipeline.converse(phone, "היי"))
+    del store[phone]["prefs"]["_chat"]["ts"]
+    _simulate_restart()
+    asyncio.run(pipeline.converse(phone, "עוד"))
+    assert fake.chats.last_history == []
 
 
 def test_caps_at_chat_turns(monkeypatch):

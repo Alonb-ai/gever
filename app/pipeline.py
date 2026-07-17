@@ -1416,15 +1416,17 @@ async def _chat_for(phone: str) -> tuple:
         # מסלול חם בתהליך — כמו תמיד: gap >~3h מאז התור האחרון פותח דף חדש.
         stale = (now - last) > SESSION_GAP_S
     else:
-        # _last_seen ריק (cold/restart). שתי בדיקות שורדות-restart:
-        # (1) אם אין סשן הזמנה חי בתהליך (לא ב-_booking ולא ב-_pending_commit), כל
-        #     סשן קודם לא ניתן לשחזור (מאשר לא יכול לירות) — התורות הישנות רק יטעו.
-        # (2) gap אמיתי >~3h לפי ts המותמד ב-_chat. ts חסר (_chat ישן) = unknown →
-        #     בדיקה (1) מכריעה, בלי לקרוס.
-        no_live_session = phone not in _booking and phone not in _pending_commit
+        # _last_seen ריק (cold/restart). המדד האמין הוא ts המותמד ב-_chat: gap
+        # אמיתי >~3h פותח דף חדש, gap קצר משחזר את השיחה — flow חי ממילא שוחזר
+        # שורה למעלה ב-_restore_flow, אז "אין סשן הזמנה חי" כבר לא אומר שהתורות
+        # יטעו (הרגרסיה מפרוד 17.7: היוריסטיקת no_live_session מחקה את ההיסטוריה
+        # בכל deploy). ts חסר (_chat ישן מלפני שהתמדנו ts) → fallback שמרני כמו
+        # פעם: בלי סשן הזמנה חי אין מה לשחזר.
         ts = chat_meta.get("ts")
-        stale_by_ts = ts is not None and (now - ts) > SESSION_GAP_S
-        stale = no_live_session or stale_by_ts
+        if ts is not None:
+            stale = (now - ts) > SESSION_GAP_S
+        else:
+            stale = phone not in _booking and phone not in _pending_commit
     fresh = stale or phone in _reset_next
     _reset_next.discard(phone)
     _last_seen[phone] = now
@@ -1435,6 +1437,9 @@ async def _chat_for(phone: str) -> tuple:
         turns = _turns.get(phone)
         if turns is None:  # זיכרון-בתהליך ריק (restart/worker חדש) — שחזור מ-Supabase
             turns = chat_meta.get("turns") or []
+            # לזיכרון החם מיד: הודעה מכנית (_record_out/_persist_chat) שיוצאת לפני
+            # שה-converse השלים — למשל busy_error — תצבור על ההיסטוריה, לא תדרוס אותה.
+            _turns[phone] = turns
 
     chat = _client.chats.create(
         model=settings.gemini_model,
