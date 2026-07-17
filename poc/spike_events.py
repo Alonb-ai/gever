@@ -64,7 +64,7 @@ async def main() -> None:
         # קיר-הכרטיס. ת"ז/תשלום לעולם לא: אלה עוצרים MISSING:id_number/CARD_REQUIRED.
         name="אלון בזק",
         email="abazak@gmail.com",
-        phone="0544820137",
+        phone=os.getenv("SPIKE_PHONE", "0544820137"),  # מספר אמיתי לקירות OTP — רק באישור אלון
         dry_run=True,  # חוק ברזל: לעולם לא False באבטיפוס
         task_type="events",
         artist=artist,
@@ -83,8 +83,12 @@ async def main() -> None:
     print("steps log:", logs[-1] if logs else "(לא נמצא)")
 
     # חוק ברזל: סשן חי שחזר (קיר-כרטיס/MISSING משאירים keepAlive) — משוחרר מיד בספייק.
+    # SPIKE_KEEP=1: משאיר את הסשן חי בכוונה (מבחן לקוח-בלולאה: resume עם קוד SMS
+    # אמיתי לאותו סשן; timeout 1800 הוא רשת הביטחון אם לא חוזרים אליו).
     session_id = (res.details or {}).get("session_id")
-    if session_id:
+    if session_id and os.getenv("SPIKE_KEEP") == "1":
+        print("session kept alive for resume:", session_id)
+    elif session_id:
         await release_session(session_id)
         print("released browserbase session:", session_id)
 
