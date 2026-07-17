@@ -202,20 +202,20 @@ def test_cinema_missing_language_asks_in_human_words(monkeypatch):
 def test_failure_reply_cinema_wordings_and_restaurant_unchanged():
     """no_cinema_in_city (סיבה חדשה) ונוסח קולנוע ל-no_availability; ברירת המחדל
     של מסעדות לא זזה."""
-    info, msg = pipeline._failure_reply(
-        "no_cinema_in_city", "האודיסאה", task_type="cinema", city="חיפה"
+    info, msg = asyncio.run(
+        pipeline._failure_reply("no_cinema_in_city", "האודיסאה", task_type="cinema", city="חיפה")
     )
     assert "חיפה" in info and "חיפה" in msg and "רשת אחרת" in msg
 
-    info, msg = pipeline._failure_reply(
-        "no_availability", "האודיסאה", task_type="cinema", city="חיפה"
+    info, msg = asyncio.run(
+        pipeline._failure_reply("no_availability", "האודיסאה", task_type="cinema", city="חיפה")
     )
     assert "הקרנה" in info and "הקרנה" in msg
 
     # מסעדות: אותו נוסח כמו קודם, ו-no_cinema_in_city לא קיימת שם
-    info, msg = pipeline._failure_reply("no_availability", "גרקו")
+    info, msg = asyncio.run(pipeline._failure_reply("no_availability", "גרקו"))
     assert "אין מקום פנוי" in info
-    assert pipeline._failure_reply("no_cinema_in_city", "גרקו") is None
+    assert asyncio.run(pipeline._failure_reply("no_cinema_in_city", "גרקו")) is None
 
 
 def test_cinema_no_cinema_in_city_triggers_existing_fallback_loop(monkeypatch):

@@ -3,6 +3,7 @@
 מראש לטיימר ולא שולח כלום כשההמתנה בוטלה."""
 
 import asyncio
+import inspect
 import os
 import re
 import sys
@@ -177,3 +178,40 @@ def test_intents_cover_all_static_pools():
         pipeline.RESUME_ACK_MSGS,
     ):
         assert any(pool is m for m in mapped)
+
+
+# ── ההסבה: כל כוונה מחווטת לאתר הקריאה שלה ──
+
+
+def test_every_intent_wired_to_its_call_site():
+    """כל כוונה במפה מחווטת לאתר קריאה חי (שם הכוונה מופיע גם מחוץ להגדרתה —
+    ב-_say/_presay או במיפוי kind→intent של _arm_nudge). שלוש הכוונות העשירות
+    (pending_confirm / card_wall / booked_confirmed) נשארו קשיחות בכוונה —
+    הרכבת f-string רב-חלקים — והטסט נועל את הרשימה הזאת, כך שכוונה חדשה לא
+    תישאר יתומה בשקט וכוונה 'קשיחה' לא תוסב בלי לעדכן את ההחלטה כאן."""
+    src = inspect.getsource(pipeline)
+    left_hard = {"pending_confirm", "card_wall", "booked_confirmed"}
+    for intent in pipeline.INTENTS:
+        occurrences = src.count(f'"{intent}"')
+        if intent in left_hard:
+            assert occurrences == 1, f"{intent}: אמור להישאר קשיח (רק ההגדרה במפה)"
+        else:
+            assert occurrences >= 2, f"{intent}: אין אתר קריאה — הכוונה יתומה"
+
+
+async def test_nudge_timer_delivers_pregenerated_model_text(monkeypatch):
+    """ההסבה חיה מקצה לקצה: טיימר הנדנוד שולח את הטקסט שחולל מראש מהמודל
+    (pre-generate בזמן ההמתנה) — לא מהמאגר; והמאגר נשאר רשת ביטחון בלבד."""
+    _model(monkeypatch, "עוד פה, מחכה רק לתשובה שלך ואז ממשיך 🤙")
+    sent = []
+
+    async def fake_send(phone, text):
+        sent.append(text)
+
+    monkeypatch.setattr(pipeline, "_send_and_record", fake_send)
+    monkeypatch.setattr(pipeline, "NUDGE_DELAY_S", 0.02)
+    pipeline._nudge.clear()
+    pipeline._arm_nudge("pSAY", "question", ctx={"field": "מייל"})
+    await asyncio.sleep(0.1)
+    assert sent == ["עוד פה, מחכה רק לתשובה שלך ואז ממשיך 🤙"]
+    assert sent[0] not in pipeline.NUDGE_MSGS["question"]  # באמת מהמודל, לא מהמאגר

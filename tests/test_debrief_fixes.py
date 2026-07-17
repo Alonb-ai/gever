@@ -24,7 +24,8 @@ def _reset():
 
 
 def test_failure_reply_covers_all_agent_reasons():
-    """כל אוצר המילים של FAILED ב-bu_runner ממופה — אף סיבה כנה לא נופלת לגנרית."""
+    """כל אוצר המילים של FAILED ב-bu_runner ממופה — אף סיבה כנה לא נופלת לגנרית.
+    (המודל כבוי בטסטים — ההודעה מגיעה ממאגר ה-fallback של הסיבה, עם העוגנים.)"""
     for reason in (
         "no_availability",
         "closed",
@@ -33,7 +34,7 @@ def test_failure_reply_covers_all_agent_reasons():
         "broken_page",
         "browser_error",
     ):
-        hit = pipeline._failure_reply(reason, "הדסון")
+        hit = asyncio.run(pipeline._failure_reply(reason, "הדסון"))
         assert hit is not None, reason
         assert "הדסון" in hit[1]
 

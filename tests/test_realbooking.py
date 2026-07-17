@@ -692,12 +692,23 @@ def test_every_vary_variant_carries_its_anchors(monkeypatch):
                 for a in (key, *anchors):
                     assert a in v, f"וריאנט בלי העוגן '{a}': {v!r}"
 
-    # --- טבלת הכישלונות (נבנית במלואה בכל קריאה — לוכדת את שלוש ההודעות) ---
-    pipeline._failure_reply("no_availability", "גרקו")
+    # --- טבלת הכישלונות: כל סיבה מגיעה למאגר שלה דרך ה-fallback של _say ---
+    asyncio.run(pipeline._failure_reply("no_availability", "גרקו"))
+    asyncio.run(pipeline._failure_reply("closed", "גרקו"))
+    asyncio.run(pipeline._failure_reply("no_online_booking", "גרקו"))
     check("אין מקום פנוי", "גרקו")
     check("סניף אחר", "סגור", "גרקו")
     check("אונליין", "גרקו")
     captured.clear()
+
+    # טיימרים (heartbeat/נדנוד) מנוטרלים: ה-pre-generate שלהם נופל למאגר ומזרים
+    # ל-captured קבוצות שאינן הודעות הזרימה הנבדקת; למאגרים שלהם יש טסטים משלהם
+    # (test_heartbeat / test_nudge / test_card_release).
+    async def _no_heartbeat(phone, ctx=None):
+        pass
+
+    monkeypatch.setattr(pipeline, "_heartbeat", _no_heartbeat)
+    monkeypatch.setattr(pipeline, "_arm_nudge", lambda *a, **k: None)
 
     # --- פייקים משותפים לזרימות ההזמנה ---
     sent: list[str] = []
