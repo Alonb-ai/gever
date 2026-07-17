@@ -176,6 +176,8 @@ def test_intents_cover_all_static_pools():
         pipeline.CARD_RELEASE_MSGS,
         *pipeline.SENSITIVE_MSGS.values(),
         pipeline.RESUME_ACK_MSGS,
+        pipeline.INTAKE_MSGS,
+        pipeline.INTAKE_ACK_MSGS,
     ):
         assert any(pool is m for m in mapped)
 

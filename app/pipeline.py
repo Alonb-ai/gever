@@ -430,6 +430,61 @@ RESUME_ACK_MSGS = (
     "מעולה, לוקח את זה מהמקום שעצרנו 🎯",
 )
 
+# אינטייק מקבילי (רעיון אלון — הזדמנות #1 בתוכנית הזירוז): בזמן שהדפדפן רץ,
+# שואלים מראש בוואטסאפ את מה שצפוי לעצור את הריצה (העדפת ישיבה + גמישות שעה).
+# התשובה נשמרת כאן — בזיכרון בלבד, כמו _sensitive, לא ל-DB — ונצרכת בקיר
+# MISSING תואם (resume מיידי בלי המתנת-אדם); הריצה נגמרה בלי קיר → נזרקת
+# (עלות אפס). phone -> {"seating_area": str, "time_flexible": True};
+# מפתח קיים (גם ריק) = השאלה נשאלה והתשובות נקלטות ב-_handle_inbound_inner.
+_prefetched: dict = {}
+
+# שאלת-הביניים — עוגני _vary: ישיבה (בפנים/בחוץ) + גמישות (גמיש/שעה קרובה)
+# + "?". בלי הבטחות, בלי להציג את זה כתקלה, וניטרלי מגדרית (נמען לא ידוע).
+INTAKE_MSGS = (
+    "בינתיים, שיחסוך לנו זמן — עדיף לשבת בפנים או בחוץ? ואם השעה תצא תפוסה, שעה קרובה זה בסדר?",
+    "עד שזה מסתדר, שאלה קטנה — בפנים או בחוץ עדיף? ואם מה שביקשת תפוס, הולכים על שעה קרובה? 🤙",
+    "שאלה קטנה בדרך שתחסוך עצירה — לשבת בפנים, בחוץ או בבר? והשעה גמישה או נעולה?",
+)
+
+# אישור קליטת תשובת-הביניים — קצר, בלי להבטיח כלום. עוגן: קיבלתי/קלטתי/רשמתי/שמור.
+INTAKE_ACK_MSGS = (
+    "קיבלתי, שמור אצלי להמשך 🤙",
+    "רשמתי לפניי — אם יעלה בדרך, יש לי את זה 🎯",
+    "קלטתי, זה אצלי ליתר ביטחון 🤝",
+)
+
+# זיהוי דטרמיניסטי של תשובת-הביניים (בלי מודל). lookbehind — "לא בפנים"/"לא
+# גמיש" הם לא הסכמה; [בה]?בר תופס גם "בבר"/"הבר" בלי ליפול על "ברור"/"דבר".
+_SEATING_RE = {
+    "בפנים": re.compile(r"(?<!לא )בפנים"),
+    "בחוץ": re.compile(r"(?<!לא )בחוץ"),
+    "בר": re.compile(r"(?<!לא )\b[בה]?בר\b"),
+}
+_FLEX_RE = re.compile(r"(?<!לא )גמיש")
+# רמז ישיבה שכבר קיים בבקשה (notes) או בפרופיל — שאלת-הביניים מיותרת, לא שואלים.
+_SEATING_HINT = re.compile(r"בפנים|בחוץ|\b[בה]?בר\b|ישיבה|מרפסת")
+
+
+def _intake_answer(text: str) -> dict:
+    """תשובת הלקוח לשאלת-הביניים: העדפת ישיבה חד-משמעית ו/או גמישות שעה.
+    לא זוהה כלום (שאלה / נושא אחר) → {} והתור ממשיך ל-converse כרגיל."""
+    got: dict = {}
+    seats = [v for v, pat in _SEATING_RE.items() if pat.search(text)]
+    if len(seats) == 1:  # שתי העדפות סותרות באותה הודעה = לא תשובה חד-משמעית
+        got["seating_area"] = seats[0]
+    if _FLEX_RE.search(text):
+        got["time_flexible"] = True
+    return got
+
+
+async def _parallel_intake(phone: str, ctx: dict | None = None) -> None:
+    """task מקביל לריצה (אותו דפוס כמו _heartbeat): שואל מראש את שאלת-הביניים.
+    מסמן ב-_prefetched שהשאלה נשאלה *לפני* השליחה — שתשובה מהירה לא תפול בחריץ."""
+    say = await _say("parallel_intake", ctx)
+    _prefetched.setdefault(phone, {})
+    await _send_and_record(phone, say)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # הקול החופשי (חזון אלון 17.7): אפס ניסוחים קשיחים — כל הודעה "מכנית" נוצרת
 # טרייה מהמודל מתוך כוונה (intent), מותאמת לרגע, ורק אם עברה ולידציה
@@ -593,6 +648,36 @@ INTENTS: dict[str, dict] = {
         "fallback": RESUME_ACK_MSGS,
         "site": "_handle_inbound_inner → RESUME_ACK_MSGS",
         "test": "tests/test_customer_in_loop.py, tests/test_deterministic_resume.py",
+    },
+    # ── אינטייק מקבילי (שאלת-ביניים בזמן ריצה) ──
+    "parallel_intake": {
+        "goal": (
+            "ריצת ההזמנה בעיצומה ואתה מקדים שאלה שתחסוך עצירה בהמשך — שאלה "
+            "אחת מרוכזת: איפה נוח לשבת (בפנים / בחוץ / בר) והאם שעה קרובה "
+            "בסדר אם השעה שביקש תצא תפוסה; בלי להבטיח כלום, בלי להציג את זה "
+            "כבעיה, ופנייה ניטרלית מגדרית"
+        ),
+        "ctx": ("name", "time"),
+        "forbid": _NOT_DONE,
+        "must": (r"בפנים|בחוץ", r"גמיש|שעה קרובה|שעה אחרת", r"\?"),
+        "max_chars": 200,
+        "fallback": INTAKE_MSGS,
+        "site": "run_booking → _parallel_intake (task מקביל כמו _heartbeat)",
+        "test": "tests/test_parallel_intake.py",
+    },
+    "intake_ack": {
+        "goal": (
+            "הלקוח ענה על שאלת-הביניים (העדפת ישיבה / גמישות שעה) בזמן שאתה "
+            "עוד עובד — אשר קצר שקלטת ושזה שמור אצלך להמשך, בלי להבטיח כלום "
+            "ובלי להכריז על התקדמות"
+        ),
+        "ctx": (),
+        "forbid": _NOT_DONE,
+        "must": (r"קיבלתי|קלטתי|רשמתי|שמור",),
+        "max_chars": 120,
+        "fallback": INTAKE_ACK_MSGS,
+        "site": "_handle_inbound_inner (תשובת אינטייק) → INTAKE_ACK_MSGS",
+        "test": "tests/test_parallel_intake.py",
     },
     # ── פתיחת ריצה: בקשות שלא יוצאות לדרך ──
     "unsupported_task": {
@@ -1756,6 +1841,18 @@ async def run_booking(phone: str, fields: dict) -> None:
         res = None
         # סימני חיים בשקט של ריצה ארוכה
         hb = asyncio.create_task(_heartbeat(phone, {"name": name, "task_type": task_type}))
+        # אינטייק מקבילי: ריצת מסעדות טרייה (לא resume — שם כבר שאלנו סבב קודם)
+        # בלי העדפת ישיבה ידועה → שואלים מראש בזמן שהדפדפן רץ. תשובות-ביניים
+        # מסבב קודם נזרקות בכל ריצה טרייה (הן היו רלוונטיות רק לריצה ההיא).
+        if resume_arg is None:
+            _prefetched.pop(phone, None)
+        intake = None
+        prefs_seating = ((prof or {}).get("prefs") or {}).get("seating") or ""
+        known = f"{fields.get('notes') or ''} {prefs_seating}"
+        if not cinema and resume_arg is None and not _SEATING_HINT.search(known):
+            intake = asyncio.create_task(
+                _parallel_intake(phone, {"name": name, "time": fields.get("time") or ""})
+            )
         try:
             for i, (url, plat) in enumerate(attempts):
                 if i:
@@ -1799,6 +1896,8 @@ async def run_booking(phone: str, fields: dict) -> None:
                 res = await _attempt(used_url, used_platform, None)
         finally:
             hb.cancel()
+            if intake:
+                intake.cancel()  # הריצה נגמרה — שאלה שטרם נשלחה כבר מיותרת
         if res.success:
             d0 = res.details or {}
             if d0.get("card_required"):
@@ -1953,6 +2052,25 @@ async def run_booking(phone: str, fields: dict) -> None:
                     # _scrub: ה-recap מותמד ב-_flow — קלט רגיש שה-agent הדהד לא נשמר
                     "recap": _scrub(res.details.get("stage") or "", secret)[:400],
                 }
+            # אינטייק מקבילי: הקיר עצר בדיוק על מה שכבר נענה בוואטסאפ תוך כדי
+            # הריצה — עונים מהמאגר שבזיכרון וממשיכים מיד (resume), בלי לשאול שוב
+            # ובלי המתנת-אדם. אין תשובה מוכנה → הזרימה של היום בדיוק (אפס רגרסיה).
+            pre = _prefetched.get(phone) or {}
+            if (field in ("seating_area", "seating") and pre.get("seating_area")) or (
+                field == "time" and pre.get("time_flexible")
+            ):
+                _prefetched.pop(phone, None)
+                fields2 = dict(fields)
+                if pre.get("time_flexible"):
+                    fields2["time_flexible"] = True
+                if pre.get("seating_area"):
+                    ans = f"seating_area: {pre['seating_area']}"
+                    fields2["notes"] = "; ".join(p for p in [fields2.get("notes") or "", ans] if p)
+                _booking[phone] = {"state": "working", "info": name}
+                # ה-finally של הריצה הזאת ינקה inflight רגע אחרי שה-relaunch יסמן —
+                # חלון זעיר שהמחיר שלו הוא לכל היותר זיהוי-יתום מפוספס, לא רגרסיה.
+                _spawn(run_booking(phone, fields2))
+                return
             _human = {
                 "email": "מייל",
                 "name": "שם",
@@ -2427,6 +2545,20 @@ async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = 
                 "info": (fields.get("restaurant") or "").strip(),
             }
             _spawn(run_booking(phone, fields))
+            return
+    # אינטייק מקבילי: נשאלה שאלת-ביניים והריצה עוד רצה — תשובה שמזוהה
+    # דטרמיניסטית (ישיבה / גמישות שעה) נקלטת ל-_prefetched בזיכרון (לא ל-DB)
+    # ותיצרך בקיר MISSING. לא זוהתה → converse כרגיל; הריצה כבר נגמרה
+    # (state≠working) → converse כרגיל, התשובה המאוחרת לא מתפוצצת.
+    if phone in _prefetched and _booking.get(phone, {}).get("state") == "working":
+        got = _intake_answer(text)
+        if got:
+            _prefetched[phone].update(got)
+            _turns[phone] = [
+                *(_turns.get(phone) or []),
+                {"role": "user", "text": text, "ts": time.time()},
+            ][-CHAT_TURNS:]
+            await _send_and_record(phone, await _say("intake_ack"))
             return
     result = await converse(phone, text)
     # or ולא default: reply="" עובר סכמה אבל מטא דוחה הודעה ריקה — הלקוח בלי תשובה
