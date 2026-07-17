@@ -2,12 +2,16 @@
 resolver: שם מסעדה → URL של דף הזמנות, בלי דפדפן. multi-platform: Ontopo › Tabit.
 ורטיקל קולנוע: שם סרט → URL של דף הסרט. פלאנט › רב-חן › סינמה סיטי (אותו צינור).
 
-חיפוש web בשאילתה רחבה ("<שם> הזמנת מקום" / "<סרט> כרטיסים קולנוע") שתופסת את
-הפלטפורמות, ואז דיסאמביגואציה לפי הכותרת (חשוב — לרשת כמו "הדסון" יש כמה סניפים)
-פלטפורמה-פלטפורמה לפי סדר עדיפות. מחזיר 'one' עם url+platform, 'many' עם מועמדים
-לשאלת הבהרה, או 'none'.
+מסעדות — דו-שלבי (החלטת אלון, 17.7 — אחרי שהבנצ' הלילי הראה נחיתות-יעד שגויות
+דטרמיניסטיות): שלב 1 — חיפוש פנימי בפלטפורמות עצמן (ה-autocomplete של Ontopo
+וה-bridge של Tabit): שמות קנוניים, סניפים אמיתיים, ו-aliases עברית↔אנגלית.
+endpoints לא רשמיים → כל כשל נופל בשקט לשלב 2. שלב 2 (fallback) — חיפוש web
+ב-Brave בשאילתה רחבה ("<שם> הזמנת מקום" / "<סרט> כרטיסים קולנוע" בקולנוע)
+ודיסאמביגואציה לפי כותרת. בשני השלבים: התאמה דורשת את מילת המותג (טוקן לא-גנרי
+ראשון), טוקן סניף מכריע בין סניפים, ודף-רפאים של Ontopo נפסל.
+מחזיר 'one' עם url+platform, 'many' עם מועמדים לשאלת הבהרה, או 'none'.
 
-מנוע החיפוש: Brave Search API (BRAVE_API_KEY חובה). נתיב ה-DDG נמחק: מת בפרוד
+מנוע ה-fallback: Brave Search API (BRAVE_API_KEY חובה). נתיב ה-DDG נמחק: מת בפרוד
 (202 אנטי-בוט ל-IP של דטהסנטר) ומיותר ב-dev — ה-tier החינמי של Brave מספיק.
 """
 
@@ -35,16 +39,17 @@ _TABIT_ORG = re.compile(
 )
 _TAG = re.compile(r"<[^>]+>")
 
+# דיפ-לינק ההזמנות הקנוני של טאביט לפי orgId — משותף ל-regex של Brave ולחיפוש הפנימי.
+_TABIT_ORG_URL = (
+    "https://www.tabitisrael.co.il/online-reservations/create-reservation?step=search&orgId={}"
+)
+
 # סדר = תיעדוף: שתיהן קיימות → Ontopo. ה-regex לוכד מזהה קנוני (page id / slug / orgId)
 # ל-dedup. אותה פלטפורמה יכולה להופיע עם כמה תבניות URL.
 _PLATFORMS: list[tuple[str, re.Pattern, str]] = [
     ("ontopo", _PAGE, "https://ontopo.com/he/il/page/{}"),
     ("tabit", _TABIT, "https://www.tabitisrael.co.il/site/{}"),
-    (
-        "tabit",
-        _TABIT_ORG,
-        "https://www.tabitisrael.co.il/online-reservations/create-reservation?step=search&orgId={}",
-    ),
+    ("tabit", _TABIT_ORG, _TABIT_ORG_URL),
 ]
 # סדר התיעדוף בין פלטפורמות (בלי כפילויות) — ל-_select, שעובר פלטפורמה-פלטפורמה.
 _PLATFORM_ORDER = tuple(dict.fromkeys(p for p, _, _ in _PLATFORMS))
@@ -96,56 +101,158 @@ def _is_listing(title: str) -> bool:
     return any(w in title for w in _LISTING_WORDS)
 
 
-# מילות-רעש שאינן מבחינות בין סניפים (שם האתר וכו') — מותר שיופיעו בכותרת "נקייה".
-_NOISE_WORDS = {"ontopo"}
+# מילות-רעש שאינן מבחינות בין סניפים (שם האתר, ז'רגון הזמנות) — מותר בכותרת "נקייה".
+_NOISE_WORDS = {"ontopo", "אונטופו", "tabit", "טאביט", "הזמנת", "מקום", "הזמנתמקום", "book", "now"}
+
+# מילים גנריות שאינן מזהות מסעדה לבדן — "איזקאיה" ניצחה את "אסה" בבנצ' 17.7 כשמועמד
+# אחר ("גייג'ין איזקאיה") חלק אותן עם הבקשה. רשימה קטנה בכוונה.
+_GENERIC_WORDS = {
+    "מסעדה",
+    "מסעדת",
+    "בר",
+    "ביסטרו",
+    "קפה",
+    "סושי",
+    "איזקאיה",
+    "איזאקיה",
+    "izakaya",
+    "restaurant",
+    "bar",
+    "cafe",
+}
+
+# גישור עברית↔אנגלית (אסה↔ASA, הדסון↔Hudson, מסא↔MAZA — כולם נצפו בבנצ'): שלד
+# עיצורים משותף. אמות קריאה (א/ה/ו/י/ע) נשמטות כמו התנועות הלטיניות; עיצורים
+# מקבילים מקופלים לצורה אחת (c/q→k, z→s).
+_HE2LAT = {
+    "ב": "b",
+    "ג": "g",
+    "ד": "d",
+    "ז": "s",
+    "ח": "h",
+    "ט": "t",
+    "כ": "k",
+    "ך": "k",
+    "ל": "l",
+    "מ": "m",
+    "ם": "m",
+    "נ": "n",
+    "ן": "n",
+    "ס": "s",
+    "פ": "p",
+    "ף": "p",
+    "צ": "ts",
+    "ץ": "ts",
+    "ק": "k",
+    "ר": "r",
+    "ש": "s",
+    "ת": "t",
+    "א": "",
+    "ה": "",
+    "ו": "",
+    "י": "",
+    "ע": "",
+}
+_LAT_FOLD = str.maketrans({"c": "k", "q": "k", "z": "s", "w": "v", "f": "p"})
+
+
+def _skeleton(word: str) -> str:
+    """שלד עיצורים להשוואת מילה עברית מול לטינית: אסה→as, ASA→as; הדסון→dsn, Hudson→dsn.
+    תנועת פתיחה נשמרת כ-a כדי ש"אסה" לא יתמזג עם כל מילה שמכילה s."""
+    w = word.lower()
+    lead = "a" if w and (w[0] in "אע" or w[0] in "aeiou") else ""
+    body = "".join(_HE2LAT.get(ch, ch) for ch in w).translate(_LAT_FOLD)
+    return lead + "".join(ch for ch in body if ch not in "aeiouh")
+
+
+def _has_token(word: str, ntitle: str) -> bool:
+    """האם טוקן מהבקשה מופיע בכותרת מנורמלת — כטוקן שלם, כתחילית (בזל↔בזל'ה, אבל לא
+    מסא↔מסאלה: תוספת של יותר מאות אחת דורשת טוקן ארוך), או בגישור תעתיק."""
+    sk = _skeleton(word)
+    for t in ntitle.split():
+        if t == word or (t.startswith(word) and (len(word) >= 4 or len(t) <= len(word) + 1)):
+            return True
+        if len(sk) >= 2 and _skeleton(t) == sk:
+            return True
+    return False
+
+
+def _brand_token(nreq: str) -> str | None:
+    """הטוקן המזהה של הבקשה: המילה הלא-גנרית הראשונה ("אסה איזקאיה תל אביב" → אסה)."""
+    return next(
+        (w for w in nreq.split() if len(w) >= 2 and w not in _GENERIC_WORDS),
+        None,
+    )
 
 
 def _is_clean_name(req: str, title: str) -> bool:
     """True אם הכותרת היא השם המבוקש ללא מילים מבחינות — כלומר דף ההזמנה הראשי
-    ("<שם> - Ontopo"), להבדיל מסניף אמיתי ("הדסון לילינבלום") שמוסיף מילה.
-    req ו-title שניהם מנורמלים (_norm)."""
+    ("טאיזו תל אביב-יפו: הזמנת מקום | אונטופו"), להבדיל מסניף/וריאציה אמיתיים
+    ("קפה טאיזו", "הדסון לילינבלום") שמוסיפים מילה. מילת-כותרת מכוסה אם היא רעש
+    מוכר או חופפת מילת-בקשה (אביב↔אביביפו). req ו-title מנורמלים (_norm)."""
     req_words = set(req.split())
     extra = [w for w in title.split() if w not in req_words]
-    return all(w in _NOISE_WORDS for w in extra)
+    return all(w in _NOISE_WORDS or any(rw in w or w in rw for rw in req_words) for w in extra)
 
 
 def _brand_first(requested: str, pool: list[dict]) -> list[dict]:
     """סדר כנות לרשימת ה-many החלשה (אף מועמד לא עבר match חזק): קודם מי שמכיל את
-    מילת המותג — המילה הראשונה בבקשה — ואז לפי חפיפת שאר המילים. נצפה חי (הדסון
-    ראשון לציון, 16.7): "דדה ראשון לציון" עמדה ראשונה רק כי חלקה את שם העיר עם
-    הבקשה, וסניפי הדסון האמיתיים נדחקו מתחתיה."""
+    מילת המותג, ואז לפי חפיפת שאר המילים. נצפה חי (הדסון ראשון לציון, 16.7):
+    "דדה ראשון לציון" עמדה ראשונה רק כי חלקה את שם העיר עם הבקשה."""
     words = [w for w in _norm(requested).split() if len(w) >= 2]
-    if not words:
+    brand = _brand_token(_norm(requested)) or (words[0] if words else None)
+    if not brand:
         return pool
-    brand, rest = words[0], words[1:]
+    rest = [w for w in words if w != brand]
 
     def _key(c: dict) -> tuple[bool, int]:
         nc = _norm(c["title"])
-        return (brand in nc, sum(w in nc for w in rest))
+        return (_has_token(brand, nc), sum(w in nc for w in rest))
 
     return sorted(pool, key=_key, reverse=True)  # יציב: שוויון שומר את סדר Brave
 
 
 def _match_restaurant(requested: str, candidates: list[str]) -> tuple[str, str | None, list[str]]:
-    """דיסאמביגואציה (שם->URL). status: one|many|none."""
+    """דיסאמביגואציה (שם->URL). status: one|many|none.
+
+    חוקי הבנצ' 17.7: (א) התאמה דורשת את מילת המותג — מילים גנריות משותפות אינן
+    מספיקות (אסה↛גייג'ין). (ב) בין כמה מועמדים מאותו מותג מכריע טוקן סניף מהבקשה
+    (בזל→רוסטיקו בזל); טוקן סניף שאינו מופיע באף מועמד חוסם בחירה שקטה בסניף אחר
+    (רוסטיקו בזל ↛ רוטשילד) — הנחת סדר-מילים: <מותג> <סניף> <עיר>, כך שטוקן עיר
+    חסר אחרי שסניף כבר פגע (בזל'ה בלי עיר בכותרת) לא חוסם."""
     req = _norm(requested)
     req_words = [w for w in req.split() if len(w) >= 2]
-    good = []
-    for c in candidates:
-        nc = _norm(c)
-        if req and (req in nc or nc in req or (req_words and all(w in nc for w in req_words))):
-            good.append(c)
-    if len(good) == 1:
-        return "one", good[0], good
-    if len(good) > 1:
-        # מעדיפים את דף ההזמנה האמיתי: כותרת שהיא בדיוק השם המבוקש, או השם +
-        # רעש בלבד (כמו "Ontopo"). וריאציות עם מילים מבחינות (סניפים אמיתיים
-        # כמו "הדסון לילינבלום") אינן "נקיות" וישארו לשאלת הבהרה.
-        clean = [c for c in good if _is_clean_name(req, _norm(c))]
-        if len(clean) == 1:
-            return "one", clean[0], clean
-        return "many", None, good
-    return "none", None, good
+    brand = _brand_token(req)
+    if not brand:
+        # בקשה שכולה מילים גנריות — נשארת רק התאמת הכלה מלאה, בלי ניחושים.
+        good = [c for c in candidates if req and req in _norm(c)]
+        if len(good) == 1:
+            return "one", good[0], good
+        return ("many", None, good) if good else ("none", None, good)
+    good = [c for c in candidates if _has_token(brand, _norm(c))]
+    if not good:
+        return "none", None, good
+    qualifiers = [w for w in req_words if w != brand and w not in _GENERIC_WORDS]
+    pool, hit_any, blocked = good, False, False
+    for q in qualifiers:
+        hit = [c for c in pool if _has_token(q, _norm(c))]
+        if hit:
+            hit_any = True
+            if len(hit) < len(pool):
+                pool = hit
+        elif not hit_any:
+            blocked = True
+            break
+    if blocked:
+        return "many", None, pool
+    if len(pool) == 1:
+        return "one", pool[0], pool
+    # מעדיפים את דף ההזמנה הראשי: כותרת "נקייה" (השם + רעש בלבד). כפילויות של
+    # אותה כותרת (אותו דף בשני מזהים) אינן עמימות אמיתית.
+    clean = [c for c in pool if _is_clean_name(req, _norm(c))]
+    if clean and len(set(clean)) == 1:
+        return "one", clean[0], clean
+    return "many", None, pool
 
 
 # og:title מופיע בדפי Ontopo גם כ-meta-tag וגם בתוך JSON מוטמע — הרגקס תופס את שניהם.
@@ -181,7 +288,12 @@ async def _real_titles(candidates: list[dict]) -> None:
 # דף Ontopo "רפאים": קיים, כותרת מושלמת, אבל המקום מסומן בו כלא-פעיל (אירוע שפג/
 # עסק שירד). ניצח את ה-resolve פעמיים (גרקו 07.2026, גרקו הרצליה 15.7) ושלח את
 # הריצה לדף מת בזמן שהמסעדה חיה ובועטת בטאביט.
-_DEAD_MARKS = ("לא פעיל", "האירוע הסתיים")
+# תיקון 17.7: המרקר הישן "לא פעיל" הוסר — הוא יושב ב-i18n של *כל* דף אונטופו
+# ("nonActive":"לא פעיל") ופסל דפים חיים ברגע שההתאמה החזקה התחילה להגיע לבדיקה.
+# המרקרים החדשים אומתו על גרקו הרצליה + MAZA (רפאים: מופיעים) ומול רוסטיקו בזל,
+# טאיזו וקלארו (חיים: אפס מופעים): מפתח out_of_business המבני + נוסח ההודעה
+# "מסעדה זו אינה זמינה להזמנות דרך מערכת אונטופו".
+_DEAD_MARKS = ("out_of_business", "האירוע הסתיים", "אינה זמינה להזמנות")
 
 
 def _looks_dead(body: str) -> bool:
@@ -197,6 +309,123 @@ async def _ontopo_dead(url: str) -> bool:
             return _looks_dead((await http.get(url)).text)
     except Exception:  # noqa: BLE001
         return False
+
+
+# --- שלב 1: חיפוש פנימי בפלטפורמות (מחקר 17.7) -------------------------------
+# endpoints לא רשמיים שנחשפו מה-bundles של האתרים ואומתו חי; כל כשל/שינוי עתידי
+# נופל בשקט למסלול Brave (שלב 2), אז אין תלות קשיחה בהם.
+#
+# Ontopo (אומת: רוסטיקו בזל page 37905695, og:title תואם):
+#   GET https://ontopo.com/api/unified_search?slug=<אתר>&terms=<שאילתה>&locale=he&limit=20
+#     → {"found": bool, "suggestions": [{"type": "venue", "label", "secondary": עיר, "slug"}]}
+#   GET https://ontopo.com/api/venue_profile?slug=<venue_slug>&locale=he
+#     → {"title", "phone", "pages": [{"slug": <page_slug>, "content_type": "reservation"}]}
+#   דף ההזמנה: https://ontopo.com/he/il/page/<page_slug>
+# Tabit (אומת: "גרקו הרצליה" מחזיר בדיוק את ה-orgId שנצפה חי 16.7):
+#   GET https://bridge.tabit.cloud/organizations/search?q=<שאילתה>
+#     → {"organizations": [{"_id", "name", "city", "aliases", "services": {"book": bool}}]}
+#   החיפוש fuzzy מאוד ("אסה" מחזיר CASA TUA) — סינון מותג על התוצאות הוא חובה.
+_ONTOPO_API = "https://ontopo.com/api"
+_ONTOPO_SITE = "15171493"  # slug של אתר ontopo-il (ה-distributor ב-HTML של דף הבית)
+_TABIT_BRIDGE = "https://bridge.tabit.cloud/organizations/search"
+_INTERNAL_GAP_S = 0.4  # נימוס בין קריאות לאותה פלטפורמה
+
+
+def _queries(name: str) -> list[str]:
+    """שאילתות לחיפוש פנימי: השם המלא, ואם שונה — גם טוקן המותג לבד ("רוסטיקו בזל
+    תל אביב" לא נמצא מילולית, "רוסטיקו" מחזיר את שני הסניפים)."""
+    req = _norm(name)
+    brand = _brand_token(req)
+    out = [name.strip()]
+    if brand and brand != req:
+        out.append(brand)
+    return out
+
+
+async def _ontopo_internal(name: str) -> list[dict]:
+    """מועמדי {title, url, platform} מהחיפוש הפנימי של Ontopo; [] → אין (ממשיכים הלאה)."""
+    brand = _brand_token(_norm(name))
+    if not brand:
+        return []
+    out: list[dict] = []
+    async with httpx.AsyncClient(timeout=10, headers={"User-Agent": UA}) as http:
+        venues: list[dict] = []
+        for q in _queries(name):
+            resp = await http.get(
+                f"{_ONTOPO_API}/unified_search",
+                params={"slug": _ONTOPO_SITE, "terms": q, "locale": "he", "limit": 20},
+            )
+            resp.raise_for_status()
+            suggestions = resp.json().get("suggestions") or []
+            venues = [
+                s
+                for s in suggestions
+                if s.get("type") == "venue"
+                and s.get("slug")
+                and _has_token(brand, _norm(s.get("label") or ""))
+            ]
+            if venues:
+                break
+            await asyncio.sleep(_INTERNAL_GAP_S)
+        # venue slug ≠ page slug (אומת: page/<venue_slug> הוא 404) — דף ההזמנה יושב
+        # ב-venue_profile.pages עם content_type=reservation. venue בלי דף כזה אינו
+        # בר-הזמנה ב-Ontopo ונשמט (אולי Tabit/האתר העצמי יחזיקו אותו).
+        for v in venues[:5]:
+            await asyncio.sleep(_INTERNAL_GAP_S)
+            try:
+                prof = (
+                    await http.get(
+                        f"{_ONTOPO_API}/venue_profile",
+                        params={"slug": v["slug"], "locale": "he"},
+                    )
+                ).json()
+            except Exception:  # noqa: BLE001 — פרופיל שנפל משמיט מועמד, לא את המסלול
+                continue
+            pages = prof.get("pages") or []
+            page = next((p for p in pages if p.get("content_type") == "reservation"), None)
+            if not page or not page.get("slug"):
+                continue
+            title = " ".join(x for x in (v.get("label"), v.get("secondary")) if x)
+            out.append(
+                {
+                    "title": title,
+                    "url": f"https://ontopo.com/he/il/page/{page['slug']}",
+                    "platform": "ontopo",
+                }
+            )
+    return out
+
+
+async def _tabit_internal(name: str) -> list[dict]:
+    """מועמדי {title, url, platform} מה-bridge של Tabit; [] → אין. ה-aliases של הרשומה
+    (עברית+אנגלית) פותרים את גישור השפות במקור."""
+    brand = _brand_token(_norm(name))
+    if not brand:
+        return []
+    async with httpx.AsyncClient(timeout=10, headers={"User-Agent": UA}) as http:
+        for q in _queries(name):
+            resp = await http.get(_TABIT_BRIDGE, params={"q": q})
+            resp.raise_for_status()
+            orgs = resp.json().get("organizations") or []
+            good = []
+            for o in orgs:
+                if not o.get("_id") or not (o.get("services") or {}).get("book"):
+                    continue
+                names = [o.get("name") or ""] + list(o.get("aliases") or [])
+                if not any(_has_token(brand, _norm(n)) for n in names if n):
+                    continue
+                title = " ".join(x for x in (o.get("name"), o.get("city")) if x)
+                good.append(
+                    {"title": title, "url": _TABIT_ORG_URL.format(o["_id"]), "platform": "tabit"}
+                )
+            if good:
+                return good
+            await asyncio.sleep(_INTERNAL_GAP_S)
+    return []
+
+
+# מקורות שלב 1 לפי סדר התיעדוף הקיים (Ontopo › Tabit); הטסטים מאפסים את זה.
+_INTERNAL_SOURCES = (_ontopo_internal, _tabit_internal)
 
 
 def _candidate(url: str, raw_title: str, seen: set, platforms=_PLATFORMS) -> dict | None:
@@ -360,83 +589,110 @@ async def _phone_hint(name: str, raw: list[dict]) -> str | None:
         return None
 
 
-async def resolve_reservation_url(name: str) -> dict:
-    """
-    מחזיר {'status': one|many|none, 'url', 'platform', 'candidates', 'fallback'}.
-    one → url מוכן, ו-fallback = match חזק מהפלטפורמה הבאה בתור (לניסיון שני אם
-    ההזמנה נכשלת בפועל — תרחיש גרקו: דף Ontopo שפג עם כותרת מושלמת); many → לשאול
-    את המשתמש; none → לא נמצא (ואז 'phone_hint' = טלפון המסעדה אם נמצא).
-    הפלטפורמה הראשונה עם match חזק מכריעה.
-    """
-    candidates, raw = await search_reservation(name)
-    await _real_titles(candidates)  # כותרות-URL → השם האמיתי מהדף, לפני כל התאמה
+def _select(name: str, pool: list[dict]) -> tuple[str | None, dict | None, dict | None]:
+    """בחירה פלטפורמה-פלטפורמה לפי סדר התיעדוף. (kind, picked, fallback):
+    kind=many → picked מוכן לשאלת הבהרה; kind=one → picked + fallback מהפלטפורמה
+    הבאה (לניסיון שני); kind=None → אין match חזק בשום פלטפורמה."""
+    primary, fallback = None, None
+    for platform in _PLATFORM_ORDER:
+        plat = [c for c in pool if c["platform"] == platform]
+        if not plat:
+            continue
+        # סינון דילים/שוברים/חבילות לפני הדיסאמביגואציה — אלה מבלבלים את הלקוח.
+        # אם הסינון מרוקן הכל, נשארים עם הסט המקורי (fallback).
+        plat = [c for c in plat if not _is_listing(c["title"])] or plat
+        status, chosen_title, good = _match_restaurant(name, [c["title"] for c in plat])
+        if status == "one":
+            url = next(c["url"] for c in plat if c["title"] == chosen_title)
+            if primary is None:
+                primary = {
+                    "status": "one",
+                    "url": url,
+                    "platform": platform,
+                    "candidates": plat,
+                }
+            else:
+                fallback = {"url": url, "platform": platform}
+                break
+        elif status == "many" and primary is None:
+            return (
+                "many",
+                {
+                    "status": "many",
+                    "url": None,
+                    "platform": platform,
+                    "candidates": [c for c in plat if c["title"] in good],
+                    "fallback": None,
+                },
+                None,
+            )
+        # אין match חזק בפלטפורמה הזו → מנסים את הבאה בתור.
+    return ("one", primary, fallback) if primary else (None, None, None)
 
-    def _select(pool: list[dict]) -> tuple[str | None, dict | None, dict | None]:
-        primary, fallback = None, None
-        for platform in _PLATFORM_ORDER:
-            plat = [c for c in pool if c["platform"] == platform]
-            if not plat:
-                continue
-            # סינון דילים/שוברים/חבילות לפני הדיסאמביגואציה — אלה מבלבלים את הלקוח.
-            # אם הסינון מרוקן הכל, נשארים עם הסט המקורי (fallback).
-            plat = [c for c in plat if not _is_listing(c["title"])] or plat
-            status, chosen_title, good = _match_restaurant(name, [c["title"] for c in plat])
-            if status == "one":
-                url = next(c["url"] for c in plat if c["title"] == chosen_title)
-                if primary is None:
-                    primary = {
-                        "status": "one",
-                        "url": url,
-                        "platform": platform,
-                        "candidates": plat,
-                    }
-                else:
-                    fallback = {"url": url, "platform": platform}
-                    break
-            elif status == "many" and primary is None:
-                return (
-                    "many",
-                    {
-                        "status": "many",
-                        "url": None,
-                        "platform": platform,
-                        "candidates": [c for c in plat if c["title"] in good],
-                        "fallback": None,
-                    },
-                    None,
-                )
-            # אין match חזק בפלטפורמה הזו → מנסים את הבאה בתור.
-        return ("one", primary, fallback) if primary else (None, None, None)
 
-    pool = list(candidates)
+async def _pick(name: str, pool: list[dict]) -> tuple[dict | None, bool, list[dict]]:
+    """בחירה + מלכודת דף-הרפאים של Ontopo (גרקו): מנצח עם כותרת מושלמת אבל מת —
+    נפסל, ובוחרים מחדש מהשאר. מחזיר (תוצאה או None, dead_hit, ה-pool שנותר):
+    dead_hit=True פירושו שהמותג המבוקש זוהה ונפסל כדף רפאים."""
+    pool, dead_hit = list(pool), False
     while True:
-        kind, picked, fallback = _select(pool)
+        kind, picked, fallback = _select(name, pool)
         if kind == "many":
-            return picked
+            return picked, dead_hit, pool
         if kind is None:
-            break
-        # מלכודת דף-הרפאים של Ontopo (גרקו): מנצח עם כותרת מושלמת אבל "לא פעיל".
-        # פוסלים וחוזרים לבחור מהשאר — טאביט/סניף אחר, ואם לא נותר כלום ייכנס
-        # הנתיב של אתר-המסעדה (Phase 4-lite) שימצא את פלטפורמת האמת.
+            return None, dead_hit, pool
         if picked["platform"] == "ontopo" and await _ontopo_dead(picked["url"]):
             log.info("resolve: dead ontopo page dropped for '%s': %s", name, picked["url"])
+            dead_hit = True
             pool = [c for c in pool if c["url"] != picked["url"]]
             continue
-        return {**picked, "fallback": fallback}
-    # אף פלטפורמה לא נתנה match חזק → לעולם לא לבחור לבד. לשאול את הלקוח (many) או none.
-    if pool:
+        return {**picked, "fallback": fallback}, dead_hit, pool
+
+
+async def resolve_reservation_url(name: str) -> dict:
+    """
+    מחזיר {'status': one|many|none, 'url', 'platform', 'candidates', 'fallback',
+    'via': internal|brave}. one → url מוכן, ו-fallback = match חזק מהפלטפורמה הבאה
+    בתור (לניסיון שני אם ההזמנה נכשלת בפועל — תרחיש גרקו); many → לשאול את המשתמש;
+    none → לא נמצא (ואז 'phone_hint' = טלפון המסעדה אם נמצא).
+    שלב 1: החיפוש הפנימי של הפלטפורמות (מדויק: סניפים אמיתיים, aliases דו-לשוניים);
+    כל כשל בו — שקט, ושלב 2 (Brave) ממשיך כרגיל. הפלטפורמה הראשונה שמכריעה קובעת.
+    """
+    for source in _INTERNAL_SOURCES:
+        try:
+            internal = await source(name)
+            if not internal:
+                continue
+            picked, _dead, _rest = await _pick(name, internal)
+        except Exception:  # noqa: BLE001 — endpoint לא רשמי: כל כשל נופל בשקט ל-Brave
+            log.info("resolve: internal search failed for '%s'", name, exc_info=True)
+            continue
+        if picked:
+            return {**picked, "via": "internal"}
+        # המקור הפנימי לא הכריע (אין מותג תואם / דף רפאים) → המקור/השלב הבא.
+
+    candidates, raw = await search_reservation(name)
+    await _real_titles(candidates)  # כותרות-URL → השם האמיתי מהדף, לפני כל התאמה
+    picked, dead_hit, pool = await _pick(name, candidates)
+    if picked:
+        return {**picked, "via": "brave"}
+    # אף פלטפורמה לא נתנה match חזק → לעולם לא לבחור לבד: לשאול את הלקוח (many) או none.
+    # חריג: המותג זוהה ונפסל כדף רפאים (מסא→MAZA) — שאר ה-pool הוא רעש, ורשימת
+    # many ממנו רק תטעה; ממשיכים לנתיב none (אתר-המסעדה/טלפון) שיגיד את האמת.
+    if pool and not dead_hit:
         return {
             "status": "many",
             "url": None,
             "platform": None,
             "candidates": _brand_first(name, pool),
             "fallback": None,
+            "via": "brave",
         }
     # אפס דפי פלטפורמה בחיפוש — לפני שמוותרים: לינק פלטפורמה מהאתר של המסעדה עצמה
     # (Phase 4-lite), ואם גם זה אין — לפחות טלפון במקום מבוי סתום.
     from_site = await _platform_link_from_site(name, raw)
     if from_site:
-        return from_site
+        return {**from_site, "via": "brave"}
     return {
         "status": "none",
         "url": None,
@@ -444,6 +700,7 @@ async def resolve_reservation_url(name: str) -> dict:
         "candidates": [],
         "fallback": None,
         "phone_hint": await _phone_hint(name, raw),
+        "via": "brave",
     }
 
 
@@ -481,13 +738,13 @@ async def resolve_cinema_url(movie: str, chain: str | None = None) -> dict:
     if chain == "rav-hen" and not any(c["platform"] == "rav-hen" for c in candidates):
         candidates += await _ravhen_from_planet(candidates)
     platforms = [p for p in _CINEMA_PLATFORMS if p[0] == chain] if chain else _CINEMA_PLATFORMS
-    return _pick(movie, candidates, platforms, drop_listings=False)
+    return _pick_cinema(movie, candidates, platforms, drop_listings=False)
 
 
-def _pick(name: str, candidates: list[dict], platforms, *, drop_listings: bool) -> dict:
+def _pick_cinema(name: str, candidates: list[dict], platforms, *, drop_listings: bool) -> dict:
     """דיסאמביגואציה פלטפורמה-פלטפורמה לפי סדר התיעדוף — ליבת ה-resolver הקולנועי.
-    (המסעדות ב-main גדלו לולאת דף-רפאים + brand_first + fallbackים של ענף none —
-    resolve_reservation_url מחזיק אותן inline ולא עובר כאן.)
+    (המסעדות גדלו למסלול דו-שלבי משלהן — _select + לולאת דף-הרפאים ב-_pick —
+    ולא עוברות כאן; העולמות מופרדים בכוונה עד ריצה חיה על ליבה משותפת.)
     drop_listings: סינון דילים/שוברים (רלוונטי למסעדות בלבד)."""
     primary, fallback = None, None
     for platform, _, _ in platforms:
