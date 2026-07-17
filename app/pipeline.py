@@ -347,6 +347,59 @@ NUDGE_MSGS = {
 # מוותר על התזכורת, לא שווה עוד state מותמד.
 _nudge: dict = {}
 
+# לקוח-בלולאה: שדות רגישים שהאתר דורש באמצע ריצה (OTP ב-SMS / ת"ז). השאלה
+# מנוסחת דחוף-אך-רגוע; הערך עצמו לעולם לא נשמר בשום מקום קבוע — לא בפרופיל,
+# לא ב-prefs, לא ב-_flow. הוא חי רק ב-_sensitive (בזיכרון, לריצה אחת) ונמסר
+# ל-agent דרך notes של ה-resume החי.
+NUDGE_DELAY_OTP_S = 120  # OTP פג תוך דקות — בהמתנה ל-sms_code מזכירים מהר יותר
+SENSITIVE_FIELDS = ("sms_code", "id_number")
+# עוגנים ל-_vary: sms_code="קוד"+דחיפות ("פג"/"דקות"); id_number="תעודת זהות"+
+# הבטחת אי-שמירה ("לא נשמר"/"לא שומר") — הטסטים נועלים עוגן, לא נוסח.
+SENSITIVE_MSGS = {
+    "sms_code": (
+        "האתר שלח לך עכשיו קוד אימות ב-SMS — תעביר לי אותו ברגע שנוחת, הוא פג תוך כמה דקות 🤙",
+        "רגע לפני הסוף: נשלח אליך קוד אימות. שלח לי אותו ישר כשמגיע — הקודים האלה פגים תוך דקות 🔄",
+        "צריך ממך רק את קוד האימות שנשלח אליך — ברגע שהוא אצלך תזרוק לי, לפני שהוא פג 🦾",
+    ),
+    "id_number": (
+        "האתר מבקש תעודת זהות בשביל להשלים — שלח לי את המספר ואני ממשיך מאותה נקודה. "
+        "אצלי הוא לא נשמר 🥷",
+        "כדי לסגור את זה הם דורשים תעודת זהות. תעביר לי את המספר ואני מזין וממשיך — "
+        "לא שומר אותו אצלי 🤝",
+        "עצרתי על תעודת זהות — צריך ממך את המספר כדי להמשיך. מזין ושוכח, אצלי זה לא נשמר 🥷",
+    ),
+}
+# מה שנכנס לזיכרון השיחה במקום הקלט הרגיש עצמו — עדות שנמסר, בלי הערך.
+_MASKED_TURN = {
+    "sms_code": "(קוד אימות נמסר — לא נשמר)",
+    "id_number": "(מספר תעודת זהות נמסר — לא נשמר)",
+}
+# phone -> "field: value". בזיכרון בלבד: נצרך (pop) בריצת run_booking הבאה ונמחק.
+_sensitive: dict = {}
+
+# ack ההמשך אחרי תשובה שנורית דטרמיניסטית (בחירת אופציה / קלט רגיש).
+RESUME_ACK_MSGS = (
+    "קיבלתי — ממשיך בדיוק מאיפה שעצרתי 🦾",
+    "על זה — ממשיך מאותה נקודה 🤝",
+    "מעולה, לוקח את זה מהמקום שעצרנו 🎯",
+)
+
+
+def _sensitive_value(text: str, field: str) -> str:
+    """מזהה קוד/ת"ז בתשובת הלקוח: ספרות בלבד אחרי ניקוי רווחים/מקפים, באורך
+    שמתאים לשדה (OTP 4-8, ת"ז 8-9). לא זוהה → "" והתור ממשיך ל-converse כרגיל
+    (שאלה/הבהרה של הלקוח, לא הקוד)."""
+    digits = re.sub(r"\D", "", text)
+    lo, hi = (4, 8) if field == "sms_code" else (8, 9)
+    return digits if lo <= len(digits) <= hi else ""
+
+
+def _scrub(text: str, secret: str) -> str:
+    """מוחק את הערך הרגיש מטקסט שעומד להיות מותמד (recap/tail/debug) — ה-agent
+    לפעמים מהדהד בדיווח שלו את מה שהזין."""
+    val = secret.split(": ", 1)[-1] if secret else ""
+    return text.replace(val, "***") if val else text
+
 
 def _cancel_nudge(phone: str) -> None:
     """הודעה נכנסת מהלקוח = הוא כאן — הנדנוד הממתין מתבטל."""
@@ -355,14 +408,15 @@ def _cancel_nudge(phone: str) -> None:
         t.cancel()
 
 
-def _arm_nudge(phone: str, kind: str) -> None:
+def _arm_nudge(phone: str, kind: str, delay: float | None = None) -> None:
     """נדנוד עדין: גבר שאל ומחכה ללקוח (שאלה/אישור/כרטיס) — אחרי NUDGE_DELAY_S
     בלי הודעה נכנסת נשלחת תזכורת *אחת* בדמות, וזהו (לא לולאה — יותר מזה נודניק).
-    arming חדש מחליף טיימר קודם, כך שלעולם אין שניים במקביל."""
+    arming חדש מחליף טיימר קודם, כך שלעולם אין שניים במקביל. delay מפורש דורס
+    את ברירת המחדל (המתנה ל-OTP שפג תוך דקות)."""
     _cancel_nudge(phone)
 
     async def _later() -> None:
-        await asyncio.sleep(NUDGE_DELAY_S)
+        await asyncio.sleep(NUDGE_DELAY_S if delay is None else delay)
         await _send_and_record(phone, _vary(*NUDGE_MSGS[kind]))
 
     task = asyncio.create_task(_later())
@@ -790,6 +844,9 @@ async def run_booking(phone: str, fields: dict) -> None:
         return
     _booking[phone] = {"state": "working", "info": name}
     _await_answer.pop(phone, None)  # ריצה חדשה — שאלה פתוחה קודמת כבר לא רלוונטית
+    # קלט רגיש (OTP/ת"ז) שהלקוח מסר — נצרך כאן לריצה הזאת בלבד: נמסר ל-agent דרך
+    # notes של הריצה החיה, לא נכנס ל-fields ולכן לא מגיע ל-_await_answer/_flow/פרופיל.
+    secret = _sensitive.pop(phone, "")
     res = None  # מוגדר לפני ה-try — ה-finally קורא ממנו גם כשנפלנו לפני הריצה
     log.info(
         "run_booking start: %s -> %s (%s %s)", phone, name, fields.get("date"), fields.get("time")
@@ -971,7 +1028,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                 name=booker,
                 email=email,
                 phone=_il_phone(phone),
-                notes=fields.get("notes") or "",
+                notes="; ".join(p for p in (fields.get("notes") or "", secret) if p),
                 dry_run=True,
                 resume=resume_a,
                 time_flex=bool(fields.get("time_flexible")),
@@ -1123,7 +1180,8 @@ async def run_booking(phone: str, fields: dict) -> None:
                     "url": used_url,
                     "platform": used_platform,
                     "session_id": res.details["session_id"],
-                    "recap": (res.details.get("stage") or "")[:400],
+                    # _scrub: ה-recap מותמד ב-_flow — קלט רגיש שה-agent הדהד לא נשמר
+                    "recap": _scrub(res.details.get("stage") or "", secret)[:400],
                 }
             _human = {
                 "email": "מייל",
@@ -1146,6 +1204,17 @@ async def run_booking(phone: str, fields: dict) -> None:
             # ההקשר נשמר: תשובה שתואמת אופציה אחת-לאחת תיירה דטרמיניסטית ב-handle_inbound,
             # בלי לסמוך על ה-extract (נצפה חי: ניסוח-מחדש של המודל הפיל resume).
             _await_answer[phone] = {"fields": dict(fields), "field": field, "options": real}
+            if field in SENSITIVE_FIELDS:
+                # לקוח-בלולאה: OTP/ת"ז — שאלה דחופה-אך-רגועה; התשובה תנותב
+                # דטרמיניסטית ל-resume באותו סשן (_handle_inbound_inner), והערך
+                # לא נשמר בשום מקום קבוע. OTP פג תוך דקות → נדנוד מהיר.
+                await _send_and_record(phone, _vary(*SENSITIVE_MSGS[field]))
+                _arm_nudge(
+                    phone,
+                    "question",
+                    delay=NUDGE_DELAY_OTP_S if field == "sms_code" else None,
+                )
+                return
             requested_time = (fields.get("time") or "").strip()
             if field == "time" and real and requested_time:
                 # השעה שביקש תפוסה אבל יש חלופות אמיתיות — מציעים לסגור, לא "נכשלתי":
@@ -1209,7 +1278,8 @@ async def run_booking(phone: str, fields: dict) -> None:
                 _booking[phone] = {"state": "failed", "info": hit[0]}
                 await _send_and_record(phone, hit[1])
                 return
-            _booking[phone] = {"state": "failed", "info": "", "debug": res.summary}
+            # _scrub: ה-debug מותמד ב-_flow — קלט רגיש שהודהד בדיווח לא נשמר
+            _booking[phone] = {"state": "failed", "info": "", "debug": _scrub(res.summary, secret)}
             await _send_and_record(
                 phone,
                 _vary(
@@ -1249,7 +1319,8 @@ async def run_booking(phone: str, fields: dict) -> None:
         # הזנב שחי רק בלוג הקונטיינר נמחק עם כל deploy, פעמיים באותו יום).
         b = _booking.get(phone)
         if isinstance(b, dict) and res is not None:
-            tail = (res.details or {}).get("steps_tail") or ""
+            # _scrub: הזנב מותמד ב-_flow — קלט רגיש שנקלד בדרך לא נשמר בו
+            tail = _scrub((res.details or {}).get("steps_tail") or "", secret)
             if tail:
                 b["tail"] = tail
         await _save_flow(phone)  # המצב התייצב — שורד redeploy מכאן
@@ -1442,6 +1513,31 @@ async def handle_inbound(phone: str, text: str, message_id: str | None = None) -
 
 async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = None) -> None:
     pend = _await_answer.get(phone)
+    if (
+        pend
+        and _booking.get(phone, {}).get("state") == "missing"
+        and pend.get("field") in SENSITIVE_FIELDS
+    ):
+        # לקוח-בלולאה: התשובה על OTP/ת"ז מנותבת ישירות ל-resume באותו סשן — בלי
+        # converse (המודל לא רואה את הערך) ובלי resolve מחדש. הערך חי רק
+        # ב-_sensitive; לזיכרון השיחה נכנסת עדות מסוככת בלבד. טקסט שלא נראה
+        # כקוד (שאלה/הבהרה) נופל ל-converse כרגיל.
+        val = _sensitive_value(text, pend["field"])
+        if val:
+            _await_answer.pop(phone, None)
+            _sensitive[phone] = f"{pend['field']}: {val}"
+            fields = dict(pend["fields"])
+            _turns[phone] = [
+                *(_turns.get(phone) or []),
+                {"role": "user", "text": _MASKED_TURN[pend["field"]], "ts": time.time()},
+            ][-CHAT_TURNS:]
+            await _send_and_record(phone, _vary(*RESUME_ACK_MSGS))
+            _booking[phone] = {
+                "state": "working",
+                "info": (fields.get("restaurant") or "").strip(),
+            }
+            _spawn(run_booking(phone, fields))
+            return
     if pend and _booking.get(phone, {}).get("state") == "missing" and pend.get("options"):
         match = next((o for o in pend["options"] if _norm_place(text) == _norm_place(o)), None)
         if match:
@@ -1457,14 +1553,7 @@ async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = 
                 *(_turns.get(phone) or []),
                 {"role": "user", "text": text, "ts": time.time()},
             ][-CHAT_TURNS:]
-            await _send_and_record(
-                phone,
-                _vary(
-                    "קיבלתי — ממשיך בדיוק מאיפה שעצרתי 🦾",
-                    "על זה — ממשיך מאותה נקודה 🤝",
-                    "מעולה, לוקח את זה מהמקום שעצרנו 🎯",
-                ),
-            )
+            await _send_and_record(phone, _vary(*RESUME_ACK_MSGS))
             _booking[phone] = {
                 "state": "working",
                 "info": (fields.get("restaurant") or "").strip(),
