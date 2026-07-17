@@ -94,6 +94,48 @@ def test_book_table_bu_timeout_is_honest(monkeypatch, tmp_path):
     assert res.details["stage"] == "timeout"
 
 
+def test_max_steps_restaurant_cut_multiscreen_keep_40():
+    """חיתוך שריפת-כישלון (דוח הזירוז 17.7): מסעדה מצליחה ב-≤15 צעדים — 25 מספיק,
+    וכישלון לא שורף 8+ דקות על 40; ורטיקלים מרובי-מסכים נשארים על 40."""
+    assert browser_book._max_steps("restaurant") == 25
+    assert browser_book._max_steps("cinema") == 40
+    assert browser_book._max_steps("show") == 40
+    assert browser_book._max_steps("insurance") == 40
+
+
+def test_job_carries_max_steps_by_task_type(monkeypatch, tmp_path):
+    """ה-job שנשלח ל-runner נושא את התקרה הנכונה לפי הוורטיקל בפועל."""
+    settings.bu_record_dir = str(tmp_path)
+    settings.bu_browser = "local"
+    jobs = []
+
+    async def fake_run(job):
+        jobs.append(job)
+        with open(job["result_path"], "w", encoding="utf-8") as f:
+            json.dump({"success": True, "message": "SUMMARY_REACHED"}, f)
+
+    monkeypatch.setattr(browser_book, "_run_subprocess", fake_run)
+    asyncio.run(
+        browser_book.book_table_bu(
+            restaurant="הדסון", page_url="http://x", date="26", time="20:00", party_size=2
+        )
+    )
+    asyncio.run(
+        browser_book.book_table_bu(
+            restaurant="",
+            page_url="http://x",
+            date="26",
+            time="20:00",
+            party_size=2,
+            task_type="cinema",
+            movie="האודיסאה",
+            city="ראשון לציון",
+        )
+    )
+    assert jobs[0]["task_type"] == "restaurant" and jobs[0]["max_steps"] == 25
+    assert jobs[1]["task_type"] == "cinema" and jobs[1]["max_steps"] == 40
+
+
 def test_timeout_ceiling_cinema_gets_the_long_one():
     """קולנוע ארוך ממסעדה (מפת מושבים + סוגי כרטיסים + טופס) — ריצה חיה נהרגה
     ב-600s קליק אחד לפני קיר-התשלום. מסעדות נשארות על התקרה הקצרה."""
