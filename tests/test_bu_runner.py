@@ -379,6 +379,20 @@ def test_concert_task_keeps_contract_and_event_rules():
     assert "מסך התשלום הוא מסך הסיכום" in recon and "מסך התשלום הוא מסך הסיכום" in commit
 
 
+def test_concert_task_sms_code_wall_is_missing_not_failed():
+    """קיר קוד-SMS של קופת (סבב 4) = עצירת לקוח-בלולאה: MISSING:sms_code והסשן
+    ממתין — לא FAILED:login_required, גם כשהקיר הוא חלק ממסך התחברות; קוד שנדחה →
+    MISSING:sms_code שוב, בלי לנחש."""
+    recon = _build_task({**_EJOB, "dry_run": True})
+    assert "MISSING:sms_code" in recon
+    assert "לעולם אל תמציא ואל תנחש קוד" in recon
+    flat = " ".join(recon.split())
+    assert "אל תדווח עליו FAILED:login_required" in flat
+    assert "MISSING:sms_code שוב" in recon
+    # login_required נשאר לקירות חשבון אמיתיים (בלי רכישה כאורח)
+    assert "FAILED:login_required" in recon
+
+
 def test_concert_task_optional_date_and_venue():
     """בלי date — ה-task לא ממציא תאריך ומנחה MISSING:date על ריבוי מועדים;
     בלי venue — אין ' ב-' ריק בכותרת המשימה."""
