@@ -100,6 +100,16 @@ def test_gender_line_female_is_rich():
     assert "לא ידוע" in gender_line(None)  # בלי מידע — ניטרלי, לא מטים
 
 
+def test_gender_line_male_rotates_wide_repertoire():
+    """בקשת אלון 17.7 ('לא רואה מספיק אלוף, דוד, חיים שלי — בעיקר אחי'): הפנייה
+    הגברית נושאת רפרטואר רחב + הוראת רוטציה מפורשת, לא רק 'אחי'."""
+    line = gender_line("male")
+    assert "זכר" in line
+    for needle in ("אלוף", "דוד", "חיים שלי", "נשמה", "כפרה"):
+        assert needle in line
+    assert "ברירת המחדל" in line  # 'אחי' הוא לא ברירת המחדל — הוראת הרוטציה
+
+
 def test_mechanical_messages_not_male_addressed():
     """ההודעות המכניות (pipeline + התנצלות היתומים ב-main) נשלחות לכל משתמש/ת —
     אסור שיהיה בהן 'אחי'/'אחשלי'/'בראדר' (נמצא: 'שנייה אחי', 'אחי זה נתקע לי',
