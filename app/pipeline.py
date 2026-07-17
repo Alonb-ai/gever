@@ -12,6 +12,7 @@ import logging
 import random
 import re
 import time
+from collections.abc import Sequence
 from datetime import datetime
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -417,6 +418,507 @@ RESUME_ACK_MSGS = (
     "על זה — ממשיך מאותה נקודה 🤝",
     "מעולה, לוקח את זה מהמקום שעצרנו 🎯",
 )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# הקול החופשי (חזון אלון 17.7): אפס ניסוחים קשיחים — כל הודעה "מכנית" נוצרת
+# טרייה מהמודל מתוך כוונה (intent), מותאמת לרגע, ורק אם עברה ולידציה
+# דטרמיניסטית. כל כשל/פסילה/timeout → fallback שקוף למאגר הנוסחים הקיים.
+# המאגרים לא נמחקים לעולם — הם רשת הביטחון. בשלב זה קיימת רק הליבה
+# (_say/_presay + INTENTS); הסבת אתרי הקריאה היא השלב הבא.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# תמצית הדמות למיקרו-פרומפט — לא ה-SYSTEM_PROMPT המלא (מהירות): מי מדבר, איך
+# כותבים בוואטסאפ, וחוקי האמת. הכוונה הספציפית מגיעה מכרטיס ה-intent.
+VOICE_CORE = (
+    "אתה גבר — תל אביבי בן שלושים ומשהו, חם, סחבק ובטוח בעצמו, שסוגר לחברים "
+    "משימות בוואטסאפ. אתה בנאדם, לא בוט, ולא מסגיר איך אתה עובד.\n"
+    "כותבים כמו בוואטסאפ: עברית מדוברת, קצר וישיר, בלי נקודות בלי פסיקים בלי "
+    "סימני קריאה — רק סימן שאלה כששואלים; שעות ותאריכים (20:00, 26.6) כרגיל; "
+    "ירידת שורה = הודעת וואטסאפ נפרדת, ולרוב מספיקה שורה אחת.\n"
+    "אמת בלבד: לא ממציא עובדות, סיבות או תוצאות, ולא מכריז שמשהו נסגר אלא אם "
+    "המשימה שקיבלת אומרת זאת במפורש. ביצוע הוא עניין של דקות — בלי 'שנייה' "
+    "ובלי 'מיד'.\n"
+    "אימוג'י: אחד לכל היותר, רק מתוך " + " ".join(sorted(ALLOWED_EMOJI)) + " — ורוב "
+    "ההודעות בלי בכלל."
+)
+
+# איסורים משותפים (regex). שלילה כנה ("לא סגרתי") מותרת — לכן lookbehind.
+_NOT_DONE = (r"(?<!לא )סגרתי", r"(?<!לא )הצלחתי", "✅")  # הכרזת ביצוע מגיעה רק מהמערכת
+_NO_INSTANT = (r"\bשנייה\b", r"\bמיד\b", r"תוך רגע")  # אין הבטחת-מיידי — זו עבודה של דקות
+_NO_REASON = (r"אין מקום", r"תפוס", r"אזלו", r"המקום סגור")  # כשל בלי סיבה — לא ממציאים אחת
+
+# מפת כל אתרי הניסוח הקשיח ב-pipeline — כוונה לכל הודעה גנרית. שדות:
+#   goal      מה ההודעה אומרת (כרטיס הכוונה במיקרו-פרומפט)
+#   ctx       מפתחות ההקשר הזמינים בנקודת הקריאה (תיעוד; כל ctx שמועבר נכנס לפרומפט)
+#   forbid    טענות אסורות (regex — פסילה דטרמיניסטית)
+#   must      עוגנים שחייבים להופיע (regex על הטקסט; אותם עוגנים שהטסטים נועלים)
+#   must_ctx  מפתחות ctx שערכם חייב להופיע כלשונו (לינק/שם/שעה); ערך ריק לא נאכף
+#   max_chars תקרת אורך (ברירת מחדל SAY_MAX_CHARS)
+#   fallback  המאגר הקיים; None = הנוסחים עדיין inline באתר הקריאה, ובהסבה
+#             האתר יעביר אותם ב-_say(..., fallback=(...))
+#   site      איפה הניסוח הקשיח חי היום · test — העוגן הקיים בטסטים
+# הערה: קטעי המשנה (_agreed_line, _card_recap, ready_word/closer, שורת מספר
+# האישור) אינם כוונות נפרדות — הם נמסים לתוך ctx של pending_confirm/card_wall/
+# booked_confirmed (מפתחות agreed/recap/conf) כשהאתרים יוסבו.
+INTENTS: dict[str, dict] = {
+    # ── יציאה לעבודה ──
+    "ack_start": {
+        "goal": (
+            "יצאת עכשיו לעבוד על ההזמנה מול האתר — אשר קצר שאתה על זה ותאם ציפיות: זה לוקח כמה דקות"
+        ),
+        "ctx": ("name", "task_type"),
+        "forbid": _NOT_DONE + _NO_INSTANT,
+        "must": (r"דק",),
+        "max_chars": 120,
+        "fallback": None,
+        "site": "run_booking → _maybe_ack (inline)",
+        "test": "tests/test_send_record.py (ACK_GAP), tests/test_persona_timing.py",
+    },
+    "ack_commit": {
+        "goal": "הלקוח אישר ואתה יוצא לסגירה הסופית — אשר קצר שאתה סוגר את זה עכשיו",
+        "ctx": ("name",),
+        "forbid": _NOT_DONE + _NO_INSTANT,
+        "must": (r"סוגר|נועל|סגירה",),
+        "max_chars": 120,
+        "fallback": None,
+        "site": "run_commit → _maybe_ack (inline)",
+        "test": "tests/test_realbooking.py",
+    },
+    # ── המתנה וטיימרים ──
+    "heartbeat": {
+        "goal": (
+            "אמצע ריצת דפדפן ארוכה ושקטה — סימן חיים קצר: עדיין עובד, האתר לוקח "
+            "את הזמן, בלי חדשות ובלי הבטחות"
+        ),
+        "ctx": ("name", "task_type"),
+        "forbid": _NOT_DONE + _NO_INSTANT,
+        "max_chars": 120,
+        "fallback": HEARTBEAT_MSGS,
+        "site": "_heartbeat → HEARTBEAT_MSGS",
+        "test": "tests/test_heartbeat.py",
+    },
+    "nudge_question": {
+        "goal": (
+            "שאלת את הלקוח משהו ועברו ~5 דקות בלי מענה — תזכורת עדינה אחת: אתה "
+            "עוד כאן ומחכה רק לתשובה שלו כדי להמשיך"
+        ),
+        "ctx": ("field",),
+        "forbid": _NOT_DONE,
+        "must": ("תשובה",),
+        "fallback": NUDGE_MSGS["question"],
+        "site": "_arm_nudge → NUDGE_MSGS['question']",
+        "test": "tests/test_nudge.py",
+    },
+    "nudge_confirm": {
+        "goal": (
+            "ההזמנה ערוכה על מסך האישור ומחכה רק למילה שלו — תזכיר בעדינות שהכל מוכן ושאל אם לסגור"
+        ),
+        "ctx": ("name",),
+        "forbid": _NOT_DONE,
+        "must": (r"סגור|סוגר",),
+        "fallback": NUDGE_MSGS["confirm"],
+        "site": "_arm_nudge → NUDGE_MSGS['confirm']",
+        "test": "tests/test_nudge.py",
+    },
+    "nudge_card": {
+        "goal": ("שלחת לו לינק להשלים תשלום בעצמו והוא נעלם — תזכיר שהלינק עוד חי אבל לא לנצח"),
+        "ctx": ("name",),
+        "forbid": _NOT_DONE,
+        "must": ("לינק",),
+        "fallback": NUDGE_MSGS["card"],
+        "site": "_arm_nudge → NUDGE_MSGS['card']",
+        "test": "tests/test_nudge.py",
+    },
+    "card_release": {
+        "goal": (
+            "הלקוח נטש את קיר-הכרטיס וגם התזכורת לא עזרה — שחררת את ההזמנה; "
+            "אמור בכנות ששחררת בינתיים והבטח לפתוח הכל מחדש כשיחזור"
+        ),
+        "ctx": ("name",),
+        "forbid": _NOT_DONE,
+        "must": (r"שחרר", r"מחדש"),
+        "fallback": CARD_RELEASE_MSGS,
+        "site": "_arm_nudge (card) → CARD_RELEASE_MSGS",
+        "test": "tests/test_card_release.py",
+    },
+    # ── לקוח-בלולאה (שדות רגישים) ──
+    "ask_sms_code": {
+        "goal": (
+            "האתר שלח ללקוח קוד אימות ב-SMS באמצע הריצה — בקש את הקוד "
+            "דחוף-אך-רגוע: הוא פג תוך דקות, שיעביר ברגע שנוחת"
+        ),
+        "ctx": ("name",),
+        "forbid": _NOT_DONE,
+        "must": (r"קוד", r"פג|דק"),
+        "fallback": SENSITIVE_MSGS["sms_code"],
+        "site": "run_booking (MISSING) → SENSITIVE_MSGS['sms_code']",
+        "test": "tests/test_customer_in_loop.py",
+    },
+    "ask_id_number": {
+        "goal": ("הטופס דורש תעודת זהות כדי להשלים — בקש את המספר והבטח במפורש שהוא לא נשמר אצלך"),
+        "ctx": ("name",),
+        "forbid": _NOT_DONE,
+        "must": (r"תעודת זהות", r"לא נשמר|לא שומר"),
+        "fallback": SENSITIVE_MSGS["id_number"],
+        "site": "run_booking (MISSING) → SENSITIVE_MSGS['id_number']",
+        "test": "tests/test_customer_in_loop.py",
+    },
+    "resume_ack": {
+        "goal": (
+            "הלקוח ענה על מה שחיכית לו (בחירה מרשימה / קוד) — אשר קצר שקיבלת "
+            "ושאתה ממשיך בדיוק מאותה נקודה"
+        ),
+        "ctx": ("name",),
+        "forbid": _NOT_DONE,
+        "must": (r"ממשיך|מאותה נקודה|מהמקום שעצרנו",),
+        "fallback": RESUME_ACK_MSGS,
+        "site": "_handle_inbound_inner → RESUME_ACK_MSGS",
+        "test": "tests/test_customer_in_loop.py, tests/test_deterministic_resume.py",
+    },
+    # ── פתיחת ריצה: בקשות שלא יוצאות לדרך ──
+    "unsupported_task": {
+        "goal": (
+            "ביקשו משימה שאתה עוד לא סוגר (לא מסעדה ולא קולנוע) — כנות בסטייל "
+            "שלך: את זה אתה עדיין לא סוגר לבד, ואתה כאן למה שאתה כן סוגר"
+        ),
+        "ctx": ("task_type",),
+        "forbid": _NOT_DONE,
+        "must": (r"לא",),
+        "fallback": None,
+        "site": "run_booking (task_type=other, inline)",
+        "test": "tests/test_router_switch.py",
+    },
+    "ask_place_name": {
+        "goal": (
+            "המערכת ירתה הזמנה בלי שם מסעדה/סרט — שאלה קצרה אחת: לאיזו מסעדה (או לאיזה סרט) סוגרים"
+        ),
+        "ctx": ("task_type",),
+        "forbid": _NOT_DONE,
+        "must": (r"מסעדה|סרט",),
+        "max_chars": 120,
+        "fallback": None,
+        "site": "run_booking (name ריק, inline ×2 מסעדה/קולנוע)",
+        "test": "tests/test_router_switch.py",
+    },
+    # ── resolve ──
+    "resolve_none": {
+        "goal": (
+            "חיפשת ולא מצאת איפה מזמינים למקום/לסרט — תהיה כן שלא מצאת; יש "
+            "phone_hint → כוון להתקשר אליו; אין → בקש שם או איות מדויק יותר"
+        ),
+        "ctx": ("name", "task_type", "phone_hint"),
+        "forbid": _NOT_DONE,
+        "must_ctx": ("name", "phone_hint"),
+        "fallback": None,
+        "site": "run_booking (status=none, inline ×3: קולנוע/טלפון/כללי)",
+        "test": "tests/test_resolve.py, tests/test_cinema_pipeline.py",
+    },
+    "resolve_pick": {
+        "goal": (
+            "החיפוש העלה כמה מועמדים — שאלה קצרה איזה בדיוק: יש label יחיד → "
+            "'הכוונה ל-X?'; אין תוויות (רק name) → איזה סניף או עיר; אחרת "
+            "כותרת קצרה לרשימת בחירה שתישלח מתחת"
+        ),
+        "ctx": ("name", "label"),
+        "forbid": _NOT_DONE,
+        "must": (r"\?",),
+        "must_ctx": ("label",),
+        "max_chars": 120,
+        "fallback": None,
+        "site": "run_booking (status=many, inline ×3: רשימה/יחיד/סניף-עיר)",
+        "test": "tests/test_resolve.py, tests/test_realbooking.py",
+    },
+    # ── באמצע הריצה ──
+    "retry_other_path": {
+        "goal": (
+            "הפלטפורמה הראשונה לא הסתדרה ואתה עובר לנתיב חלופי — עדכון קצר "
+            "שאתה מנסה דרך אחרת, בלי להמציא למה הראשונה נפלה"
+        ),
+        "ctx": ("name",),
+        "forbid": _NOT_DONE,
+        "max_chars": 120,
+        "fallback": None,
+        "site": "run_booking (attempt שני, inline)",
+        "test": "tests/test_realbooking.py",
+    },
+    "retry_broken_page": {
+        "goal": ("הדף קרס/גמגם באמצע ואתה מריץ ניסיון נוסף אוטומטי — עדכון קצר וענייני, בלי דרמה"),
+        "ctx": ("name",),
+        "forbid": _NOT_DONE,
+        "max_chars": 120,
+        "fallback": None,
+        "site": "run_booking (broken_page retry, inline)",
+        "test": "tests/test_debrief_fixes.py",
+    },
+    # ── תוצאות הריצה ──
+    "pending_confirm": {
+        "goal": (
+            "הגעת עד מסך האישור — עדכון הצלחה חי: נקוב במקום/בסרט, במועד, בשעה "
+            "שנתפסה בפועל ובכמות; שעה חלופית (alt) → אמור במפורש שהמבוקשת "
+            "הייתה תפוסה ומה נתפס במקום; קולנוע → גם מושבים; יש perk → 'שווה "
+            "לדעת'; וסיים בשאלת סגירה"
+        ),
+        "ctx": (
+            "name",
+            "task_type",
+            "date",
+            "time",
+            "party",
+            "alt_requested",
+            "alt_actual",
+            "seats",
+            "perk",
+            "agreed",
+        ),
+        "forbid": _NOT_DONE,
+        "must": (r"לסגור|נסגור",),
+        "must_ctx": ("time",),
+        "max_chars": 450,
+        "fallback": None,
+        "site": "run_booking (success→pending, inline: ראשים+closer מסעדה/קולנוע/alt)",
+        "test": "tests/test_realbooking.py, tests/test_alt_times.py, tests/test_cinema_pipeline.py",
+    },
+    "card_wall": {
+        "goal": (
+            "המקום דורש כרטיס אשראי ובתשלום אתה לא נוגע — הצלחה כנה: סידרת "
+            "הכל חוץ מהתשלום, שולח לינק להשלים בעצמו; קולנוע → פרט הקרנה "
+            "ומושבים ('נשאר רק התשלום')"
+        ),
+        "ctx": ("name", "task_type", "link", "date", "time", "party", "seats", "agreed"),
+        "forbid": ("✅", r"מספר כרטיס"),
+        "must_ctx": ("link",),
+        "max_chars": 450,
+        "fallback": None,
+        "site": "run_booking + run_commit (card_required, inline ×3)",
+        "test": "tests/test_realbooking.py, tests/test_liveview.py, tests/test_card_release.py",
+    },
+    "ask_missing": {
+        "goal": (
+            "הטופס עצר על שדה חובה שחסר לך (field) — בקש מהלקוח בדיוק אותו, "
+            "בלי להמציא ערך; יש אופציות אמיתיות מהדף → כותרת קצרה לרשימת בחירה"
+        ),
+        "ctx": ("field", "n_options"),
+        "forbid": _NOT_DONE,
+        "must_ctx": ("field",),
+        "fallback": None,
+        "site": "run_booking (MISSING, inline ×2: רשימה/שאלה ישירה)",
+        "test": "tests/test_realbooking.py, tests/test_pause_resume.py",
+    },
+    "alt_time_offer": {
+        "goal": (
+            "השעה שביקש תפוסה אבל יש שעות פנויות אמיתיות מהדף — הצע לסגור "
+            "חלופה: אחת (offered) → שאלת סגירה ישירה; כמה → כותרת קצרה לרשימה"
+        ),
+        "ctx": ("requested", "offered", "n_options"),
+        "forbid": _NOT_DONE,
+        "must": (r"לסגור|סוגר",),
+        "must_ctx": ("requested", "offered"),
+        "fallback": None,
+        "site": "run_booking (MISSING:time עם אופציות, inline ×2)",
+        "test": "tests/test_alt_times.py",
+    },
+    "failure_known": {
+        "goal": (
+            "הריצה נכשלה מסיבה אמיתית ומוכרת (reason) — אמת קצרה בדמות: מה "
+            "קרה ומה עושים הלאה (מועד/סניף/רשת/מקום אחר או טלפון), בלי להמציא "
+            "שום דבר מעבר ל-reason"
+        ),
+        "ctx": ("name", "reason", "task_type", "city"),
+        "forbid": _NOT_DONE,
+        "must_ctx": ("name", "city"),
+        "fallback": None,
+        "site": "_failure_reply (no_availability/closed/no_online_booking/"
+        "login_required/broken_page/browser_error/no_cinema_in_city)",
+        "test": "tests/test_debrief_fixes.py, tests/test_cinema_pipeline.py",
+    },
+    "failure_unknown": {
+        "goal": (
+            "הריצה נכשלה בלי סיבה מזוהה — כנות בלי להמציא סיבה: זה לא הסתדר "
+            "הפעם, מציעים ניסיון נוסף או כיוון אחר"
+        ),
+        "ctx": ("name", "phase"),
+        "forbid": _NOT_DONE + _NO_REASON,
+        "must": (r"\?",),
+        "must_ctx": ("name",),
+        "fallback": None,
+        "site": "run_booking + run_commit (כשל לא ממופה, inline ×2)",
+        "test": "tests/test_debrief_fixes.py",
+    },
+    "failure_stuck": {
+        "goal": (
+            "הריצה נתקעה או קרסה באמצע (timeout/חריגה) — כנות קצרה שנתקע "
+            "אצלך, בלי להמציא סיבה, והצעה לנסות שוב"
+        ),
+        "ctx": ("name", "phase"),
+        "forbid": _NOT_DONE + _NO_REASON,
+        "must": (r"\?",),
+        "fallback": None,
+        "site": "run_booking + run_commit (Timeout/Exception, inline ×4)",
+        "test": "tests/test_realbooking.py",
+    },
+    # ── סגירה ──
+    "commit_missing_name": {
+        "goal": "רגע לפני סגירה סופית ואין שם מזמין — שאלה קצרה אחת: על איזה שם לסגור",
+        "ctx": ("name",),
+        "forbid": _NOT_DONE,
+        "must": (r"שם",),
+        "max_chars": 120,
+        "fallback": None,
+        "site": "run_commit (בלי שם, inline)",
+        "test": "tests/test_realbooking.py",
+    },
+    "booked_confirmed": {
+        "goal": (
+            "המערכת אישרה — ההזמנה נסגרה באמת: הכרז שסגור, עם הפרטים "
+            "(מקום/סרט, מועד, השעה שנסגרה בפועל, כמות); מסעדה → אישור יגיע "
+            "ב-SMS מהמסעדה; קולנוע → האישור והכרטיסים בדרך; יש conf → צרף "
+            "את מספר האישור"
+        ),
+        "ctx": ("name", "task_type", "date", "time", "party", "conf", "agreed"),
+        "must": (r"סגור",),
+        "must_ctx": ("name", "time", "conf"),
+        "max_chars": 450,
+        "fallback": None,
+        "site": "run_commit (success, inline מסעדה/קולנוע + שורת conf)",
+        "test": "tests/test_realbooking.py, tests/test_cinema_pipeline.py",
+    },
+    # ── רשתות ביטחון של השיחה ──
+    "busy_error": {
+        "goal": ("השיחה עצמה קרסה (מודל/רשת) — הודעת גישור: עמוס לך רגע, שיכתוב שוב בעוד כמה דקות"),
+        "ctx": (),
+        "forbid": _NOT_DONE,
+        "must": (r"שוב",),
+        "max_chars": 120,
+        "fallback": None,
+        "site": "handle_inbound (except, inline)",
+        "test": "tests/test_debrief_fixes.py",
+    },
+    "empty_reply": {
+        "goal": "המודל החזיר תשובה ריקה — מילוי זעיר בדמות שמחזיק את הקצב עד ההודעה הבאה",
+        "ctx": (),
+        "forbid": _NOT_DONE,
+        "max_chars": 40,
+        "fallback": None,
+        "site": "_handle_inbound_inner (reply ריק, inline)",
+        "test": "—",
+    },
+    "leak_bridge": {
+        "goal": (
+            "הפלט של השיחה נפסל (שבירת דמות) — הודעת גישור ניטרלית: אתה על "
+            "משהו וחוזר אליו עוד רגע, בלי לרמוז שהייתה תקלה"
+        ),
+        "ctx": (),
+        "forbid": _NOT_DONE,
+        "max_chars": 120,
+        "fallback": None,
+        "site": "_handle_inbound_inner (character_leaks, inline)",
+        "test": "—",
+    },
+}
+
+SAY_TIMEOUT_S = 4.0  # תקרת חילול — מעבר לה שולחים מהמאגר; ההודעה לא שווה עיכוב
+SAY_TEMPERATURE = 1.1  # גבוה מהשיחה (0.7) — גיוון הוא כל הפואנטה
+SAY_MAX_TOKENS = 220
+SAY_MAX_CHARS = 300  # תקרת ברירת מחדל; כוונות עשירות (pending/card/booked) מרימות
+
+
+def _say_prompt(intent: str, ctx: dict) -> tuple[str, str]:
+    """בונה (system, user) לקריאת החילול: ליבת הדמות + הטיית מין, וכרטיס הכוונה
+    + ההקשר + החוקים הקשיחים. פונקציה טהורה — נבדקת בלי מודל."""
+    card = INTENTS[intent]
+    system = VOICE_CORE + "\n" + gender_line(ctx.get("gender"))
+    lines = [f"{k}: {v}" for k, v in ctx.items() if k != "gender" and v not in (None, "")]
+    anchors = [str(ctx[k]) for k in card.get("must_ctx", ()) if ctx.get(k)]
+    user = "המשימה: " + card["goal"] + "\n"
+    if lines:
+        user += "ההקשר:\n" + "\n".join(lines) + "\n"
+    user += f"עד {card.get('max_chars', SAY_MAX_CHARS)} תווים"
+    if anchors:
+        user += "; חובה לכלול בדיוק כמו שכתוב: " + " · ".join(anchors)
+    user += "\nכתוב עכשיו את ההודעה ללקוח — הטקסט בלבד, בלי הסברים"
+    return system, user
+
+
+def _say_violations(intent: str, ctx: dict, reply: str) -> list[str]:
+    """הוולידטור הדטרמיניסטי של הקול החופשי. רשימה ריקה = ההודעה כשרה לשליחה."""
+    card = INTENTS[intent]
+    if not reply:
+        return ["empty"]
+    probs = list(character_leaks(reply))  # שבירת דמות + אימוג'י מחוץ לפלטה
+    if len(reply) > card.get("max_chars", SAY_MAX_CHARS):
+        probs.append(f"too_long:{len(reply)}")
+    probs += [f"forbid:{p}" for p in card.get("forbid", ()) if re.search(p, reply)]
+    probs += [f"missing:{p}" for p in card.get("must", ()) if not re.search(p, reply)]
+    probs += [
+        f"missing_ctx:{k}"
+        for k in card.get("must_ctx", ())
+        if ctx.get(k) and str(ctx[k]) not in reply
+    ]
+    return probs
+
+
+async def _say_model(intent: str, ctx: dict) -> str:
+    """קריאת המודל של _say — אותו מנגנון כמו השיחה (genai דרך thread), חד-פעמי
+    ומהיר: בלי thinking, טמפרטורה גבוהה לגיוון. מופרד כדי שטסטים ימקו רק אותו."""
+    global _client
+    if _client is None:
+        _client = genai.Client(api_key=settings.gemini_api_key)
+    system, user = _say_prompt(intent, ctx)
+    resp = await asyncio.to_thread(
+        _client.models.generate_content,
+        model=settings.gemini_model,
+        contents=user,
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            temperature=SAY_TEMPERATURE,
+            max_output_tokens=SAY_MAX_TOKENS,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+        ),
+    )
+    return (resp.text or "").strip()
+
+
+async def _say(
+    intent: str, ctx: dict | None = None, *, fallback: Sequence[str] | None = None
+) -> str:
+    """הודעה גנרית בקול חופשי: מחוללים טרי מהמודל לפי כרטיס הכוונה, מוודאים
+    דטרמיניסטית (דמות, אימוג'י, איסורים, עוגנים, אורך) — וכל כשל נופל שקוף
+    ל-_vary מהמאגר. fallback מפורש (נוסחי ה-inline של אתר הקריאה) גובר על
+    המאגר שבמפה; בלי אף מאגר — שגיאת תכנות, עדיף להתפוצץ בטסט מאשר לשתוק."""
+    card = INTENTS[intent]
+    ctx = ctx or {}
+    pool = fallback if fallback is not None else card.get("fallback")
+    if not pool:
+        raise ValueError(f"_say({intent!r}) בלי מאגר fallback — חובה נוסח בטוח")
+    try:
+        reply = await asyncio.wait_for(_say_model(intent, ctx), timeout=SAY_TIMEOUT_S)
+        problems = _say_violations(intent, ctx, reply)
+        if not problems:
+            return reply
+        log.warning("_say(%s) פסל פלט מודל (%s) — נופל למאגר", intent, problems)
+    except TimeoutError:
+        log.warning("_say(%s) חצה %ss — נופל למאגר", intent, SAY_TIMEOUT_S)
+    except Exception as e:  # noqa: BLE001 — כל כשל מודל/רשת נופל שקוף למאגר
+        log.warning("_say(%s) נכשל (%r) — נופל למאגר", intent, e)
+    return _vary(*pool)
+
+
+def _presay(
+    intent: str, ctx: dict | None = None, *, fallback: Sequence[str] | None = None
+) -> asyncio.Task:
+    """pre-generate: מתחילים לחולל את ההודעה כבר בתחילת המתנה של טיימר
+    (נדנוד/שחרור) — כשהטיימר פוקע שולחים את `await task` מיד, בלי לחכות למודל;
+    ההמתנה בוטלה (הלקוח ענה) → task.cancel() ושום דבר לא נשלח."""
+    task = asyncio.create_task(_say(intent, ctx, fallback=fallback))
+    _pending.add(task)  # strong ref — כמו _spawn, שה-GC לא יעלים את החילול
+
+    def _done(t: asyncio.Task) -> None:
+        _pending.discard(t)
+        if not t.cancelled():
+            t.exception()  # נשלף כדי לא להרעיש בלוג; התוצאה ממילא אצל האוחז
+
+    task.add_done_callback(_done)
+    return task
 
 
 def _sensitive_value(text: str, field: str) -> str:
