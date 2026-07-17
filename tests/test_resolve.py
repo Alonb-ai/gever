@@ -1,9 +1,11 @@
-"""בדיקות ל-_match_restaurant (דיסאמביגואציה), ל-regexים (ontopo/tabit)
-ול-resolve_reservation_url (multi-platform, תיעדוף Ontopo › Tabit)."""
+"""בדיקות ל-_match_restaurant (דיסאמביגואציה), ל-regexים (ontopo/tabit),
+לחיפוש הפנימי (שלב 1) ול-resolve_reservation_url (multi-platform, Ontopo › Tabit)."""
 
 import asyncio
 import os
 import sys
+
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -15,6 +17,14 @@ from app.automation.resolve import (  # noqa: E402
     _from_brave,
     resolve_reservation_url,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_internal(monkeypatch):
+    """שלב 1 (חיפוש פנימי) מכבה כברירת מחדל בטסטים — בלי רשת; טסטים של שלב 1
+    מזייפים את ה-HTTP או קוראים למקורות ישירות."""
+    monkeypatch.setattr(resolve, "_INTERNAL_SOURCES", ())
+    monkeypatch.setattr(resolve, "_INTERNAL_GAP_S", 0)
 
 
 def _fake_search(cands, raw=None):
@@ -152,9 +162,11 @@ def test_site_fallback_finds_tabit_org_deeplink_in_body(monkeypatch):
     assert res["url"].endswith("orgId=5a005ba1b697f322003f3020")
 
 
-def test_weak_many_puts_brand_word_first(monkeypatch):
-    """תרחיש הדסון ראשון לציון (נצפה חי 16.7): אין match חזק לאף מועמד — הרשימה
-    ללקוח חייבת להתחיל בסניפי המותג המבוקש, לא במסעדה שחולקת רק את שם העיר."""
+def test_hudson_rishon_lezion_offers_only_brand_branches(monkeypatch):
+    """תרחיש הדסון ראשון לציון (נצפה חי 16.7, אושר דטרמיניסטי בבנצ' 17.7): הסניף
+    המבוקש לא קיים בפלטפורמה → many של סניפי המותג בלבד (הלקוח בוחר). "דדה ראשון
+    לציון" — שחלקה רק את שם העיר ועמדה ראשונה ברשימה — מסוננת לגמרי, וגם הסניף
+    האנגלי (Hudson) נתפס דרך גישור התעתיק."""
     monkeypatch.setattr(
         resolve,
         "search_reservation",
@@ -180,8 +192,11 @@ def test_weak_many_puts_brand_word_first(monkeypatch):
     )
     res = asyncio.run(resolve_reservation_url("הדסון ראשון לציון"))
     assert res["status"] == "many"
-    assert "הדסון" in res["candidates"][0]["title"]  # המותג ראשון
-    assert len(res["candidates"]) == 3  # אף מועמד לא נזרק — רק הסדר השתנה
+    titles = [c["title"] for c in res["candidates"]]
+    assert len(titles) == 2  # רק סניפי הדסון; דדה בחוץ
+    assert any("הדסון" in t for t in titles)
+    assert any("Hudson" in t for t in titles)  # תעתיק: הדסון ↔ Hudson
+    assert not any("דדה" in t for t in titles)
 
 
 def test_from_brave_extracts_platform_candidates_and_dedups():
@@ -641,5 +656,356 @@ def test_live_ontopo_page_still_wins(monkeypatch):
 def test_looks_dead_markers():
     from app.automation.resolve import _looks_dead
 
-    assert _looks_dead("<div>העסק לא פעיל</div>") is True
+    # המבנה שנצפה בדפי הרפאים האמיתיים (גרקו הרצליה, MAZA — בנצ' 17.7)
+    assert _looks_dead('"shifts":{"out_of_business":{"cta_url":null}}') is True
+    assert (
+        _looks_dead(
+            "<p>מסעדה זו אינה זמינה להזמנות דרך מערכת אונטופו, להזמנות יש לפנות ישירות למסעדה</p>"
+        )
+        is True
+    )
+    assert _looks_dead("<div>האירוע הסתיים</div>") is True
     assert _looks_dead("<div>הזמינו שולחן עכשיו</div>") is False
+    # ה-i18n שמוטמע בכל דף אונטופו חי — המרקר הישן "לא פעיל" נפל עליו (בנצ' 17.7)
+    assert _looks_dead('"active":"פעיל","nonActive":"לא פעיל","default":"ברירת מחדל"') is False
+
+
+# --- תיקוני הבנצ' 17.7: משקל מותג, הכרעת סניף, גישור תעתיק ---
+
+
+def test_skeleton_bridges_hebrew_and_latin():
+    from app.automation.resolve import _skeleton
+
+    assert _skeleton("אסה") == _skeleton("asa")  # אסה ↔ ASA
+    assert _skeleton("הדסון") == _skeleton("hudson")
+    assert _skeleton("מסא") == _skeleton("maza")  # ז/z ↔ ס/s מקופלים
+    assert _skeleton("קלארו") == _skeleton("claro")  # c ↔ ק
+    assert _skeleton("רוסטיקו") == _skeleton("rustico")
+    assert _skeleton("בזל") == _skeleton("basel")
+    assert _skeleton("אסה") != _skeleton("house")  # תנועת הפתיחה מבחינה
+    assert _skeleton("אסה") != _skeleton("izakaya")
+
+
+def test_has_token_prefix_guard():
+    from app.automation.resolve import _has_token
+
+    assert _has_token("בזל", "רוסטיקו בזלה הזמנת מקום")  # בזל'ה = תוספת אות אחת
+    assert not _has_token("מסא", "טיקה מסאלה אילת")  # מסאלה ≠ מסא (תוספת ארוכה)
+    assert _has_token("קלארו", "קלארוהחדר הפרטי")  # טוקן ארוך — תחילית חופשית
+
+
+def test_match_requires_brand_word_generic_not_enough():
+    """באג אסה→גייג'ין (דטרמיניסטי בכל 4 סבבי הבנצ'): "איזקאיה"+"תל אביב" המשותפות
+    לא מספיקות — המותג חייב להופיע, וגם באנגלית (ASA) הוא נתפס."""
+    status, chosen, _ = _match_restaurant(
+        "אסה איזקאיה תל אביב",
+        [
+            "גייג'ין איזקאיה תל אביב-יפו: הזמנת מקום | אונטופו",
+            "ASA Izakaya תל אביב-יפו: הזמנת מקום | אונטופו",
+            "איזאקיה - אומאי - UMAI תל אביב-יפו: הזמנת מקום | אונטופו",
+        ],
+    )
+    assert status == "one"
+    assert "ASA" in chosen
+
+
+def test_match_branch_token_decides_between_branches():
+    """באג רוסטיקו בזל→רוטשילד: כששני סניפים קיימים, טוקן הסניף מהבקשה מכריע —
+    גם כשכותרת הסניף בלי עיר (בזל'ה) והמתחרה דווקא מכיל את שם העיר."""
+    status, chosen, _ = _match_restaurant(
+        "רוסטיקו בזל תל אביב",
+        ["רוסטיקו רוטשילד תל אביב-יפו: הזמנת מקום | אונטופו", "רוסטיקו בזל'ה: הזמנת מקום"],
+    )
+    assert status == "one"
+    assert "בזל" in chosen
+
+
+def test_match_missing_branch_never_picks_silently():
+    """טוקן סניף בבקשה שאינו באף מועמד (סניף בזל לא בתוצאות) → many (שאלת אישור),
+    לא בחירה שקטה בסניף אחר של אותו מותג."""
+    status, chosen, good = _match_restaurant(
+        "רוסטיקו בזל תל אביב", ["רוסטיקו רוטשילד תל אביב-יפו: הזמנת מקום | אונטופו"]
+    )
+    assert status == "many"
+    assert chosen is None
+    assert good == ["רוסטיקו רוטשילד תל אביב-יפו: הזמנת מקום | אונטופו"]
+
+
+def test_match_duplicate_clean_titles_are_one():
+    """תרחיש טאיזו מהבנצ': אותו דף הזמנה מופיע פעמיים (שני מזהים) לצד סניפים
+    אמיתיים — הכפילות אינה עמימות, והכותרת הנקייה זוכה."""
+    status, chosen, _ = _match_restaurant(
+        "טאיזו תל אביב",
+        [
+            "טאיזו תל אביב-יפו: הזמנת מקום | אונטופו",
+            "טאיזו תל אביב-יפו: הזמנת מקום | אונטופו",
+            "קפה טאיזו תל אביב-יפו: הזמנת מקום | אונטופו",
+            "טאיזו אירועים תל אביב-יפו: הזמנת מקום | אונטופו",
+        ],
+    )
+    assert status == "one"
+    assert chosen == "טאיזו תל אביב-יפו: הזמנת מקום | אונטופו"
+
+
+def test_dead_brand_page_yields_none_not_noise_many(monkeypatch):
+    """באג מסא→MAZA: המותג זוהה (MAZA, בגישור תעתיק) אבל הדף רפאים → נפסל, ושאר
+    ה-pool (CASAMAYA) הוא רעש — none עם phone_hint, לא רשימת many מטעה."""
+    monkeypatch.setattr(
+        resolve,
+        "search_reservation",
+        _fake_search(
+            [
+                {
+                    "title": "MAZA תל אביב-יפו: הזמנת מקום | אונטופו",
+                    "url": "https://ontopo.com/he/il/page/36234429",
+                    "platform": "ontopo",
+                },
+                {
+                    "title": "CASAMAYA תל אביב-יפו: הזמנת מקום | אונטופו",
+                    "url": "https://ontopo.com/he/il/page/1111",
+                    "platform": "ontopo",
+                },
+            ]
+        ),
+    )
+    _no_extra_brave(monkeypatch)
+
+    async def fake_titles(c):
+        pass
+
+    async def fake_dead(url):
+        return "36234429" in url
+
+    monkeypatch.setattr(resolve, "_real_titles", fake_titles)
+    monkeypatch.setattr(resolve, "_ontopo_dead", fake_dead)
+    res = asyncio.run(resolve_reservation_url("מסא תל אביב"))
+    assert res["status"] == "none"
+    assert res["url"] is None
+
+
+# --- שלב 1: החיפוש הפנימי של הפלטפורמות ---
+
+
+def _fake_internal_http(monkeypatch, handlers):
+    """מזייף httpx.AsyncClient עבור המקורות הפנימיים: handlers = פונקציה
+    (url, params) → dict של JSON. מחזיר את יומן הקריאות."""
+    calls = []
+
+    class _Resp:
+        def __init__(self, data):
+            self._data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._data
+
+    class _HTTP:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, params=None):
+            calls.append((url, dict(params or {})))
+            return _Resp(handlers(url, params or {}))
+
+    monkeypatch.setattr(resolve.httpx, "AsyncClient", _HTTP)
+    monkeypatch.setattr(resolve, "_INTERNAL_GAP_S", 0)
+    return calls
+
+
+def test_ontopo_internal_finds_branch_via_brand_query(monkeypatch):
+    """תרחיש רוסטיקו בזל: השם המלא לא נמצא, שאילתת המותג מחזירה את שני הסניפים,
+    וה-URL נבנה מדף ה-reservation שב-venue_profile (venue slug ≠ page slug)."""
+    profiles = {
+        "34201385": {"pages": [{"slug": "57585571", "content_type": "reservation"}]},
+        "51060511": {"pages": [{"slug": "37905695", "content_type": "reservation"}]},
+    }
+
+    def handlers(url, params):
+        if url.endswith("/unified_search"):
+            if params["terms"] == "רוסטיקו":
+                return {
+                    "found": True,
+                    "suggestions": [
+                        {
+                            "type": "venue",
+                            "label": "רוסטיקו רוטשילד",
+                            "secondary": "תל אביב-יפו",
+                            "slug": "34201385",
+                        },
+                        {
+                            "type": "venue",
+                            "label": "רוסטיקו בזל",
+                            "secondary": "תל אביב-יפו",
+                            "slug": "51060511",
+                        },
+                    ],
+                }
+            return {"found": False, "suggestions": []}
+        return profiles[params["slug"]]
+
+    _fake_internal_http(monkeypatch, handlers)
+    cands = asyncio.run(resolve._ontopo_internal("רוסטיקו בזל תל אביב"))
+    assert [c["title"] for c in cands] == ["רוסטיקו רוטשילד תל אביב-יפו", "רוסטיקו בזל תל אביב-יפו"]
+    assert cands[1]["url"] == "https://ontopo.com/he/il/page/37905695"
+    assert all(c["platform"] == "ontopo" for c in cands)
+
+
+def test_ontopo_internal_filters_fuzzy_and_unbookable(monkeypatch):
+    """סינון מותג על ההצעות (מסא ≠ טיקה מסאלה) + venue בלי דף reservation נשמט."""
+
+    def handlers(url, params):
+        if url.endswith("/unified_search"):
+            return {
+                "found": True,
+                "suggestions": [
+                    {"type": "venue", "label": "טיקה מסאלה אילת", "secondary": "אילת", "slug": "1"},
+                    {"type": "city", "label": "מסא-עיר", "slug": None},
+                ],
+            }
+        raise AssertionError("venue_profile לא אמור להיקרא — אף הצעה לא עברה סינון")
+
+    _fake_internal_http(monkeypatch, handlers)
+    assert asyncio.run(resolve._ontopo_internal("מסא תל אביב")) == []
+
+    def handlers2(url, params):
+        if url.endswith("/unified_search"):
+            return {
+                "found": True,
+                "suggestions": [
+                    {"type": "venue", "label": "קלארו", "secondary": "תל אביב-יפו", "slug": "9"}
+                ],
+            }
+        return {"pages": [{"slug": "77", "content_type": "event"}]}  # אין דף הזמנות
+
+    _fake_internal_http(monkeypatch, handlers2)
+    assert asyncio.run(resolve._ontopo_internal("קלארו תל אביב")) == []
+
+
+def test_tabit_internal_matches_hebrew_via_aliases(monkeypatch):
+    """ה-bridge של טאביט fuzzy — הסינון לפי name+aliases משאיר רק את המותג, בונה
+    דיפ-לינק orgId קנוני, ומדלג על ארגונים בלי services.book."""
+
+    def handlers(url, params):
+        assert url == resolve._TABIT_BRIDGE
+        return {
+            "organizations": [
+                {
+                    "_id": "6092fb6a991ff07306ca899e",
+                    "name": "Hudson לילינבלום",
+                    "city": "תל אביב",
+                    "aliases": ["האדסון", "הדסון"],
+                    "services": {"book": True},
+                },
+                {
+                    "_id": "57d7abddbdbaae1e00feb6af",
+                    "name": "הדסון רמת החייל",
+                    "city": "תל אביב",
+                    "aliases": [],
+                    "services": {"book": True},
+                },
+                {
+                    "_id": "65f977255048c76ba370df4a",
+                    "name": "CASA TUA",
+                    "city": "הרצליה",
+                    "aliases": ["קאסה טואה"],
+                    "services": {"book": True},
+                },
+                {
+                    "_id": "0000",
+                    "name": "הדסון דליברי",
+                    "city": "חיפה",
+                    "aliases": [],
+                    "services": {"book": False},  # אין הזמנות — נשמט
+                },
+            ]
+        }
+
+    _fake_internal_http(monkeypatch, handlers)
+    cands = asyncio.run(resolve._tabit_internal("הדסון ראשון לציון"))
+    assert [c["title"] for c in cands] == ["Hudson לילינבלום תל אביב", "הדסון רמת החייל תל אביב"]
+    assert cands[0]["url"].endswith("orgId=6092fb6a991ff07306ca899e")
+    assert all(c["platform"] == "tabit" for c in cands)
+
+
+def test_resolve_internal_wins_without_brave(monkeypatch):
+    """שלב 1 מכריע → Brave לא נקרא בכלל, via=internal, ודף הרפאים עדיין נבדק."""
+
+    async def fake_ontopo(name):
+        return [
+            {
+                "title": "רוסטיקו בזל תל אביב-יפו",
+                "url": "https://ontopo.com/he/il/page/37905695",
+                "platform": "ontopo",
+            }
+        ]
+
+    async def boom(name):
+        raise AssertionError("Brave לא אמור להיקרא כששלב 1 הכריע")
+
+    async def fake_dead(url):
+        return False
+
+    monkeypatch.setattr(resolve, "_INTERNAL_SOURCES", (fake_ontopo,))
+    monkeypatch.setattr(resolve, "search_reservation", boom)
+    monkeypatch.setattr(resolve, "_ontopo_dead", fake_dead)
+    res = asyncio.run(resolve_reservation_url("רוסטיקו בזל תל אביב"))
+    assert res["status"] == "one"
+    assert res["via"] == "internal"
+    assert res["url"] == "https://ontopo.com/he/il/page/37905695"
+
+
+def test_resolve_internal_failure_falls_back_to_brave_silently(monkeypatch):
+    """endpoint פנימי שקורס (או מחזיר ריק) — degradation חלק למסלול Brave הקיים."""
+
+    async def broken(name):
+        raise RuntimeError("endpoint changed")
+
+    async def empty(name):
+        return []
+
+    monkeypatch.setattr(resolve, "_INTERNAL_SOURCES", (broken, empty))
+    monkeypatch.setattr(
+        resolve,
+        "search_reservation",
+        _fake_search(
+            [
+                {
+                    "title": "טאיזו תל אביב",
+                    "url": "https://ontopo.com/he/il/page/1",
+                    "platform": "ontopo",
+                }
+            ]
+        ),
+    )
+
+    async def fake_dead(url):
+        return False
+
+    monkeypatch.setattr(resolve, "_ontopo_dead", fake_dead)
+    res = asyncio.run(resolve_reservation_url("טאיזו"))
+    assert res["status"] == "one"
+    assert res["via"] == "brave"
+
+
+def test_resolve_internal_many_asks_client(monkeypatch):
+    """שלב 1 מחזיר כמה סניפים בלי טוקן מכריע → many מהרשימה הפנימית (הלקוח בוחר)."""
+
+    async def fake_tabit(name):
+        return [
+            {"title": "Hudson לילינבלום תל אביב", "url": "u1", "platform": "tabit"},
+            {"title": "הדסון רמת החייל תל אביב", "url": "u2", "platform": "tabit"},
+        ]
+
+    monkeypatch.setattr(resolve, "_INTERNAL_SOURCES", (fake_tabit,))
+    res = asyncio.run(resolve_reservation_url("הדסון ראשון לציון"))
+    assert res["status"] == "many"
+    assert res["via"] == "internal"
+    assert len(res["candidates"]) == 2
