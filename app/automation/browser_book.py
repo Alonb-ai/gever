@@ -31,6 +31,13 @@ def _timeout_s(job: dict) -> int:
     return BU_CINEMA_TIMEOUT_S if job.get("task_type") == "cinema" else BU_TIMEOUT_S
 
 
+def _max_steps(task_type: str) -> int:
+    """תקרת צעדים לפי ורטיקל — חיתוך שריפת-כישלון (דוח הזירוז 17.7): מסעדה מצליחה
+    ב-≤15 צעדים, אז 25 מספיק וכישלון לא שורף עוד 8+ דקות על 40; ורטיקלים
+    מרובי-מסכים (קולנוע/הופעות/ביטוח) נשארים על 40."""
+    return 25 if task_type == "restaurant" else 40
+
+
 async def _run_subprocess(job: dict) -> None:
     """מריץ את bu_runner ב-.venv-bu ומזרים את ה-job ב-stdin. מופרד כדי שיהיה ניתן ל-mock.
     מעבירים את מפתח ה-Gemini ב-env: pydantic-settings קורא .env לאובייקט, *לא* ל-os.environ,
@@ -226,7 +233,7 @@ async def book_table_bu(
         "record_dir": record_dir,
         "result_path": result_path,
         "steps_path": steps_path,
-        "max_steps": 40,
+        "max_steps": _max_steps(task_type),
     }
     session_id: str | None = None
     if settings.bu_browser == "browserbase":

@@ -8,11 +8,13 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.automation.bu_runner import (  # noqa: E402
+    PAGE_READY_TIMEOUT_S,
     _build_task,
     _il_tz_hook,
     _make_llm,
     _parse_result,
     _profile_kwargs,
+    _shorten_page_readiness,
 )
 
 _JOB = {
@@ -433,3 +435,62 @@ def test_il_tz_hook_swallows_cdp_failure_and_retries_reload():
     assert calls == []
     asyncio.run(hook(_FakeAgent(calls)))  # הצעד הבא: tz + reload (first עוד דלוק)
     assert calls == [("tz", "Asia/Jerusalem", "sess-1"), ("reload", "sess-1")]
+
+
+# --- זירוז 17.7: חוק המחסום העיקש, דיאטת צעדים, וקיצור ה-Page readiness ---
+
+
+def test_stubborn_obstacle_rule_in_both_verticals():
+    """חוק המחסום העיקש: אותו מחסום גם אחרי שתי גישות שונות → FAILED מיד, בלי עוד
+    ניסיונות (שתי ריצות broken_page בהופעות שרפו 39 צעדים ו-13+ דק' כל אחת)."""
+    for t in (_build_task({**_JOB, "dry_run": True}), _build_task({**_CJOB, "dry_run": True})):
+        assert "שתי" in t and "גישות שונות" in t
+        assert "אל תמשיך לנסות" in t
+
+
+def test_step_diet_in_both_verticals_keeps_guardrails():
+    """דיאטת צעדים: שרשור פעולות באותו צעד, בלי גלילת-חיפוש לאלמנט שנראה, בלי וידוא
+    חוזר על מה שאושר — והכוונת היעילות לא מבטלת את חוקי הברזל והעצירות."""
+    rest = _build_task({**_JOB, "dry_run": True})
+    cine = _build_task({**_CJOB, "dry_run": True})
+    for t in (rest, cine):
+        assert "באותו צעד" in t  # שרשור פעולות
+        assert "שכבר נראה על המסך" in t  # בלי scroll-חיפוש
+        assert "וידוא חוזרים" in t  # בלי צעדי-וידוא כפולים
+        assert "אף פעם לא מבטל את חוקי הברזל" in t  # יעילות ≠ דילוג על בדיקות אמת
+    # אימות-האמת המהותי (השעה שנבחרה בפועל) נשאר במסעדות — הדיאטה לא מחקה אותו
+    assert "ודא שמה שנבחר בפועל" in rest
+
+
+def test_shorten_page_readiness_patches_default_only(monkeypatch):
+    """browser-use 0.13.1: אין שדה BrowserProfile ל-readiness — הערך קשיח (8 שנ'
+    cross-domain) בתוך BrowserSession._navigate_and_wait. העטיפה מזריקה 3 שנ' רק
+    כשלא הועבר timeout מפורש; מפורש — מכובד. (browser_use לא מותקן ב-.venv — fake.)"""
+    import asyncio
+    import types
+
+    calls: list = []
+
+    class _BS:
+        async def _navigate_and_wait(
+            self, url, target_id, timeout=None, wait_until="load", nav_timeout=None
+        ):
+            calls.append((url, timeout, wait_until, nav_timeout))
+
+    sess_mod = types.ModuleType("browser_use.browser.session")
+    sess_mod.BrowserSession = _BS
+    browser_mod = types.ModuleType("browser_use.browser")
+    browser_mod.session = sess_mod
+    pkg = types.ModuleType("browser_use")
+    pkg.browser = browser_mod
+    monkeypatch.setitem(sys.modules, "browser_use", pkg)
+    monkeypatch.setitem(sys.modules, "browser_use.browser", browser_mod)
+    monkeypatch.setitem(sys.modules, "browser_use.browser.session", sess_mod)
+
+    _shorten_page_readiness()
+    bs = _BS()
+    asyncio.run(bs._navigate_and_wait("http://x", "t1"))  # בלי timeout → 3 שנ'
+    asyncio.run(bs._navigate_and_wait("http://y", "t2", timeout=5.0))  # מפורש → מכובד
+    assert calls[0] == ("http://x", PAGE_READY_TIMEOUT_S, "load", None)
+    assert calls[1][1] == 5.0
+    assert PAGE_READY_TIMEOUT_S == 3.0
