@@ -20,6 +20,7 @@ def test_schema_allows_unsure():
         "restaurant",
         "cinema",
         "events",
+        "insurance",
         "recommend",
         "other",
         "unsure",

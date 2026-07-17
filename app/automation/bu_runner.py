@@ -113,6 +113,8 @@ def _build_task(job: dict) -> str:
         return _build_cinema_task(job)
     if job.get("task_type") == "events":
         return _build_concert_task(job)
+    if job.get("task_type") == "insurance":
+        return _build_insurance_task(job)
     plat = f" (מערכת {job['platform']})" if job.get("platform") else ""
     # חוק השעה — שתי רמות: לקוח גמיש (אמר "בסביבות"/"גמיש") מקבל חלון ±60 בלי
     # עצירה; ברירת המחדל נשארת ±30 + הצעת חלופות. בשתיהן ההחלטה חד-פעמית ומהירה.
@@ -413,6 +415,91 @@ SUMMARY_REACHED 21:00 | פרטר שורה 12 מושבים 7,8 — סה"כ 640 ש
     return steps + tail + "\nמסך התשלום הוא מסך הסיכום שלך — עצור לפניו."
 
 
+def _build_insurance_task(job: dict) -> str:
+    # ורטיקל ביטוח (פספורטכארד, ביטוח נסיעות) — אותם עקרונות: מטרה + חוקי ברזל, בלי
+    # selectors. אותם markers; ההרחבות המותרות: payload אחרי SUMMARY_REACHED | (הפרמיה),
+    # ו-MISSING מרובה-שדות (איסוף מרוכז פר-דף) — טופס עתיר שדות אישיים, עצירה פר-שדה
+    # הייתה הופכת לעשרות סבבים.
+    ins = job.get("insurance") or {}
+    travelers = ins.get("travelers") or []
+    trav = "\n".join(f"  נוסע {i + 1}: תאריך לידה {t}" for i, t in enumerate(travelers))
+    if job.get("resume"):
+        answers = "".join(f"\n  {k} = {v}" for k, v in (job.get("form_answers") or {}).items())
+        intro = f"""
+אתה ממשיך מילוי הצעה לביטוח נסיעות לחו"ל שכבר התחלת קודם. הדפדפן פתוח בדיוק במסך
+שבו עצרת — המשך מהמסך הנוכחי. אל תנווט לכתובת אחרת ואל תתחיל מההתחלה.
+מה שקרה עד כה: {job["resume"].get("recap") or ""}
+עצרת כי חסרו פרטים מהלקוח — הוא השלים אותם. אלה הערכים לשדות שדיווחת כחסרים
+(המפתח = השם שנתת בדיווח; הזן כל ערך בשדה המתאים לו):{answers or " (אין)"}"""
+    else:
+        intro = f"""
+המשימה: להגיע להצעת מחיר לביטוח נסיעות לחו"ל באתר פספורטכארד ({len(travelers)} נוסעים).
+התחל מהכתובת: {job["url"]} (פאנל הרכישה, בעברית). זהו טופס רב-שלבי.
+פרטי הנסיעה: יעד {ins.get("destination") or ""}, יציאה {job["date"]}, חזרה {ins.get("return_date") or ""}.
+הנוסעים:
+{trav or "  (לא נמסרו)"}"""
+    steps = f"""{intro}
+
+אתה נווט אוטונומי. הבן כל מסך ופעל לפי העקרונות:
+- זו רכישה של לקוח חדש (לא "לקוח קיים") — אל תיכנס למסלול לקוח קיים ואל תנסה להתחבר.
+- יעד: דף היעד מציג מדינות + שדה חיפוש טקסט חופשי. הקלד בשדה החיפוש את שם המדינה
+  שנמסרה ובחר את ההתאמה המדויקת. אין שם אזורים/יבשות ("אירופה" לא מחזיר כלום) — רק
+  מדינות. המדינה שנמסרה לא מופיעה גם אחרי חיפוש, או שאינך בטוח איזו אפשרות מתאימה —
+  אל תנחש: עצור עם MISSING:destination ושורת OPTIONS destination: עם האפשרויות
+  בדיוק כפי שמופיעות בדף.
+- הצהרת הבריאות: תשובות הלקוח — "{ins.get("health") or "אין"}". "אין" פירושו שהלקוח ענה
+  שלילית בשיחה על ארבע הקטגוריות (מחלות קשות מהרשימה / מחלה כרונית או תרופות קבועות /
+  טיפול או טיפול צפוי בחצי השנה האחרונה / הריון — אף נוסעת אינה בהריון) — רק לשאלות
+  שתואמות בדיוק את הקטגוריות האלה מותר לסמן "לא". כל שאלה בריאותית אחרת, או שאלה
+  שהתשובות שבידך לא עונות עליה חד-משמעית — זו הצהרה משפטית: לעולם אל תענה בשם הלקוח,
+  עצור עם MISSING ושורת FIELD שמצטטת את נוסח השאלה מהדף.
+- הרחבות (כיסויים אופציונליים — ביטול נסיעה, כבודה, סקי וכו'): סמן *רק* מה שהלקוח
+  ביקש: "{ins.get("addons") or "שום הרחבה"}". הרחבה שהאתר סימן מראש ולא התבקשה — בטל
+  את הסימון. מחיר של הרחבה שביקש הלקוח, כפי שמוצג בדף — דווח ב-PERK.
+- התקדם שלב-שלב עד *הצעת המחיר* — המסך שמציג את הפרמיה לתשלום עבור הנסיעה. זהו
+  מסך הסיכום שלך.
+- כישלונות ייחודיים: הדף מודיע שנדרש אישור נציג / חיתום טלפוני (למשל בעקבות הצהרת
+  בריאות או גיל) → FAILED:manual_underwriting. הדף מציע רק "השארת פרטים" או שיחה עם
+  נציג במקום הצעה אונליין → FAILED:phone_only. האתר חוסם אותך (דף שגיאה 403, אימות
+  אנושי שלא נעלם, חסימת בוטים) → FAILED:blocked. בשורה שלפני שורת הסיום כתוב בעברית
+  מה בדיוק ראית.
+{_NAV_GENERIC}
+
+*** חוק ברזל — פרטים אישיים: השתמש *רק* בערכים שניתנו כאן. אסור להמציא או לנחש שום
+ערך — תעודת זהות, תאריך לידה, שם, טלפון, מייל, תשובת בריאות. הזין ערך שנמסר ונדחה
+על ידי הטופס (למשל ת"ז לא תקינה)? אל תנסה וריאציות — עצור עם MISSING על השדה, ושורת
+FIELD שמסבירה שהערך נדחה ומה הטופס דורש.
+נתקלת בדף עם שדות חובה שאין לך? אל תעצור על הראשון: קודם מלא את כל מה שכן יש לך,
+עבור על *כל* הדף, אסוף את כל שדות החובה הריקים שאין לך ערך עבורם, ורק אז עצור ודווח
+את כולם יחד:
+- לכל שדה שורת FIELD <מפתח>: <תווית השדה בעברית כפי שמופיעה בדף>. המפתח באנגלית,
+  אותיות קטנות ו-_, ייחודי (למשל id_number, passenger2_birth_date).
+- שדה שהוא בחירה מרשימה — הוסף גם שורת OPTIONS <מפתח>: עם האפשרויות בדיוק כפי
+  שמופיעות בדף, מופרדות ב-|.
+- שורת הסיום: MISSING:<מפתח1>|<מפתח2> — כל המפתחות בשורה אחת, מופרדים ב-| בלי
+  רווחים, והיא לבדה (בלי SUMMARY_REACHED לפניה). אותו כלל לבחירות שהאתר כופה ולא
+  קיבלת עליהן העדפה (נקודת איסוף הכרטיס, אזור יעד). חריג יחיד: כשקיימת באמת רק
+  אפשרות אחת — קח אותה והמשך. ***
+פרטי קשר: שם "{job.get("name") or ""}", אימייל "{job.get("email") or ""}", טלפון "{job.get("phone") or ""}".{_notes_line(job)}
+
+{_PERK_BLOCK}
+
+סימנת בדרך צ'קבוקסים של הסכמה (תקנון, תנאי פוליסה, הסכמות דיוור)? הוסף שורה נפרדת
+שמתחילה ב-AGREED: עם תמצית קצרה בעברית של כל מה שאושר, מופרד ב-|. זה קריטי כאן —
+שום הצהרה לא נחתמת בשקט. הצהרת בריאות היא לא צ'קבוקס תקנון — עליה חלות רק ההוראות
+למעלה. לא סימנת שום הסכמה — אל תוסיף את השורה.
+
+בסוף הדיווח ציין מה מולא בפועל (יעד, תאריכים, נוסעים, הרחבות), ואז את שורת הסיום —
+תמיד השורה האחרונה, באותיות גדולות בדיוק, ובה *אחת בלבד* מהצורות:
+SUMMARY_REACHED | <הפרמיה שהוצעה + תמצית> (למשל:
+SUMMARY_REACHED | פרמיה $127.40 לכל הנסיעה · אירופה 03.08-17.08 · 2 נוסעים · כולל ביטול נסיעה),
+או CARD_REQUIRED, או MISSING:<שדות>, או FAILED:<סיבה>.
+אל תשתמש במילים האלה בשום מקום אחר בדיווח.
+"""
+    tail = _DRY_TAIL if job.get("dry_run", True) else _COMMIT_TAIL
+    return steps + tail + "\nהצעת המחיר היא מסך הסיכום שלך — מסך שדורש פרטי תשלום הוא כבר מעבר לה."
+
+
 def _marker_arg(line: str, marker: str) -> str:
     """הטקסט שאחרי marker בשורת הסיום ('MISSING:email' → 'email'). ריק-בטוח."""
     parts = line[line.find(marker) + len(marker) :].strip(" :–-").split()
@@ -436,7 +523,12 @@ def _parse_result(final: str, *, commit: bool) -> dict:
     last = " ".join(lines[-3:])
     strict_last = lines[-1] if lines else ""
     card = "CARD_REQUIRED" in last
-    missing = _marker_arg(last, "MISSING:") if "MISSING:" in last else ""
+    # MISSING מרובה-שדות (ורטיקל הביטוח): MISSING:key1|key2|key3 — כל המפתחות בשורה
+    # אחת בלי רווחים, אז הטוקן הראשון אחרי המרקר הוא כל הרשימה. missing (יחיד) נשאר
+    # השדה הראשון — כל צרכן קיים (truthiness, מסלול שדה-בודד) עובד ללא שינוי.
+    raw_missing = _marker_arg(last, "MISSING:") if "MISSING:" in last else ""
+    missing_fields = [f for f in raw_missing.split("|") if f][:12]
+    missing = missing_fields[0] if missing_fields else ""
     failed = _marker_arg(last, "FAILED:") if "FAILED:" in last else ""
     # בלוק סיום בלי אף marker = ה-agent מת בלי לדווח → browser_error מפורש, לא שתיקה.
     # נצפה חי פעמיים בענף ההופעות: דיווח ריק (סשן Browserbase נפל, HTTP 410, עצירה
@@ -460,11 +552,14 @@ def _parse_result(final: str, *, commit: bool) -> dict:
     # מסעדות לא פולטות | בשורת הסיום — נשאר ריק, אין רגרסיה.
     # "|" ב-strip: נצפה חי — agent שכתב "... מושבים 7,8 | CARD_REQUIRED" השאיר
     # פייפ יתום בקצה אחרי חיתוך ה-marker ("שורה 5 מושבים 7,8 |").
+    # בביטוח אותו payload נושא את הפרמיה — חוזר גם בשם 'extra' (שם השדה של ורטיקל
+    # הביטוח; ערך אחד בשני שמות — איחוד השם נדחה לריצה חיה על ליבה משותפת).
     seats = ""
     sr_line = next((ln for ln in lines[-3:] if "SUMMARY_REACHED" in ln), "")
     if "|" in sr_line:
         seats = re.split(r"CARD_REQUIRED|MISSING:|FAILED:|BOOKED", sr_line.split("|", 1)[1])[0]
         seats = seats.strip(" :–-./|")[:120]
+    extra = seats
     # PERK: פרטים ששווים ללקוח (הנחה/מבצע/מגבלה) שה-agent ראה בדף — עוברים להודעה.
     perks = [
         ln.split("PERK:", 1)[1].strip().replace("[", "").replace("]", "")[:120]
@@ -474,11 +569,40 @@ def _parse_result(final: str, *, commit: bool) -> dict:
     perk = " · ".join(p for p in perks if p)[:200]
     # OPTIONS: האפשרויות האמיתיות מהדף כשעוצרים על בחירה כפויה (MISSING) — גבר
     # מציג אותן ללקוח כרשימת בחירה במקום שאלה גנרית ("בפנים/בחוץ/בר").
+    # שתי צורות: "OPTIONS: א | ב" (legacy, שדה בודד) ו-"OPTIONS <key>: א | ב"
+    # (ממופתח, ה-MISSING המרובה של הביטוח). FIELD <key>: <תווית> — התווית מהדף,
+    # כדי שגבר ישאל בעברית אמיתית גם על שדה שלא צפינו.
     options: list = []
+    options_by_field: dict = {}
+    field_labels: dict = {}
     for ln in final.splitlines():
-        if ln.strip().startswith("OPTIONS:"):
-            options = [o.strip()[:60] for o in ln.split("OPTIONS:", 1)[1].split("|") if o.strip()]
-    options = options[:10]
+        s = ln.strip()
+        m = re.match(r"OPTIONS(?:[ \t]+([a-z0-9_]+))?:", s)
+        if m:
+            # cap 15: דף היעד של פספורטכארד הציג 11 מדינות ו-cap 10 חתך את גרמניה (ריצה חיה 1)
+            vals = [o.strip()[:60] for o in s.split(":", 1)[1].split("|") if o.strip()][:15]
+            if m.group(1):
+                options_by_field[m.group(1)] = vals
+            else:
+                options = vals  # legacy — אותה סמנטיקה בדיוק (האחרון מנצח)
+            continue
+        m = re.match(r"FIELD[ \t]+([a-z0-9_]+):", s)
+        if m:
+            label = s.split(":", 1)[1].strip()
+            # ה-agent לפעמים מדביק FIELD ו-OPTIONS באותה שורה ("מגדר · OPTIONS p1_gender:
+            # זכר|נקבה" — נצפה חי בריצת ביטוח 2): מפרידים, כדי שהאופציות ייקלטו
+            # ב-options_by_field והתווית תישאר נקייה.
+            om = re.search(r"OPTIONS[ \t]+([a-z0-9_]+):", label)
+            if om:
+                tail_vals = label[om.end() :].split("|")
+                options_by_field[om.group(1)] = [o.strip()[:60] for o in tail_vals if o.strip()][
+                    :15
+                ]
+                label = label[: om.start()].strip(" ·-–")
+            field_labels[m.group(1)] = label[:80]
+    # גישור: agent שהשתמש בצורה הממופתחת על שדה בודד — לא שוברים את המסלול הישן
+    if not options and len(missing_fields) == 1 and missing_fields[0] in options_by_field:
+        options = options_by_field[missing_fields[0]]
     # AGREED: תמצית הצ'קבוקסים שה-agent אישר בשם הלקוח — גבר מגלה אותם בהודעת
     # הסיום ("אישרתי בשמך: תקנון...") במקום שהסכמות ייחתמו בשקט (בקשת אלון 15.7).
     agreed: list = []
@@ -510,11 +634,15 @@ def _parse_result(final: str, *, commit: bool) -> dict:
             "booked": booked,
             "confirmation": confirmation,
             "missing": missing,
+            "missing_fields": missing_fields,
             "failed": failed,
             "time": chosen_time,
             "seats": seats,
+            "extra": extra,
             "perk": perk,
             "options": options,
+            "options_by_field": options_by_field,
+            "field_labels": field_labels,
             "agreed": agreed,
             "page_now": page_now,
             "message": final,
@@ -529,11 +657,15 @@ def _parse_result(final: str, *, commit: bool) -> dict:
         "confirmation": "",
         "summary_reached": summary_reached,
         "missing": missing,
+        "missing_fields": missing_fields,
         "failed": failed,
         "time": chosen_time,
         "seats": seats,
+        "extra": extra,
         "perk": perk,
         "options": options,
+        "options_by_field": options_by_field,
+        "field_labels": field_labels,
         "agreed": agreed,
         "page_now": page_now,
         "message": final,

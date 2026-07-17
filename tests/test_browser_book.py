@@ -100,7 +100,8 @@ def test_max_steps_restaurant_cut_multiscreen_keep_40():
     assert browser_book._max_steps("restaurant") == 25
     assert browser_book._max_steps("cinema") == 40
     assert browser_book._max_steps("show") == 40
-    assert browser_book._max_steps("insurance") == 40
+    # ביטוח: טופס רב-דפים עתיר שדות — תקרה גבוהה משל כולם (התנהגות ענף הביטוח)
+    assert browser_book._max_steps("insurance") == 80
 
 
 def test_job_carries_max_steps_by_task_type(monkeypatch, tmp_path):
@@ -143,6 +144,47 @@ def test_timeout_ceiling_cinema_gets_the_long_one():
     assert browser_book._timeout_s({"task_type": "restaurant"}) == browser_book.BU_TIMEOUT_S
     assert browser_book._timeout_s({}) == browser_book.BU_TIMEOUT_S
     assert browser_book.BU_CINEMA_TIMEOUT_S > browser_book.BU_TIMEOUT_S
+    # ביטוח: הארוכה מכולן (טופס רב-דפים) — התקרה של ענף הביטוח נשמרת במיזוג
+    assert (
+        browser_book._timeout_s({"task_type": "insurance"}) == browser_book.BU_INSURANCE_TIMEOUT_S
+    )
+    assert browser_book.BU_INSURANCE_TIMEOUT_S > browser_book.BU_CINEMA_TIMEOUT_S
+
+
+def test_release_session_retries_transient_failure(monkeypatch):
+    # ריצת ביטוח חיה 1 (15.7): נפילת רשת רגעית הפילה גם את השחרור היחיד והסשן
+    # נשאר RUNNING ומחויב. עכשיו: ניסיון שנכשל → retry שמצליח.
+    calls: list[str] = []
+
+    async def flaky_bb(method, path, body=None):
+        calls.append(path)
+        if len(calls) == 1:
+            raise RuntimeError("network blip")
+        return {}
+
+    async def no_sleep(_secs):
+        return None
+
+    monkeypatch.setattr(browser_book, "_bb", flaky_bb)
+    monkeypatch.setattr(browser_book.asyncio, "sleep", no_sleep)
+    asyncio.run(browser_book.release_session("sid-1"))
+    assert len(calls) == 2
+
+
+def test_release_session_gives_up_quietly_after_three(monkeypatch):
+    calls: list[str] = []
+
+    async def dead_bb(method, path, body=None):
+        calls.append(path)
+        raise RuntimeError("network down")
+
+    async def no_sleep(_secs):
+        return None
+
+    monkeypatch.setattr(browser_book, "_bb", dead_bb)
+    monkeypatch.setattr(browser_book.asyncio, "sleep", no_sleep)
+    asyncio.run(browser_book.release_session("sid-2"))  # best-effort — לא זורק
+    assert len(calls) == 3
 
 
 if __name__ == "__main__":

@@ -880,3 +880,18 @@ def _pick_cinema(name: str, candidates: list[dict], platforms, *, drop_listings:
         "candidates": candidates,
         "fallback": None,
     }
+
+
+# ורטיקל ביטוח: ספק יחיד, יעד קבוע — resolve בלי חיפוש, באותו חוזה החזרה בדיוק.
+INSURANCE_URL = "https://purchase.passportcard.co.il/"
+
+
+async def resolve_insurance_url() -> dict:
+    """ביטוח נסיעות (פספורטכארד): תמיד 'one'. async לשמירת חוזה resolve_reservation_url."""
+    return {
+        "status": "one",
+        "url": INSURANCE_URL,
+        "platform": "passportcard",
+        "candidates": [{"title": "פספורטכארד", "url": INSURANCE_URL, "platform": "passportcard"}],
+        "fallback": None,
+    }
