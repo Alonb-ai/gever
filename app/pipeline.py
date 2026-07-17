@@ -321,6 +321,10 @@ async def _heartbeat(phone: str) -> None:
 
 NUDGE_DELAY_S = 300  # ~5 דק' בלי מענה על שאלה/אישור/כרטיס → תזכורת אחת ויחידה
 
+# קיר-כרטיס נטוש: גם הנדנוד לא הועיל → עוד המתנה אחת ואז משחררים את הסשן החי
+# (אחרת הוא נשרף באידל עד תקרת ה-30 דק' של Browserbase — עלות על כלום).
+CARD_RELEASE_DELAY_S = 300
+
 
 # ניסוחי הנדנוד לפי הקשר ההמתנה. עוגנים ל-_vary: question="תשובה",
 # confirm=שורש סגירה ("לסגור"/"סוגר"), card="לינק" — הטסטים נועלים עוגן, לא נוסח.
@@ -342,6 +346,14 @@ NUDGE_MSGS = {
     ),
 }
 
+# הודעת השחרור אחרי נטישת קיר-כרטיס — כנה, בדמות. עוגנים ל-_vary: שורש
+# "שחררתי" + "מחדש" (ההבטחה לפתוח הכל שוב) — הטסטים נועלים עוגן, לא נוסח.
+CARD_RELEASE_MSGS = (
+    "שחררתי בינתיים את ההזמנה — תגיד כשאתה פנוי ואני פותח הכל מחדש 🤙",
+    "האמת, שחררתי את זה בינתיים — ברגע שתתפנה אני פותח לך הכל מחדש 🤝",
+    "שחררתי בינתיים, לא נחזיק את המקום סתם — תגיד מתי ואני מרים מחדש 🔄",
+)
+
 # טיימר הנדנוד הפעיל per-phone (אחד לכל היותר). בכוונה לא נשמר ב-_flow ולא
 # משוחזר ב-_restore_flow: נדנוד הוא best-effort — redeploy באמצע ההמתנה פשוט
 # מוותר על התזכורת, לא שווה עוד state מותמד.
@@ -355,15 +367,29 @@ def _cancel_nudge(phone: str) -> None:
         t.cancel()
 
 
-def _arm_nudge(phone: str, kind: str) -> None:
+def _arm_nudge(phone: str, kind: str, session_id: str | None = None) -> None:
     """נדנוד עדין: גבר שאל ומחכה ללקוח (שאלה/אישור/כרטיס) — אחרי NUDGE_DELAY_S
     בלי הודעה נכנסת נשלחת תזכורת *אחת* בדמות, וזהו (לא לולאה — יותר מזה נודניק).
-    arming חדש מחליף טיימר קודם, כך שלעולם אין שניים במקביל."""
+    arming חדש מחליף טיימר קודם, כך שלעולם אין שניים במקביל.
+
+    kind="card" עם session_id: גם הנדנוד לא הועיל → אחרי CARD_RELEASE_DELAY_S
+    נוספות משחררים את הסשן הממתין (לא שורפים אידל עד ה-timeout), מנקים את מצב
+    ה-card ומודיעים בכנות. אותו task — הודעה נכנסת (_cancel_nudge) מבטלת הכל."""
     _cancel_nudge(phone)
 
     async def _later() -> None:
         await asyncio.sleep(NUDGE_DELAY_S)
         await _send_and_record(phone, _vary(*NUDGE_MSGS[kind]))
+        if kind != "card" or not session_id:
+            return
+        await asyncio.sleep(CARD_RELEASE_DELAY_S)
+        await release_session(session_id)
+        # הסשן מת = הלינק מת — truth_note "כבר שלחת לינק" הפך שקר; מנקים כדי
+        # שחזרת הלקוח תפתח ריצה טרייה רגילה (בלי "אל תנסה שוב").
+        if _booking.get(phone, {}).get("state") == "card":
+            _booking.pop(phone, None)
+        await _save_flow(phone)  # שלא ישוחזר מצב card מת אחרי redeploy
+        await _send_and_record(phone, _vary(*CARD_RELEASE_MSGS))
 
     task = asyncio.create_task(_later())
     _nudge[phone] = task  # strong ref לכל חיי הטיימר — GC לא מעלים אותו
@@ -1047,7 +1073,8 @@ async def run_booking(phone: str, fields: dict) -> None:
                     + recap
                     + _agreed_line(d0),
                 )
-                _arm_nudge(phone, "card")  # הסשן ממתין — תזכורת אחת אם הלקוח נעלם
+                # הסשן ממתין — תזכורת אחת אם הלקוח נעלם, ושחרור אם גם היא לא עזרה
+                _arm_nudge(phone, "card", session_id=d0.get("session_id"))
                 return
             # DRY_RUN: הגענו למסך האישור — זו *לא* הזמנה אמיתית. לכן לא "done", לא
             # log_booking, ולא לזייף "סגור" (חוק הברזל). שומרים רק פרופיל (שם/מייל)
@@ -1366,7 +1393,8 @@ async def run_commit(phone: str) -> None:
                 )
                 + _agreed_line(d),
             )
-            _arm_nudge(phone, "card")  # הלינק מחכה — תזכורת אחת אם הלקוח נעלם
+            # הלינק מחכה — תזכורת אחת אם הלקוח נעלם, ושחרור אם גם היא לא עזרה
+            _arm_nudge(phone, "card", session_id=d.get("session_id"))
         else:
             # כמו ב-run_booking: סיבה מוכרת → אמת ספציפית; אחרת הפלט הגולמי לא
             # ללקוח ולא ל-truth_note — debug בלבד.
