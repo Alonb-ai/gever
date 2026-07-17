@@ -845,6 +845,21 @@ INTENTS: dict[str, dict] = {
         "site": "run_booking (MISSING:time עם אופציות, inline ×2)",
         "test": "tests/test_alt_times.py",
     },
+    "alt_date_offer": {
+        "goal": (
+            "במועד שביקש אין שום זמינות, אבל הדף הראה תאריכים קרובים שכן "
+            "זמינים — דווח מה כן יש והצע לסגור שם: תאריך אחד (offered) → שאלת "
+            "סגירה ישירה; כמה (n_options) → כותרת קצרה לרשימה שתישלח מתחת בלי "
+            "להמציא תאריכים — ובשני המקרים סיים בשאלה אם לסגור"
+        ),
+        "ctx": ("name", "task_type", "requested", "offered", "n_options"),
+        "forbid": _NOT_DONE,
+        "must": (r"סגור|סוגר", r"\?"),
+        "must_ctx": ("requested", "offered"),
+        "fallback": None,
+        "site": "run_booking (MISSING:date עם אופציות, inline ×2)",
+        "test": "tests/test_alt_dates.py",
+    },
     "failure_known": {
         "goal": (
             "הריצה נכשלה מסיבה אמיתית ומוכרת (reason) — אמת קצרה בדמות: מה "
@@ -1520,8 +1535,19 @@ def _truth_note(phone: str) -> str:
             "שלחת ללקוח לינק לסגור בעצמו. אל תמציא שסגרת ואל תנסה שוב — הצע לעזור במקום אחר.]\n\n"
         )
     if state == "missing":
+        # זיכרון החלופות (ממצא בטא #1): החלופות האמיתיות מהדף נשמרות ב-_await_answer
+        # (מותמד ב-_flow) — פולו-אפ חופשי ("אז מתי כן?") נענה מהן בלי ריצה חדשה,
+        # ובחירה של הלקוח יוצאת כבקשה מלאה מחדש (ready עם הערך הנבחר).
+        opts = (_await_answer.get(phone) or {}).get("options") or []
+        alt = ""
+        if opts:
+            alt = (
+                " החלופות האמיתיות שהדף הציג: " + " | ".join(opts) + " — כשהלקוח שואל "
+                "מה כן אפשרי, אלו התשובות; אל תמציא אחרות. בחר אחת מהן → זו בקשה "
+                "מלאה מחדש עם הערך הנבחר (ready=true)."
+            )
         return (
-            f"[אמת-למערכת בלבד: הטופס דורש שדה חובה שחסר לי ('{info}'). אל תמציא אותו ואל "
+            f"[אמת-למערכת בלבד: הטופס דורש שדה חובה שחסר לי ('{info}').{alt} אל תמציא אותו ואל "
             "תמציא שסגרת — בקש מהלקוח את הפרט הזה במפורש וחכה לתשובה.]\n\n"
         )
     if state == "none":
@@ -2105,6 +2131,8 @@ async def run_booking(phone: str, fields: dict) -> None:
                 "language": "גרסה (מדובב / כתוביות)",
                 # השעה המבוקשת תפוסה והדף מציע אחרות — הצעה במקום "לא מצאתי" (בקשת אלון)
                 "time": "שעה",
+                # זמינות-תחילה: במועד המבוקש אין כלום והדף מציג ימים שכן זמינים
+                "date": "תאריך",
             }.get(field, field)
             # UX (בקשת אלון): האופציות *האמיתיות* מהדף במקום שאלה גנרית — רשימת
             # בחירה בטאפ; התשובה חוזרת כטקסט מדויק שה-agent ימצא בדף אחד-לאחד.
@@ -2162,6 +2190,51 @@ async def run_booking(phone: str, fields: dict) -> None:
                         real,
                     )
                 _arm_nudge(phone, "question", ctx={"field": "שעה"})  # שאלה פתוחה — תזכורת אחת
+                return
+            requested_date = (fields.get("date") or "").strip()
+            if field == "date" and real and requested_date:
+                # זמינות-תחילה (ממצאי בטא #1+#7): במועד שביקש אין כלום, אבל הדף
+                # הראה ימים שכן זמינים — מדווחים מה כן יש ומציעים לסגור שם, במקום
+                # "אין" יבש. הבחירה חוזרת כטקסט מדויק, נכנסת ל-date וממשיכה
+                # באותו סשן (resume) אם הוא עוד חי.
+                if len(real) == 1:
+                    await _send_and_record(
+                        phone,
+                        await _say(
+                            "alt_date_offer",
+                            {
+                                "name": name,
+                                "task_type": task_type,
+                                "requested": requested_date,
+                                "offered": real[0],
+                            },
+                            fallback=(
+                                f"ב-{requested_date} אין כלום, אבל ב-{real[0]} כן יש — לסגור שם?",
+                                f"אין זמינות ב-{requested_date} 😮‍💨 ב-{real[0]} דווקא יש — לסגור?",
+                                f"{requested_date} לא הולך, {real[0]} כן פתוח — סוגר לך שם?",
+                            ),
+                        ),
+                    )
+                else:
+                    await _send_list_and_record(
+                        phone,
+                        await _say(
+                            "alt_date_offer",
+                            {
+                                "name": name,
+                                "task_type": task_type,
+                                "requested": requested_date,
+                                "n_options": len(real),
+                            },
+                            fallback=(
+                                f"ב-{requested_date} אין כלום 😮‍💨 אלו הימים שכן יש — לסגור אחד?",
+                                f"אין זמינות ב-{requested_date}, אבל בתאריכים האלה כן — איזה לסגור?",
+                                f"{requested_date} לא הולך. אלו הימים שכן פנויים — איזה סוגרים?",
+                            ),
+                        ),
+                        real,
+                    )
+                _arm_nudge(phone, "question", ctx={"field": "תאריך"})  # שאלה פתוחה — תזכורת אחת
                 return
             if len(real) >= 2:
                 # הכותרת אומרת *מה* בוחרים (המלצת תחקיר) — בלי הסוגריים הגנריים
@@ -2543,8 +2616,8 @@ async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = 
         if match:
             _await_answer.pop(phone, None)
             fields = dict(pend["fields"])
-            if pend["field"] == "time":
-                fields["time"] = match  # שעה חלופית נכנסת לשדה עצמו
+            if pend["field"] in ("time", "date"):
+                fields[pend["field"]] = match  # שעה/תאריך חלופיים נכנסים לשדה עצמו
             else:
                 answer = f"{pend['field']}: {match}"
                 fields["notes"] = "; ".join(p for p in [fields.get("notes") or "", answer] if p)
