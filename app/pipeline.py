@@ -1090,6 +1090,24 @@ def _sensitive_value(text: str, field: str) -> str:
     return digits if lo <= len(digits) <= hi else ""
 
 
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+def _contact_value(text: str, field: str) -> str:
+    """מזהה שם/מייל בתשובה לעצירת MISSING:name/email — הערך מושחל ישירות ל-job של
+    ה-relaunch (ממצא בטא #2: הריצה החוזרת קראה פרופיל לפני שכתיבת ה-DB הסתיימה,
+    יצאה עם שם ריק ושאלה שוב). לא זוהה ערך (שאלה/הבהרה/משפט חופשי) → "" והתור
+    ממשיך ל-converse כרגיל."""
+    text = " ".join(text.split())
+    if field == "email":
+        m = _EMAIL_RE.search(text)
+        return m.group(0) if m else ""
+    # שם: תשובה ישירה וקצרה ("דנה לוי") — לא שאלה, לא מספר, לא משפט חופשי
+    if text and "?" not in text and len(text.split()) <= 4 and not any(c.isdigit() for c in text):
+        return text
+    return ""
+
+
 def _scrub(text: str, secret: str) -> str:
     """מוחק את הערך הרגיש מטקסט שעומד להיות מותמד (recap/tail/debug) — ה-agent
     לפעמים מהדהד בדיווח שלו את מה שהזין."""
@@ -2600,6 +2618,38 @@ async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = 
             _turns[phone] = [
                 *(_turns.get(phone) or []),
                 {"role": "user", "text": _MASKED_TURN[pend["field"]], "ts": time.time()},
+            ][-CHAT_TURNS:]
+            await _send_and_record(
+                phone,
+                await _say("resume_ack", {"name": (fields.get("restaurant") or "").strip()}),
+            )
+            _booking[phone] = {
+                "state": "working",
+                "info": (fields.get("restaurant") or "").strip(),
+            }
+            _spawn(run_booking(phone, fields))
+            return
+    if (
+        pend
+        and _booking.get(phone, {}).get("state") == "missing"
+        and pend.get("field")
+        in (
+            "name",
+            "email",
+        )
+    ):
+        # השחלה ישירה (ממצא בטא #2): תשובת שם/מייל נכנסת ל-job של ה-relaunch עצמו —
+        # הריצה החוזרת לא תלויה בקריאת הפרופיל מה-DB (המרוץ שגרם לשאלת-שם כפולה).
+        # הפרופיל נכתב במקביל כ-persistence משני בלבד; הריצה לא מחכה לו.
+        val = _contact_value(text, pend["field"])
+        if val:
+            _await_answer.pop(phone, None)
+            fields = dict(pend["fields"])
+            fields[pend["field"]] = val
+            _spawn(memory.upsert_profile(phone, **{pend["field"]: val}))
+            _turns[phone] = [
+                *(_turns.get(phone) or []),
+                {"role": "user", "text": text, "ts": time.time()},
             ][-CHAT_TURNS:]
             await _send_and_record(
                 phone,
