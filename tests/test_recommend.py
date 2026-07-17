@@ -1,5 +1,6 @@
 """פיצ'ר ההמלצות (Maps/Search grounding): הפירסור, השקלול, הניתוב, עוגני האמת
-וה-attribution בהודעה, וכשל→כנות. הכל ממוקק — אפס רשת (הקריאה החיה נבדקת בנפרד)."""
+(שמות בלבד — בלי מקור, בלי לינק, בלי דירוג מספרי בהודעה; פידבק אלון), וכשל→כנות.
+הכל ממוקק — אפס רשת (הקריאה החיה נבדקת בנפרד)."""
 
 import asyncio
 import os
@@ -23,10 +24,12 @@ def test_schema_has_recommend():
 
 
 def test_extract_guides_recommend():
-    """ההנחיה קיימת: recommend, שדות באנגלית (מגבלת maps grounding), בלי להמליץ לבד."""
+    """ההנחיה קיימת: recommend, שדות באנגלית (מגבלת maps grounding), בלי להמליץ לבד,
+    והודעת הביניים לא מסגירה איפה בודקים (בלי גוגל/מפות)."""
     assert "recommend" in pipeline._EXTRACT
     assert "באנגלית" in pipeline._EXTRACT
     assert "בלי להמליץ בעצמך" in pipeline._EXTRACT
+    assert "בלי להזכיר גוגל" in pipeline._EXTRACT
 
 
 # ── פירסור grounding_chunks ─────────────────────────────────────────────────
@@ -136,7 +139,12 @@ def _io(monkeypatch):
     return sent
 
 
-def test_run_recommend_success_anchors_and_attribution(monkeypatch, _io):
+# רגקסי "אפס הסגרה" — מה שאסור שיופיע בהודעת המלצות (פידבק אלון: בלי גוגל,
+# בלי מקור, בלי לינק, בלי דירוג בפורמט מספרי).
+_LEAKS = (r"[Gg]oogle", "גוגל", r"[Mm]aps", "מפס", "מקור", r"https?://", r"\d\.\d", r"\d+ ביקורות")
+
+
+def test_run_recommend_success_names_only_no_source(monkeypatch, _io):
     async def fake_places(category, area="", constraints=""):
         return [
             _place("Hudson Brasserie", 4.5, 9287) | {"uri": "https://maps.google.com/?cid=1"},
@@ -150,12 +158,11 @@ def test_run_recommend_success_anchors_and_attribution(monkeypatch, _io):
         )
     )
     msg = _io[0]
-    # המקומות מילה-במילה: שם + דירוג + כמות ביקורות
-    assert "Hudson Brasserie — 4.5 (9,287 ביקורות)" in msg
-    assert "POMO — 4.4 (3,879 ביקורות)" in msg
-    # חובת attribution (תנאי שימוש): שורת מקור + לינק maps אחד לפחות
-    assert "מקור: Google Maps" in msg
-    assert "https://maps.google.com/?cid=1" in msg
+    # השמות מילה-במילה — הגשר ל"תסגור את הראשון"
+    assert "Hudson Brasserie" in msg and "POMO" in msg
+    # אפס הסגרה: בלי גוגל/מקור/לינק/דירוג מספרי (פידבק אלון)
+    for leak in _LEAKS:
+        assert not re.search(leak, msg), leak
     # הצעת סגירה — הגשר לזרימת ההזמנה
     assert re.search(r"סגור|סוגר", msg) and "?" in msg
     # השמות נשמרו לזיכרון הזרימה בלבד ("תסגור את הראשון")
@@ -173,8 +180,10 @@ def test_run_recommend_movies_path(monkeypatch, _io):
     asyncio.run(pipeline.run_recommend("r2", {"task_type": "recommend", "category": "movie"}))
     assert called.get("movies")
     msg = _io[0]
-    assert "דיונה 3 — ביקורות מעולות" in msg
-    assert "מקור: Google" in msg
+    assert "דיונה 3" in msg
+    # גם במסלול הסרטים — אפס הסגרה (שם הופיע "מקור: Google")
+    for leak in _LEAKS:
+        assert not re.search(leak, msg), leak
 
 
 def test_run_recommend_failure_honest(monkeypatch, _io):
@@ -254,17 +263,38 @@ def test_recs_note_lists_names_and_bridges_to_booking():
 
 # ── הוולידטור: איסורים ועוגנים של הכוונה החדשה ──────────────────────────────
 def test_recommend_results_validator():
-    ctx = {"place1": "Hudson — 4.5 (9,287 ביקורות)", "attribution": "מקור: Google Maps"}
-    good = "בדקתי — הכי שווה:\nHudson — 4.5 (9,287 ביקורות)\nמקור: Google Maps\nלסגור לך?"
+    ctx = {"place1": "Hudson", "place2": "POMO", "info1": "מדורג 4.5 על סמך 9,287 ביקורות"}
+    good = (
+        "יש לי שניים ששווים\nHudson — מדורג חזק וכולם מדברים עליו\n"
+        "POMO — איטלקי שרץ חזק באזור\nלסגור לך אחת מהם?"
+    )
     assert pipeline._say_violations("recommend_results", ctx, good) == []
     # "הזמנתי" בשלב ההמלצה = הכרזת ביצוע שקרית
-    bad = "הזמנתי לך ב-Hudson — 4.5 (9,287 ביקורות)\nמקור: Google Maps\nלסגור?"
+    bad = "הזמנתי לך ב-Hudson\nPOMO גם שווה\nלסגור?"
     assert any(
         p.startswith("forbid") for p in pipeline._say_violations("recommend_results", ctx, bad)
     )
-    # בלי שורת המקור — פסילה (חובת attribution)
-    no_attr = "Hudson — 4.5 (9,287 ביקורות)\nלסגור לך?"
-    assert "missing_ctx:attribution" in pipeline._say_violations("recommend_results", ctx, no_attr)
+    # שם מקום שהושמט — פסילה (עוגן האמת שמזרים את הבחירה להזמנה)
+    no_name = "Hudson מדורג חזק ויש עוד אחד\nלסגור לך?"
+    assert "missing_ctx:place2" in pipeline._say_violations("recommend_results", ctx, no_name)
+
+
+def test_recommend_results_validator_blocks_source_and_numbers():
+    """פידבק אלון: גוגל/מפס/מקור/לינק/דירוג מספרי — פסילה דטרמיניסטית."""
+    ctx = {"place1": "Hudson", "place2": "POMO"}
+    for leak in (
+        "בדקתי לך בגוגל מפס — Hudson וגם POMO\nלסגור לך?",
+        "עברתי על Google Maps\nHudson\nPOMO\nלסגור?",
+        "Hudson — 4.5 (9,287 ביקורות)\nPOMO\nלסגור לך?",
+        "Hudson עם 9,287 ביקורות\nPOMO\nלסגור לך?",
+        "מקור: Google Maps\nHudson\nPOMO\nלסגור?",
+        "Hudson\nPOMO\nhttps://maps.google.com/?cid=1\nלסגור לך?",
+    ):
+        probs = pipeline._say_violations("recommend_results", ctx, leak)
+        assert any(p.startswith("forbid") for p in probs), leak
+    # "מפסיקים" זו לא הסגרת מפס — הרגקס תחום מילה
+    ok = "Hudson — לא מפסיקים לדבר עליו\nPOMO — קלאסיקה\nלסגור לך אחת מהם?"
+    assert pipeline._say_violations("recommend_results", ctx, ok) == []
 
 
 if __name__ == "__main__":

@@ -114,7 +114,8 @@ _EXTRACT = (
     "category ('restaurant'/'bar'/'cafe'/'movie'...), city = האזור או השכונה "
     "('Ramat Hahayal, Tel Aviv'; לסרט לא חובה), notes = אילוצים ('kosher', 'romantic'). "
     "מקום בלי אזור → ready=false ושאלה קצרה איפה. הבדיקה לוקחת רגע — reply קצר שאתה "
-    "בודק, בלי להמליץ בעצמך ובלי להבטיח כמה מהר.\n"
+    "בודק, בלי להמליץ בעצמך, בלי להבטיח כמה מהר ובלי להזכיר גוגל, מפות או איך "
+    "אתה בודק (אתה פשוט מכיר את הסצנה).\n"
     "· notes: העדפות ביצוע שהלקוח נתן (אזור ישיבה, אירוע, בקשה מיוחדת) — טקסט קצר, "
     "כולל הסיבה אם נתן אחת ('בחוץ — מעשנים', לא רק 'בחוץ'; הסיבה משנה את הבחירה בטופס); "
     "מגיע למי שמבצע. השלמה של שדה שביקשת (שם משפחה) הולכת לשדה עצמו, לא לכאן.\n"
@@ -868,16 +869,27 @@ INTENTS: dict[str, dict] = {
     # ── המלצות ──
     "recommend_results": {
         "goal": (
-            "בדקת באמת מה שווה (דירוגי Google Maps) ואלו התוצאות — הצג אותן בקול "
-            "שלך: כל שורת-מקום מההקשר חייבת להופיע בדיוק כמו שכתוב, ומותר לך "
-            "מילה משלך סביבה; אסור להמציא מקומות, דירוגים או חוויות ('אכלתי שם') "
-            "שלא בהקשר. חובה גם שורת המקור (attribution) והלינק (link) כלשונם, "
-            "וסיים בהצעה לסגור אחת מהן"
+            "בדקת ברקע מה באמת שווה ואלו ההמלצות — הגש אותן כמו חבר שמכיר את "
+            "הסצנה: שמות המקומות בדיוק כלשונם, ולכל מקום שורה חיה משלך (למה "
+            "שווה, מה מיוחד) מתוך המידע שבהקשר בלבד — אסור להמציא עובדות, "
+            "מקומות או חוויות ('אכלתי שם') שלא בהקשר. הדירוגים והביקורות שבהקשר "
+            "הם רקע פנימי בלבד: מותר תחושה חופשית ('מדורג חזק', 'כולם מדברים "
+            "עליו'), אסור מספרים או ציונים, ואסור להזכיר גוגל, מפות, לינקים או "
+            "מאיפה המידע. סיים בהצעה לסגור אחת מהן"
         ),
-        "ctx": ("place1", "place2", "place3", "attribution", "link", "category"),
-        "forbid": _NOT_DONE + (r"(?<!לא )הזמנתי",),
+        "ctx": ("place1", "place2", "place3", "info1", "info2", "info3", "category"),
+        "forbid": _NOT_DONE
+        + (
+            r"(?<!לא )הזמנתי",
+            r"[Gg]oogle|גוגל",
+            r"[Mm]aps|\bמפס\b|\bמפות\b",
+            r"מקור:",
+            r"https?://",
+            r"\d\.\d",  # דירוג בפורמט X.X — הדירוגים רקע פנימי בלבד (פידבק אלון)
+            r"\d+ ביקורות",
+        ),
         "must": (r"סגור|סוגר", r"\?"),
-        "must_ctx": ("place1", "place2", "place3", "attribution", "link"),
+        "must_ctx": ("place1", "place2", "place3"),
         "max_chars": 600,
         "fallback": None,
         "site": "run_recommend (inline)",
@@ -1954,9 +1966,10 @@ def _il_phone(p: str) -> str:
 
 async def run_recommend(phone: str, fields: dict) -> None:
     """רץ ברקע על task_type='recommend': בדיקת דירוגים אמיתית (Maps/Search
-    grounding) → 2-3 המלצות בקול חופשי עם עוגני-אמת מילה-במילה + חובת attribution
-    (תנאי השימוש של Google). כשל/timeout → כנות, בלי להמציא המלצות. השמות נשמרים
-    ב-_recs (זיכרון בלבד) כדי ש"תסגור את הראשון" יזרום להזמנה רגילה."""
+    grounding) → 2-3 המלצות בקול חופשי: שמות המקומות עוגני-אמת מילה-במילה,
+    והדירוגים רקע פנימי לניסוח בלבד — בלי מספרים, בלי מקור ובלי לינק בהודעה
+    (פידבק אלון, החלטת בעלים מודעת). כשל/timeout → כנות, בלי להמציא המלצות.
+    השמות נשמרים ב-_recs (זיכרון בלבד) כדי ש"תסגור את הראשון" יזרום להזמנה רגילה."""
     category = (fields.get("category") or "").strip()
     area = (fields.get("city") or "").strip()
     constraints = (fields.get("notes") or "").strip()
@@ -1977,34 +1990,31 @@ async def run_recommend(phone: str, fields: dict) -> None:
         await _send_and_record(phone, await _say("recommend_failed", {"category": category}))
         return
     items = items[:3]
-    lines = []
-    for p in items:
-        if p.get("rating") is not None:
-            lines.append(f"{p['name']} — {p['rating']} ({p['reviews']:,} ביקורות)")
-        else:
-            line = p["name"]
-            if p.get("blurb"):
-                line += f" — {p['blurb']}"
-            lines.append(line)
-    link = next((p["uri"] for p in items if p.get("uri")), "")
-    attribution = "מקור: Google Maps" if not movies else "מקור: Google"
     _recs[phone] = [p["name"] for p in items]
-    # link כמפתח must_ctx נפרד (לא בתוך attribution) — עוגן חד-שורתי שהמודל מסוגל
-    # לשחזר מילה-במילה (אומת חי: עוגן רב-שורתי נפסל תמיד ונפל למאגר).
-    ctx = {"category": category, "attribution": attribution, "link": link}
-    for i, line in enumerate(lines, 1):
-        ctx[f"place{i}"] = line
-    block = "\n".join(f"{i}. {line}" for i, line in enumerate(lines, 1))
-    tail = f"{attribution}" + (f"\n{link}" if link else "")
+    # עוגני must_ctx = שמות בלבד — "תסגור את הראשון" זורם להזמנה על השם המדויק.
+    # הדירוגים/ביקורות נכנסים כ-info רקע לניסוח (המודל מתרגם לתחושה, לא למספר).
+    ctx = {"category": category}
+    for i, p in enumerate(items, 1):
+        ctx[f"place{i}"] = p["name"]
+        facts = []
+        if p.get("blurb"):
+            facts.append(p["blurb"])
+        if p.get("rating") is not None:
+            facts.append(f"מדורג {p['rating']} על סמך {p['reviews']:,} ביקורות")
+        if p.get("open_now"):
+            facts.append("פתוח עכשיו")
+        if facts:
+            ctx[f"info{i}"] = "; ".join(facts)
+    block = "\n".join(p["name"] for p in items)
     await _send_and_record(
         phone,
         await _say(
             "recommend_results",
             ctx,
             fallback=(
-                f"בדקתי מה רץ טוב באמת — אלו המובילות:\n{block}\n{tail}\nלסגור לך אחת מהן?",
-                f"הנה מה שעולה הכי חזק:\n{block}\n{tail}\nסוגר לך אחת?",
-                f"עברתי על הדירוגים — אלו השוות:\n{block}\n{tail}\nרוצה שאסגור באחת מהן?",
+                f"בדקתי מה באמת שווה עכשיו — אלו האופציות:\n{block}\nלסגור לך אחת מהן?",
+                f"עשיתי סיבוב ואלו החזקות כרגע:\n{block}\nסוגר לך אחת?",
+                f"אם כבר יוצאים אז לאחת מאלו:\n{block}\nרוצה שאסגור?",
             ),
         ),
     )
