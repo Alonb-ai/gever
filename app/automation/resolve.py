@@ -1,6 +1,7 @@
 """
 resolver: שם מסעדה → URL של דף הזמנות, בלי דפדפן. multi-platform: Ontopo › Tabit.
-ורטיקל קולנוע: שם סרט → URL של דף הסרט. פלאנט › רב-חן › סינמה סיטי (אותו צינור).
+ורטיקל קולנוע: שם סרט → URL של דף הסרט. פלאנט › רב-חן › סינמה סיטי › הוט סינמה
+(אותו צינור).
 
 מסעדות — דו-שלבי (החלטת אלון, 17.7 — אחרי שהבנצ' הלילי הראה נחיתות-יעד שגויות
 דטרמיניסטיות): שלב 1 — חיפוש פנימי בפלטפורמות עצמן (ה-autocomplete של Ontopo
@@ -17,6 +18,7 @@ endpoints לא רשמיים → כל כשל נופל בשקט לשלב 2. שלב
 
 import asyncio
 import html
+import json
 import logging
 import re
 import urllib.parse
@@ -74,6 +76,13 @@ _CINEMA_PLATFORMS: list[tuple[str, re.Pattern, str]] = [
         "cinema-city",
         re.compile(r"cinema-city\.co\.il/movie/(\d+)"),
         "https://www.cinema-city.co.il/movie/{}",
+    ),
+    # הוט סינמה — אחרונה בכוונה: לא משנה את התיעדוף הקיים. URL בלי slug עושה 302
+    # לדף הקנוני (אומת חי 17.7).
+    (
+        "hot-cinema",
+        re.compile(r"hotcinema\.co\.il/movie/(\d+)"),
+        "https://www.hotcinema.co.il/movie/{}",
     ),
 ]
 
@@ -725,6 +734,35 @@ async def _ravhen_from_planet(candidates: list[dict]) -> list[dict]:
     return out
 
 
+# הוט סינמה: הקטלוג המלא מוטמע בדף הבית — app.movies = [{ID, Name, PageUrl}, ...]
+# (~100 רשומות, שמות בעברית כולל וריאנטים מדובבים; אומת חי 17.7). שלב-1 פנימי לרשת,
+# באותו עיקרון של המסעדות: חיפוש פנימי ממוקד, וכל כשל נופל בשקט ל-Brave.
+_HOT_HOME = "https://www.hotcinema.co.il"
+_HOT_MOVIES = re.compile(r"app\.movies\s*=\s*(\[.*?\])\s*;", re.S)
+
+
+async def _hot_internal() -> list[dict]:
+    """מועמדי {title, url, platform} מקטלוג דף הבית של הוט סינמה; [] → כשל שקט
+    (ממשיכים ל-Brave). הדיסאמביגואציה נשארת ב-_pick_cinema — וריאנטים מדובבים
+    שיוצרים many הם התנהגות רצויה (הלקוח בוחר גרסה)."""
+    try:
+        async with httpx.AsyncClient(
+            timeout=10, headers={"User-Agent": UA}, follow_redirects=True
+        ) as http:
+            body = (await http.get(_HOT_HOME)).text
+        m = _HOT_MOVIES.search(body)
+        if not m:
+            return []
+        return [
+            {"title": mv["Name"], "url": _HOT_HOME + mv["PageUrl"], "platform": "hot-cinema"}
+            for mv in json.loads(m.group(1))
+            if mv.get("Name") and mv.get("PageUrl")
+        ]
+    except Exception:  # noqa: BLE001 — קטלוג לא רשמי: כל כשל/שינוי נופל בשקט ל-Brave
+        log.info("resolve: hot-cinema catalog failed", exc_info=True)
+        return []
+
+
 async def resolve_cinema_url(movie: str, chain: str | None = None) -> dict:
     """כמו resolve_reservation_url, לסרטים: אותו חוזה החזרה בדיוק, על _CINEMA_PLATFORMS.
     בלי סינון _is_listing (ה-regex כבר משאיר רק דפי רשתות); כלל הברזל נשמר — אין
@@ -732,13 +770,26 @@ async def resolve_cinema_url(movie: str, chain: str | None = None) -> dict:
     העיר לא משתתפת כאן — דף הסרט ארצי, בחירת הסניף קורית בתוך זרימת הרכישה.
     chain (למשל "cinema-city"): הלקוח ביקש רשת ספציפית → מתעלמים מהאחרות
     (בלעדיהם פלאנט תמיד מנצחת, כי היא ראשונה בסדר התיעדוף). chain="rav-hen"
-    בלי תוצאת rav-hen מ-Brave → גזירה מפלאנט (_ravhen_from_planet)."""
+    בלי תוצאת rav-hen מ-Brave → גזירה מפלאנט (_ravhen_from_planet).
+    chain="hot-cinema" → שלב 1 מקטלוג דף הבית (Brave כמעט לא מאנדקס את הדומיין);
+    'via' מדווח internal/brave כמו במסעדות."""
+    if chain == "hot-cinema":
+        picked = _pick_cinema(
+            movie,
+            await _hot_internal(),
+            [p for p in _CINEMA_PLATFORMS if p[0] == "hot-cinema"],
+            drop_listings=False,
+        )
+        # מכריע רק כשהמותג באמת זוהה: one, או many של הפלטפורמה (וריאנטים מדובבים).
+        # ה-many הגנרי של "אין match חזק" (platform=None) לא עוצר — Brave ימשיך.
+        if picked["status"] == "one" or (picked["status"] == "many" and picked["platform"]):
+            return {**picked, "via": "internal"}
     candidates = await search_cinema(movie)
     await _real_titles(candidates)  # כותרות-URL קורות גם כאן
     if chain == "rav-hen" and not any(c["platform"] == "rav-hen" for c in candidates):
         candidates += await _ravhen_from_planet(candidates)
     platforms = [p for p in _CINEMA_PLATFORMS if p[0] == chain] if chain else _CINEMA_PLATFORMS
-    return _pick_cinema(movie, candidates, platforms, drop_listings=False)
+    return {**_pick_cinema(movie, candidates, platforms, drop_listings=False), "via": "brave"}
 
 
 def _pick_cinema(name: str, candidates: list[dict], platforms, *, drop_listings: bool) -> dict:

@@ -287,6 +287,16 @@ def test_cinema_task_seat_default_is_declared_choice():
     assert "תוספת תשלום" in recon
 
 
+def test_cinema_task_hot_cinema_addendum_is_conditional():
+    """הוט סינמה: עובדות ה-recon (דומיין כרטוס נפרד, החזקת מושבים 9 דקות) נכנסות
+    ל-task רק כש-platform="hot-cinema" — רשתות אחרות לא רואות אותן."""
+    hot = _build_task({**_CJOB, "dry_run": True, "platform": "hot-cinema"})
+    assert "tickets.hotcinema.co.il" in hot and "9 דקות" in hot
+    other = _build_task({**_CJOB, "dry_run": True, "platform": "planet"})
+    assert "tickets.hotcinema.co.il" not in other and "9 דקות" not in other
+    assert "hotcinema" not in _build_task({**_CJOB, "dry_run": True})
+
+
 def test_cinema_task_injects_notes_and_contact():
     """notes ('שורה אחורית', 'בלי תלת-ממד') סוגרות בחירות מראש — מוזרקות כמו במסעדות."""
     with_notes = _build_task({**_CJOB, "dry_run": True, "notes": "בלי תלת-ממד"})

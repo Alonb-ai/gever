@@ -813,6 +813,91 @@ def test_resolve_cinema_ravhen_no_derivation_without_chain(monkeypatch):
     assert _FakeHTTP.calls == []
 
 
+# --- הוט סינמה: entry רביעי + שלב-1 מקטלוג דף הבית (recon 17.7) ---
+
+_HOT_HTML = """<html><script>
+app.currentLang = 'he';
+app.movies = [{"ID":3305,"Name":"האודיסאה","PageUrl":"/movie/3305/the-odyssey"},
+ {"ID":3310,"Name":"זוטרופוליס 2","PageUrl":"/movie/3310/zootropolis-2"},
+ {"ID":3311,"Name":"זוטרופוליס 2 מדובב","PageUrl":"/movie/3311/zootropolis-2-heb"}];
+app.theaters = [];</script></html>"""
+
+
+def test_hot_cinema_platform_entry_is_last_and_matches_url_shape():
+    """ה-entry של הוט סינמה אחרון בכוונה (לא משנה תיעדוף קיים), וה-regex תופס את
+    צורת ה-URL החיה; ה-URL הקנוני בלי slug עושה 302 לדף המלא (אומת חי 17.7)."""
+    plat, rx, canon = resolve._CINEMA_PLATFORMS[-1]
+    assert plat == "hot-cinema"
+    m = rx.search("https://www.hotcinema.co.il/movie/3305/the-odyssey")
+    assert m and canon.format(m.group(1)) == "https://www.hotcinema.co.il/movie/3305"
+    assert rx.search("https://www.hotcinema.co.il/theaters") is None
+
+
+def test_hot_internal_parses_embedded_catalog(monkeypatch):
+    """app.movies המוטמע בדף הבית → מועמדי {title, url, platform}, כולל וריאנטים
+    מדובבים (שיישארו מובחנים לדיסאמביגואציה)."""
+    _fake_site_http(monkeypatch, {resolve._HOT_HOME: _HOT_HTML})
+    cands = asyncio.run(resolve._hot_internal())
+    assert [c["title"] for c in cands] == ["האודיסאה", "זוטרופוליס 2", "זוטרופוליס 2 מדובב"]
+    assert cands[0]["url"] == "https://www.hotcinema.co.il/movie/3305/the-odyssey"
+    assert all(c["platform"] == "hot-cinema" for c in cands)
+
+
+def test_hot_internal_failure_is_silent(monkeypatch):
+    """דף בלי הקטלוג או כשל רשת → [] שקט (Brave ימשיך), לעולם לא חריגה החוצה."""
+    _fake_site_http(monkeypatch, {resolve._HOT_HOME: "<html>בלי קטלוג</html>"})
+    assert asyncio.run(resolve._hot_internal()) == []
+    monkeypatch.setattr(resolve.httpx, "AsyncClient", _FakeHTTP)
+    _FakeHTTP.status, _FakeHTTP.calls = RuntimeError("network down"), []
+    assert asyncio.run(resolve._hot_internal()) == []
+
+
+def test_resolve_cinema_hot_chain_resolves_from_catalog(monkeypatch):
+    """chain="hot-cinema": שלב 1 מהקטלוג מכריע בלי לגעת ב-Brave — התאמה מדויקת
+    → one (via=internal); שם שמתאים לכמה וריאנטים (מדובב) → many של הרשת,
+    שהלקוח יבחר גרסה — התנהגות רצויה."""
+
+    async def boom_search(movie):
+        raise AssertionError("Brave לא אמור להיקרא כשהקטלוג מכריע")
+
+    monkeypatch.setattr(resolve, "search_cinema", boom_search)
+    _fake_site_http(monkeypatch, {resolve._HOT_HOME: _HOT_HTML})
+
+    res = asyncio.run(resolve.resolve_cinema_url("האודיסאה", chain="hot-cinema"))
+    assert res["status"] == "one" and res["platform"] == "hot-cinema"
+    assert res["url"] == "https://www.hotcinema.co.il/movie/3305/the-odyssey"
+    assert res["via"] == "internal"
+
+    res = asyncio.run(resolve.resolve_cinema_url("זוטרופוליס", chain="hot-cinema"))
+    assert res["status"] == "many" and res["platform"] == "hot-cinema"
+    assert res["via"] == "internal"
+    assert [c["title"] for c in res["candidates"]] == ["זוטרופוליס 2", "זוטרופוליס 2 מדובב"]
+
+
+def test_resolve_cinema_hot_chain_falls_back_to_brave(monkeypatch):
+    """הקטלוג לא הכריע — נפל (אין app.movies) או שהסרט פשוט לא בו — נופלים בשקט
+    ל-Brave, שם ה-regex החדש תופס דפי hotcinema ו-chain עדיין מסנן רשתות אחרות."""
+    cands = [
+        {
+            "title": "חינה אמריקאית",
+            "url": "https://www.planetcinema.co.il/films/american-hina/8256s2r",
+            "platform": "planet",
+        },
+        {
+            "title": "חינה אמריקאית",
+            "url": "https://www.hotcinema.co.il/movie/2222",
+            "platform": "hot-cinema",
+        },
+    ]
+    monkeypatch.setattr(resolve, "search_cinema", _fake_cinema(cands))
+    for homepage in ("<html>בלי קטלוג</html>", _HOT_HTML):  # קטלוג נפל / סרט לא בקטלוג
+        _fake_site_http(monkeypatch, {resolve._HOT_HOME: homepage})
+        res = asyncio.run(resolve.resolve_cinema_url("חינה אמריקאית", chain="hot-cinema"))
+        assert res["status"] == "one" and res["platform"] == "hot-cinema"
+        assert res["url"] == "https://www.hotcinema.co.il/movie/2222"
+        assert res["via"] == "brave"
+
+
 def test_from_brave_cinema_city_strips_site_name_suffix():
     """כותרות סינמה סיטי חיות ("<סרט> - סינמה סיטי") — שם האתר נחתך, כך שגרסה
     מדובבת-לרוסית נשארת מובחנת והגרסה המבוקשת המדויקת נבחרת (נצפה חי 15.07.26:

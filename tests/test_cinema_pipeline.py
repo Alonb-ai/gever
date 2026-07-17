@@ -503,7 +503,8 @@ def test_cinema_chain_from_extract_steers_resolver(monkeypatch):
     asyncio.run(pipeline.run_booking("ch1", {**_FIELDS, "chain": "rav-hen"}))
     asyncio.run(pipeline.run_booking("ch2", dict(_FIELDS)))
     asyncio.run(pipeline.run_booking("ch3", {**_FIELDS, "chain": "hot-cinema"}))
-    assert seen == ["rav-hen", None, None]
+    asyncio.run(pipeline.run_booking("ch4", {**_FIELDS, "chain": "moviehouse"}))
+    assert seen == ["rav-hen", None, "hot-cinema", None]
 
 
 def test_cinema_chain_change_busts_resolved_cache(monkeypatch):
@@ -547,6 +548,9 @@ def test_cinema_chain_contract_aligned_with_resolve_and_schema():
     assert list(pipeline._CINEMA_CHAINS) == [p[0] for p in resolve_mod._CINEMA_PLATFORMS]
     assert pipeline._SCHEMA["properties"]["chain"]["enum"] == list(pipeline._CINEMA_CHAINS)
     assert "chain" in pipeline._EXTRACT and "rav-hen" in pipeline._EXTRACT
+    # מיפוי הוט סינמה בפרומפט (משתמשת בטא אמיתית) + הזהירות: 'הוט' לבד = טלקום
+    assert "'הוט סינמה'" in pipeline._EXTRACT and "hot-cinema" in pipeline._EXTRACT
+    assert "'הוט' " in pipeline._EXTRACT  # האזהרה על המותג הדו-משמעי קיימת
 
 
 if __name__ == "__main__":
