@@ -22,6 +22,13 @@ log = logging.getLogger("gever")
 _RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bu_runner.py")
 BU_TIMEOUT_S = 600  # ponytail: תקרה קשיחה (10 דק') — browser-use עובר את כל זרימת Ontopo
 # עד הסיכום; 5 דק' קטעו ריצות חיות באמצע (dry-run #2). agent תקוע נכשל בקול, לא בדממה.
+BU_CINEMA_TIMEOUT_S = 900  # קולנוע ארוך ממסעדה (מפת מושבים SVG + סוגי כרטיסים + טופס
+# פרטים): ריצה חיה (iter 2) נהרגה ב-600s קליק אחד לפני קיר-התשלום. 15 דק' עדיין תקרה.
+
+
+def _timeout_s(job: dict) -> int:
+    """תקרת הריצה לפי סוג המשימה — קולנוע מקבל את התקרה הארוכה."""
+    return BU_CINEMA_TIMEOUT_S if job.get("task_type") == "cinema" else BU_TIMEOUT_S
 
 
 async def _run_subprocess(job: dict) -> None:
@@ -53,7 +60,9 @@ async def _run_subprocess(job: dict) -> None:
             env=env,
         )
         try:
-            await asyncio.wait_for(proc.communicate(json.dumps(job).encode()), timeout=BU_TIMEOUT_S)
+            await asyncio.wait_for(
+                proc.communicate(json.dumps(job).encode()), timeout=_timeout_s(job)
+            )
         except asyncio.TimeoutError:
             proc.kill()  # ponytail: הורג את ה-runner; browser-use סוגר את Chrome ביציאה
             await proc.wait()
@@ -177,6 +186,9 @@ async def book_table_bu(
     notes: str = "",  # העדפות ביצוע מהלקוח (אזור ישיבה וכו') — מוזרק ל-task
     dry_run: bool = True,
     resume: dict | None = None,  # {"session_id","recap"} — המשך סשן חי מאותו מסך (pause-resume)
+    task_type: str = "restaurant",  # "restaurant" | "cinema" — בורר את ה-task ב-bu_runner
+    movie: str = "",  # קולנוע: שם הסרט (נכנס ל-task)
+    city: str = "",  # קולנוע: העיר/הסניף — בחירת בית הקולנוע קורית בתוך זרימת הרכישה
     keep_on_summary: bool = False,  # השאר סשן חי גם על SUMMARY_REACHED — לסגירה-באותו-סשן
     time_flex: bool = False,  # הלקוח גמיש בשעה → מותר לסגור ±60 דק' בלי לעצור ולשאול
 ) -> ActionResult:
@@ -197,6 +209,9 @@ async def book_table_bu(
     job = {
         "url": page_url,
         "platform": platform,
+        "task_type": task_type,
+        "movie": movie,
+        "city": city,
         "date": date,
         "time": time,
         "party_size": party_size,
@@ -283,6 +298,7 @@ async def book_table_bu(
             "page_now": r.get("page_now") or "",
             "failed": r.get("failed"),
             "time": r.get("time"),
+            "seats": r.get("seats") or "",
             "perk": r.get("perk"),
             "agreed": r.get("agreed") or [],
             "restaurant": restaurant,

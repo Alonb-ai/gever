@@ -77,15 +77,25 @@ def test_record_out_caps_turns():
 
 
 def test_maybe_ack_skips_recent_sends_stale(monkeypatch):
-    """ack מכני מדולג כשהפרסונה ענתה הרגע (כפילות בוט), ונשלח כשעבר זמן."""
+    """ack מכני מדולג כשהפרסונה ענתה הרגע (כפילות בוט), ונשלח כשעבר זמן.
+    בדילוג גם המודל לא נקרא — לא שורפים חילול על הודעה שלא תישלח."""
     _reset()
     sent, upserts = [], []
     _wire(monkeypatch, sent, upserts)
+    say_calls = []
+
+    async def spy_model(intent, ctx):
+        say_calls.append(intent)
+        raise RuntimeError("offline")  # נופל למאגר — כמו בכל הטסטים
+
+    monkeypatch.setattr(pipeline, "_say_model", spy_model)
 
     pipeline._last_out["p1"] = time.time()  # תשובת הפרסונה יצאה ממש עכשיו
-    asyncio.run(pipeline._maybe_ack("p1", "רגע אני על זה 🔄"))
+    asyncio.run(pipeline._maybe_ack("p1", "ack_start", fallback=("רגע אני על זה 🔄",)))
     assert sent == []
+    assert say_calls == []  # מדולג לפני החילול
 
     pipeline._last_out["p1"] = time.time() - pipeline.ACK_GAP_S - 1
-    asyncio.run(pipeline._maybe_ack("p1", "רגע אני על זה 🔄"))
-    assert sent == ["רגע אני על זה 🔄"]
+    asyncio.run(pipeline._maybe_ack("p1", "ack_start", fallback=("רגע אני על זה 🔄",)))
+    assert sent == ["רגע אני על זה 🔄"]  # מסלול ה-fallback של האתר
+    assert say_calls == ["ack_start"]
