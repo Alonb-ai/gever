@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import logging
+import time
 from collections import OrderedDict
 from contextlib import asynccontextmanager, suppress
 
@@ -137,6 +138,23 @@ def _already_handled(msg_id: str | None) -> bool:
     return False
 
 
+STALE_MSG_S = 600  # הודעה נכנסת ישנה מ-10 דק' = שידור חוזר של Meta אחרי השבתה
+
+
+def _is_stale(msg: dict) -> bool:
+    """ה-dedupe חי בזיכרון התהליך ומת בכל deploy — אחרי השבתה Meta משדרת מחדש
+    הודעות ישנות שלא אושרו, וגבר עיבד בקשת קלארו בת שעה כאילו נשלחה עכשיו
+    (נצפה חי 17.7 אחרי תקלת ה-env). ה-timestamp של Meta הוא עוגן אמין שלא
+    תלוי בזיכרון שלנו."""
+    ts = msg.get("timestamp")
+    if not ts:
+        return False  # timestamp חסר — עדיף לטפל מאשר להשתיק
+    try:
+        return time.time() - int(ts) > STALE_MSG_S
+    except (TypeError, ValueError):
+        return False
+
+
 async def _process_webhook(data: dict) -> None:
     """העיבוד עצמו — רץ ברקע אחרי שה-200 כבר נשלח למטא (סדרתי בתוך ה-payload,
     כדי ששתי הודעות של אותו לקוח לא ירוצו במקביל זו על זו)."""
@@ -146,6 +164,9 @@ async def _process_webhook(data: dict) -> None:
                 for msg in change.get("value", {}).get("messages", []):
                     if _already_handled(msg.get("id")):
                         log.info("duplicate webhook message skipped: %s", msg.get("id"))
+                        continue
+                    if _is_stale(msg):
+                        log.info("stale webhook message skipped: %s", msg.get("id"))
                         continue
                     if msg.get("type") == "text":
                         await handle_inbound(msg["from"], msg["text"]["body"], msg.get("id"))

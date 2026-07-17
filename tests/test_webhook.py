@@ -83,3 +83,48 @@ def test_duplicate_message_id_handled_once():
         main.handle_inbound = orig
     assert calls == ["היי"]
     assert pipeline is not None
+
+
+def test_stale_replayed_message_skipped():
+    """שידור חוזר אחרי deploy: ה-dedupe בזיכרון מת עם הקונטיינר ומטא משדרת
+    הודעות ישנות — הודעה עם timestamp בן שעה נזרקת, טרייה מטופלת, וחסרת
+    timestamp מטופלת (עדיף לטפל מלהשתיק). נצפה חי 17.7 ("עוד פעם קלארו אחי?")."""
+    import asyncio
+    import time as _t
+
+    main._seen_msg_ids.clear()
+    calls = []
+
+    async def fake_inbound(phone, text, msg_id=None):
+        calls.append(text)
+
+    def msg(i, body, ts):
+        m = {"type": "text", "id": i, "from": "972", "text": {"body": body}}
+        if ts is not None:
+            m["timestamp"] = str(int(ts))
+        return m
+
+    orig = main.handle_inbound
+    main.handle_inbound = fake_inbound
+    try:
+        payload = {
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "value": {
+                                "messages": [
+                                    msg("wamid.S1", "ישנה", _t.time() - 3600),
+                                    msg("wamid.S2", "טרייה", _t.time() - 5),
+                                    msg("wamid.S3", "בלי-זמן", None),
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+        asyncio.run(main._process_webhook(payload))
+    finally:
+        main.handle_inbound = orig
+    assert calls == ["טרייה", "בלי-זמן"]
