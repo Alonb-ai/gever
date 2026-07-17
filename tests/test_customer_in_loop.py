@@ -99,7 +99,12 @@ def _missing(field: str, **details) -> ActionResult:
 
 def test_task_forbids_inventing_code_and_id():
     job = {"url": "http://x", "party_size": 2, "date": "6.7", "time": "20:00", "dry_run": True}
-    for variant in (job, {**job, "resume": {"recap": "עצרתי על קוד"}}):
+    for variant in (
+        job,
+        {**job, "resume": {"recap": "עצרתי על קוד"}},
+        # לקוח-בלולאה חל גם על מסלול הקולנוע — ל-builder הקולנועי בלוק חוקים משלו
+        {**job, "task_type": "cinema", "movie": "האודיסאה", "city": "חיפה"},
+    ):
         task = bu_runner._build_task(variant)
         assert "MISSING:sms_code" in task
         assert "MISSING:id_number" in task
