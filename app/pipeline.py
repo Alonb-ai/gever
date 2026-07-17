@@ -444,6 +444,18 @@ RESUME_ACK_MSGS = (
     "מעולה, לוקח את זה מהמקום שעצרנו 🎯",
 )
 
+# אונבורדינג מרוכז (בקשת אלון #6): ההודעה הראשונה אי-פעם — גבר מציג את עצמו קצר
+# ואוסף פעם אחת שם מלא ומייל, במקום שאלות זהות באמצע זרימת הזמנה. עוגני _vary:
+# "גבר" (הצגה עצמית) + "שם"+"מייל" (מה אוספים) — הטסטים נועלים עוגן, לא נוסח.
+ONBOARDING_INTRO_MSGS = (
+    "היי אני גבר 🤙\nסוגר לך דברים בוואטסאפ — מסעדות, סרטים, מה שצריך\n"
+    "בשביל ההזמנות צריך פעם אחת שם מלא ומייל — מה נרשום?",
+    "נעים מאוד, אני גבר 🤝\nמהיום אני זה שסוגר לך שולחנות וכרטיסים\n"
+    "רק צריך פעם אחת שם מלא ומייל בשביל ההזמנות — יש?",
+    "אהלן, אני גבר\nזורקים לי משימות בוואטסאפ ואני סוגר — מסעדות, סרטים\n"
+    "שיהיה חלק תן לי פעם אחת שם מלא ומייל ומשם הכל עליי 🦾",
+)
+
 # אינטייק מקבילי (רעיון אלון — הזדמנות #1 בתוכנית הזירוז): בזמן שהדפדפן רץ,
 # שואלים מראש בוואטסאפ את מה שצפוי לעצור את הריצה (העדפת ישיבה + גמישות שעה).
 # התשובה נשמרת כאן — בזיכרון בלבד, כמו _sensitive, לא ל-DB — ונצרכת בקיר
@@ -945,6 +957,22 @@ INTENTS: dict[str, dict] = {
         "site": "run_commit (success, inline מסעדה/קולנוע + שורת conf)",
         "test": "tests/test_realbooking.py, tests/test_cinema_pipeline.py",
     },
+    # ── אונבורדינג (שיחה ראשונה) ──
+    "onboarding_intro": {
+        "goal": (
+            "הודעה ראשונה אי-פעם ממישהו חדש — היכרות קצרה בדמות: אתה גבר, "
+            "סוגר לו דברים בוואטסאפ (מסעדות, סרטים); בשביל ההזמנות אתה צריך "
+            "פעם אחת שם מלא ומייל — בקש אותם קצר וטבעי, שיחה ולא טופס, "
+            "בלי חפירה ובלי להבטיח כלום"
+        ),
+        "ctx": (),
+        "forbid": _NOT_DONE,
+        "must": (r"גבר", r"שם", r"מייל"),
+        "max_chars": 250,
+        "fallback": ONBOARDING_INTRO_MSGS,
+        "site": "_handle_inbound_inner (מגע ראשון) → ONBOARDING_INTRO_MSGS",
+        "test": "tests/test_onboarding_flow.py",
+    },
     # ── רשתות ביטחון של השיחה ──
     "busy_error": {
         "goal": (
@@ -1125,6 +1153,21 @@ def _contact_value(text: str, field: str) -> str:
     if text and "?" not in text and len(text.split()) <= 4 and not any(c.isdigit() for c in text):
         return text
     return ""
+
+
+def _contact_pair(text: str) -> dict:
+    """שם ו/או מייל מתשובת האונבורדינג ("אלון בזק alon@x.com") — מה שזוהה בוודאות.
+    המייל נשלף ב-regex ומה שנשאר נבחן כשם באותם כללים של _contact_value.
+    כלום לא זוהה (שאלה/משפט חופשי) → {} והתור ממשיך ל-converse כרגיל."""
+    got: dict = {}
+    m = _EMAIL_RE.search(text)
+    if m:
+        got["email"] = m.group(0)
+        text = text.replace(m.group(0), " ")
+    name = _contact_value(text.strip(" ,;-"), "name")
+    if name:
+        got["name"] = name
+    return got
 
 
 def _scrub(text: str, secret: str) -> str:
@@ -2616,6 +2659,18 @@ async def run_commit(phone: str) -> None:
         await _save_flow(phone)  # אחרי ניקוי ה-gate — ה-_flow המותמד משקף את הסיום
 
 
+async def _is_first_contact(phone: str) -> bool:
+    """שיחה ראשונה אי-פעם: אין תורות בזיכרון-בתהליך, אין פרופיל מזהה (שם/מייל)
+    ואין היסטוריית שיחה מותמדת. הבדיקות הזולות (בתהליך) קודם — קריאת DB רק
+    במגע שנראה ראשון (פעם אחת למשתמש חדש / אחרי restart)."""
+    if phone in _last_seen or _turns.get(phone):
+        return False
+    prof = await memory.get_profile(phone)
+    if prof and (prof.get("name") or prof.get("email")):
+        return False
+    return not ((((prof or {}).get("prefs") or {}).get("_chat") or {}).get("turns"))
+
+
 async def handle_inbound(phone: str, text: str, message_id: str | None = None) -> None:
     """נקודת הכניסה מה-webhook: שיחה, תשובה, וכשמוכן — הזמנה/סגירה ברקע."""
     _cancel_nudge(phone)  # הלקוח ענה — תזכורת ממתינה כבר מיותרת
@@ -2728,6 +2783,59 @@ async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = 
             }
             _spawn(run_booking(phone, fields))
             return
+    if (
+        pend
+        and _booking.get(phone, {}).get("state") == "missing"
+        and pend.get("field") == "contact"
+    ):
+        # אונבורדינג (בקשת אלון #6): תשובת שם+מייל — בהודעה אחת או בשני צעדים
+        # טבעיים. מה שזוהה מושחל ישירות ל-job (כמו ממצא #2) ונשמר לפרופיל
+        # במקביל; חסר חצי → מחכים רק לו (הענף של name/email למעלה ישלים).
+        # כלום לא זוהה → converse כרגיל.
+        got = _contact_pair(text)
+        if got:
+            fields = {**pend["fields"], **got}
+            _spawn(memory.upsert_profile(phone, **got))
+            _turns[phone] = [
+                *(_turns.get(phone) or []),
+                {"role": "user", "text": text, "ts": time.time()},
+            ][-CHAT_TURNS:]
+            place = (fields.get("restaurant") or fields.get("movie") or "").strip()
+            if fields.get("name") and fields.get("email"):
+                _await_answer.pop(phone, None)
+                await _send_and_record(
+                    phone,
+                    await _say(
+                        "ack_start",
+                        {"name": place, "task_type": fields.get("task_type") or "restaurant"},
+                        fallback=(
+                            "מעולה יש לי הכל — רץ על זה, כמה דקות ואני חוזר 🦾",
+                            "קיבלתי — יוצא לדרך, עניין של כמה דקות 🔄",
+                            "סגרנו את הפינה — אני על זה, כמה דקות 🔄",
+                        ),
+                    ),
+                )
+                _booking[phone] = {"state": "working", "info": place}
+                _spawn(run_booking(phone, fields))
+            else:
+                missing = "email" if fields.get("name") else "name"
+                label = "מייל" if missing == "email" else "שם מלא"
+                _await_answer[phone] = {"fields": fields, "field": missing, "options": []}
+                _booking[phone] = {"state": "missing", "info": missing}
+                await _send_and_record(
+                    phone,
+                    await _say(
+                        "ask_missing",
+                        {"field": label},
+                        fallback=(
+                            f"קלטתי — עכשיו רק {label} ואני יוצא לדרך",
+                            f"מעולה, נשאר רק {label} ורצים",
+                            f"רשמתי — חסר רק {label} ואני מתחיל",
+                        ),
+                    ),
+                )
+                _arm_nudge(phone, "question", ctx={"field": label})
+            return
     # אינטייק מקבילי: נשאלה שאלת-ביניים והריצה עוד רצה — תשובה שמזוהה
     # דטרמיניסטית (ישיבה / גמישות שעה) נקלטת ל-_prefetched בזיכרון (לא ל-DB)
     # ותיצרך בקיר MISSING. לא זוהתה → converse כרגיל; הריצה כבר נגמרה
@@ -2742,6 +2850,13 @@ async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = 
             ][-CHAT_TURNS:]
             await _send_and_record(phone, await _say("intake_ack"))
             return
+    # אונבורדינג (בקשת אלון #6): מגע ראשון אי-פעם — גבר מציג את עצמו קצר ומבקש
+    # פעם אחת שם ומייל, לפני שהשיחה הרגילה עונה. נרשם ל-_turns לפני converse —
+    # המודל רואה שההיכרות כבר קרתה ולא שואל שוב.
+    introduced = False
+    if await _is_first_contact(phone):
+        await _send_and_record(phone, await _say("onboarding_intro"))
+        introduced = True
     result = await converse(phone, text)
     # or ולא default: reply="" עובר סכמה אבל מטא דוחה הודעה ריקה — הלקוח בלי תשובה
     reply = result.get("reply") or await _say(
@@ -2790,6 +2905,43 @@ async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = 
         if stale and stale.get("session_id"):
             # ה-gate הישן החזיק סשן חי על מסך סיכום — משחררים, לא מדליפים דקות דפדפן
             _spawn(release_session(stale["session_id"]))
+        # אונבורדינג (בקשת אלון #6): שם+מייל נסגרים פעם אחת *לפני* הריצה הראשונה,
+        # לא כעצירת MISSING באמצע טופס. התשובה תושחל ישירות ל-job דרך המנגנון
+        # הדטרמיניסטי הקיים (הענפים למעלה); מסלולי ה-MISSING נשארים רשת ביטחון.
+        # unsure/other לא נעצרים כאן — קודם מבררים מה בכלל סוגרים.
+        if (result.get("task_type") or "restaurant") in ("restaurant", "cinema"):
+            prof = await memory.get_profile(phone)
+            booker = (result.get("name") or (prof or {}).get("name") or "").strip()
+            known_email = (result.get("email") or (prof or {}).get("email") or "").strip()
+            if not booker or not known_email:
+                field = (
+                    "contact"
+                    if not (booker or known_email)
+                    else ("name" if not booker else "email")
+                )
+                label = {"contact": "שם מלא ומייל", "name": "שם מלא", "email": "מייל"}[field]
+                fields = dict(result)
+                if booker:
+                    fields["name"] = booker
+                if known_email:
+                    fields["email"] = known_email
+                _await_answer[phone] = {"fields": fields, "field": field, "options": []}
+                _booking[phone] = {"state": "missing", "info": field}
+                if not introduced:  # הודעת הפתיחה הרגע ביקשה בדיוק את זה — לא שואלים פעמיים
+                    await _send_and_record(
+                        phone,
+                        await _say(
+                            "ask_missing",
+                            {"field": label},
+                            fallback=(
+                                f"לפני שאני יוצא לדרך צריך פעם אחת {label} להזמנה — מה נרשום?",
+                                f"רק דבר אחד לפני שאני רץ: {label} להזמנה 🤙",
+                                f"צריך {label} פעם אחת בשביל ההזמנות ואני יוצא לדרך — מה נרשום?",
+                            ),
+                        ),
+                    )
+                _arm_nudge(phone, "question", ctx={"field": label})
+                return
         # info = שם המסעדה/הסרט בתהליך, כדי שה-truth_note ינקוב בו אם תגיע בקשה אחרת בזמן ריצה.
         _booking[phone] = {
             "state": "working",

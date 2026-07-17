@@ -1145,6 +1145,7 @@ def test_pending_commit_carries_email_and_notes(monkeypatch):
 def test_handle_inbound_splits_reply_lines_into_separate_messages(monkeypatch):
     """וואטסאפ אנושי = הודעות קצרות: כל שורה נשלחת כהודעה נפרדת, עם typing+השהיה בין הודעות."""
     _reset()
+    pipeline._last_seen["pS"] = 10**12  # לא מגע ראשון — הודעת האונבורדינג לא חלק מהטסט
     sent, paces, typing = [], [], []
 
     async def fake_converse(phone, text):
@@ -1187,9 +1188,13 @@ def test_route_confirm_commits_when_live(monkeypatch):
 
 
 def test_route_ready_starts_booking_and_drops_gate(monkeypatch):
-    """ready=True (הזמנה חדשה/שונה) → run_booking, וה-gate הישן ננטש."""
+    """ready=True (הזמנה חדשה/שונה) → run_booking, וה-gate הישן ננטש.
+    שם+מייל בתוצאה — בלעדיהם שער האונבורדינג עוצר לפני הריצה (נבדק בנפרד)."""
     spawned = _route(
-        monkeypatch, dry_run=False, result={"reply": "יאללה", "ready": True}, pending=True
+        monkeypatch,
+        dry_run=False,
+        result={"reply": "יאללה", "ready": True, "name": "אלון", "email": "a@x.com"},
+        pending=True,
     )
     assert spawned == ["run_booking"]
     assert "pX" not in pipeline._pending_commit
