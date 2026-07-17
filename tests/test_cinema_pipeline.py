@@ -353,11 +353,11 @@ def test_cinema_card_wall_link_is_live_view_when_session_alive(monkeypatch):
     # card-idle (נדנוד → שחרור הסשן הנטוש) חל גם על קולנוע.
     assert nudges == [("card", "sess-live")]
     final = sent[-1]
+    # הלינק ממותג (live_link.wrap) — לא URL גולמי של browserbase (מסגיר אוטומציה)
     from app import live_link
     from app.config import settings
 
-    # לינק ממותג /b/{token} בהודעה; ה-URL הגולמי של browserbase לא נחשף (דמות!).
-    assert "live.browserbase.com" not in final
+    assert "browserbase.com" not in final
     assert f"{settings.public_base_url}/b/" in final
     token = final.split("/b/")[1].split()[0].strip()
     assert live_link.resolve(token) == "https://live.browserbase.com/sess-live"

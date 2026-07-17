@@ -89,6 +89,30 @@ _CINEMA_PLATFORMS: list[tuple[str, re.Pattern, str]] = [
 
 _CC_TITLE_SUFFIX = re.compile(r"\s*[-–|]\s*סינמה סיטי\s*$")
 
+# הופעות (סדר = תיעדוף): לאן ראשית (זרימת רכישה מלאה בעמוד האירוע, נגיש מ-IP זר —
+# אומת 15.07.26); קופת ת"א גיבוי (עמוד /show/, הרכישה ב-tickets.kupat.co.il מגיעה
+# מכפתור בעמוד). איוונטים בחוץ (403 Akamai ל-IP לא-ישראלי) — יעד שלב-ב עם פרוקסי IL.
+# ה-regex של לאן תופס /events/ בלבד — לא את הסאב-אתר הישן /eco99/.../shows/.
+_EVENT_PLATFORMS: list[tuple[str, re.Pattern, str]] = [
+    (
+        "leaan",
+        re.compile(r"leaan\.co\.il/events/([^/?#]+/\d+)"),
+        "https://www.leaan.co.il/events/{}",
+    ),
+    (
+        "kupat",
+        re.compile(r"(?:www\.)?kupat\.co\.il/show/([A-Za-z0-9_-]+)"),
+        "https://www.kupat.co.il/show/{}",
+    ),
+]
+
+# חיתוך זנבות כותרת של לאן — רק שם-האתר ("| כרטיסים רשמיים בלאן" / "| כרטיסים
+# רשמיים | לאן" / "| כרטיסים בלאן"). התאריך וההיכל נשארים בכוונה: many עם
+# תאריך+מקום לכל מועמד = רשימת הבחירה של הלקוח היא המועדים האמיתיים.
+_LEAAN_TITLE_SUFFIX = re.compile(r"(\s*\|\s*כרטיסים[^|]*)?(\s*\|\s*ב?לאן)?\s*$")
+# קופת: "עומר אדם הופעות 2026 - הזמנת כרטיסים ישירה להופעה של עומר אדם"
+_KUPAT_TITLE_SUFFIX = re.compile(r"\s*[-–]\s*(?:הזמנת\s+)?כרטיסים.*$")
+
 
 def _clean(t: str) -> str:
     return html.unescape(_TAG.sub("", t)).strip()
@@ -451,6 +475,11 @@ def _candidate(url: str, raw_title: str, seen: set, platforms=_PLATFORMS) -> dic
             # כותרות סינמה סיטי חיות: "<סרט> - סינמה סיטי" — שם האתר אינו מילה
             # מבחינה בין גרסאות (מדובב/לרוסית), והוא שובר את _is_clean_name.
             title = _CC_TITLE_SUFFIX.sub("", title)
+        if platform == "leaan":
+            # חותכים רק את זנב שם-האתר; תאריך+היכל נשארים (הם הדיסאמביגואציה)
+            title = _LEAAN_TITLE_SUFFIX.sub("", title).strip()
+        if platform == "kupat":
+            title = _KUPAT_TITLE_SUFFIX.sub("", title).strip()
         if pattern is _TABIT:
             # כותרות Tabit בתוצאות חיפוש גנריות ("הזמנת מקום - טאביט") — שם המסעדה
             # יושב ב-slug של ה-URL. מוסיפים אותו לכותרת כדי שהדיסאמביגואציה תעבוד.
@@ -474,7 +503,7 @@ def _from_brave(data: dict, platforms=_PLATFORMS) -> list[dict]:
 
 async def _brave_raw(query: str) -> list[dict]:
     """שאילתת Brave אחת → תוצאות web גולמיות ([{url, title, description}, ...]).
-    משותף למסעדות ולקולנוע."""
+    משותף לכל הוורטיקלים (מסעדות/קולנוע/הופעות)."""
     if not settings.brave_api_key:
         # כישלון קולני ולא [] שקט — בלי מפתח אין resolver, וזה באג קונפיגורציה
         raise RuntimeError("BRAVE_API_KEY חסר — ה-resolver לא יכול לחפש")
@@ -658,6 +687,14 @@ async def _pick(name: str, pool: list[dict]) -> tuple[dict | None, bool, list[di
         return {**picked, "fallback": fallback}, dead_hit, pool
 
 
+async def search_events(artist: str, venue: str = "") -> list[dict]:
+    """[{title, url, platform}] של דפי אירוע (לאן/קופת ת"א) לשאילתה (deduped).
+    venue מחדד את השאילתה לאמן רב-ערים — ה-steering היחיד (אין פרמטר chain)."""
+    q = " ".join(p for p in (artist, venue, "כרטיסים הופעה") if p)
+    raw = await _brave_raw(q)
+    return _from_brave({"web": {"results": raw}}, _EVENT_PLATFORMS)
+
+
 async def resolve_reservation_url(name: str) -> dict:
     """
     מחזיר {'status': one|many|none, 'url', 'platform', 'candidates', 'fallback',
@@ -792,11 +829,21 @@ async def resolve_cinema_url(movie: str, chain: str | None = None) -> dict:
     return {**_pick_cinema(movie, candidates, platforms, drop_listings=False), "via": "brave"}
 
 
+async def resolve_event_url(artist: str, venue: str = "") -> dict:
+    """כמו resolve_cinema_url, להופעות: אותו חוזה החזרה בדיוק, על _EVENT_PLATFORMS.
+    many הוא פיצ'ר — שני מועדים לאותו אמן בלאן = שתי רשומות עם תאריך+היכל בכותרת,
+    והרשימה שהלקוח מקבל היא המועדים האמיתיים. drop_listings=False — ה-regex כבר
+    משאיר רק דפי אירוע. אין fallbackים של Phase 4-lite (מסעדות בלבד)."""
+    candidates = await search_events(artist, venue)
+    await _real_titles(candidates)
+    return _pick_cinema(artist, candidates, _EVENT_PLATFORMS, drop_listings=False)
+
+
 def _pick_cinema(name: str, candidates: list[dict], platforms, *, drop_listings: bool) -> dict:
-    """דיסאמביגואציה פלטפורמה-פלטפורמה לפי סדר התיעדוף — ליבת ה-resolver הקולנועי.
-    (המסעדות גדלו למסלול דו-שלבי משלהן — _select + לולאת דף-הרפאים ב-_pick —
-    ולא עוברות כאן; העולמות מופרדים בכוונה עד ריצה חיה על ליבה משותפת.)
-    drop_listings: סינון דילים/שוברים (רלוונטי למסעדות בלבד)."""
+    """דיסאמביגואציה פלטפורמה-פלטפורמה לפי סדר התיעדוף — ליבת ה-resolver של
+    קולנוע והופעות. (המסעדות גדלו למסלול דו-שלבי משלהן — _select + לולאת
+    דף-הרפאים ב-_pick — ולא עוברות כאן; העולמות מופרדים בכוונה עד ריצה חיה
+    על ליבה משותפת.) drop_listings: סינון דילים/שוברים (רלוונטי למסעדות בלבד)."""
     primary, fallback = None, None
     for platform, _, _ in platforms:
         plat = [c for c in candidates if c["platform"] == platform]

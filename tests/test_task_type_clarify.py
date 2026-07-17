@@ -19,6 +19,7 @@ def test_schema_allows_unsure():
     assert pipeline._SCHEMA["properties"]["task_type"]["enum"] == [
         "restaurant",
         "cinema",
+        "events",
         "recommend",
         "other",
         "unsure",

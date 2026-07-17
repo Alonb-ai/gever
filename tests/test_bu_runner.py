@@ -82,6 +82,26 @@ def test_markers_only_from_last_line_case_sensitive():
     assert r["success"] is False
 
 
+def test_markerless_final_report_is_browser_error():
+    # ev iter 1 (ריצה חיה מול לאן): סשן Browserbase מת באמצע (keepalive→410) וה-agent
+    # נעצר בלי שורת סיום — final ריק. חייב לצאת failed=browser_error, לא תוצאה ריקה.
+    for commit in (False, True):
+        r = _parse_result("", commit=commit)
+        assert r["success"] is False
+        assert r["failed"] == "browser_error"
+    # רווחים בלבד = אותו דין.
+    assert _parse_result("   \n ", commit=False)["failed"] == "browser_error"
+    # ev4 (ריצה חיה מול קופת): הדפדפן נהרג באמצע (sweep) ו-history.final_result()
+    # החזיר את הד הפעולה האחרונה — לא-ריק ובלי marker. גם זה browser_error, לא שתיקה.
+    for garbage in ("Waited for 5 seconds", "נתקעתי בבורר"):
+        r = _parse_result(garbage, commit=False)
+        assert r["success"] is False
+        assert r["failed"] == "browser_error"
+    # marker אמיתי בשורה האחרונה — הרשת לא נדרכת.
+    assert _parse_result("הכל תקין\nCARD_REQUIRED", commit=False)["failed"] == ""
+    assert _parse_result("BOOKED 42", commit=True)["failed"] == ""
+
+
 def test_failed_marker_reports_reason():
     r = _parse_result("אין שולחנות פנויים בטווח.\nFAILED:no_availability", commit=False)
     assert r["success"] is False
@@ -371,6 +391,122 @@ if __name__ == "__main__":
     import pytest
 
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+# --- הופעות: _build_concert_task (דרך _build_task) — אותם markers, מחיר במקטע ה-| ---
+
+_EJOB = {
+    "task_type": "events",
+    "url": "https://www.leaan.co.il/events/kobi-peretz/5514",
+    "artist": "קובי פרץ",
+    "venue": "היכל מנורה",
+    "party_size": 2,
+    "date": "11.08",
+    "name": "אלון",
+    "email": "a@b.com",
+    "phone": "0540000000",
+}
+
+
+def test_concert_task_keeps_contract_and_event_rules():
+    """ה-task של הופעות: markers קיימים בלבד, וכל חוקי ההופעות נוכחים — תאריך=אירוע
+    בדיד (MISSING:date+OPTIONS), קטגוריית מחיר, sold_out, ת"ז, שורת-סיום-אחת."""
+    recon = _build_task({**_EJOB, "dry_run": True})
+    commit = _build_task({**_EJOB, "dry_run": False})
+    assert _EJOB["url"] in recon and "קובי פרץ" in recon and "היכל מנורה" in recon
+    # חוזה ה-markers הקיים — לא ממציאים חדש (אין PRICE: וכדומה)
+    assert "SUMMARY_REACHED" in recon and "CARD_REQUIRED" in recon
+    assert "MISSING" in recon and "FAILED" in recon and "URL:" in recon
+    assert "BOOKED" in commit and "PRICE:" not in recon
+    # חוקי הופעות
+    assert "MISSING:date" in recon and "OPTIONS:" in recon
+    assert "MISSING:price_category" in recon
+    assert "FAILED:sold_out" in recon and "FAILED:no_event_in_city" in recon
+    # לקח ריצה חיה (ev2): תבניות "אזלו" נסתרות ב-SPA לא קובעות sold_out — רק מה שמוצג
+    assert "תבניות טקסט נסתרות" in recon and "חזותית" in recon
+    assert "MISSING:id_number" in recon and "לעולם אל תמציא" in recon
+    assert "MISSING:seats" in recon
+    assert "FAILED:login_required" in recon
+    # אין שעה מבוקשת בהופעות — השעה נגזרת מהמופע (אין ±90 דק')
+    assert "90 דקות" not in recon
+    # כלל שורת-סיום-אחת: MISSING/FAILED לבדה, בלי SUMMARY_REACHED לפניה
+    assert "בלי SUMMARY_REACHED לפניה" in recon
+    # השורה המורחבת: שעה | קטגוריה+מושבים+מחיר
+    assert 'SUMMARY_REACHED 21:00 | פרטר שורה 12 מושבים 7,8 — סה"כ 640 ש"ח' in recon
+    # לקחי הקולנוע מועתקים מילה-במילה: SVG hit-area + אימות אבטחה + מפה היררכית
+    assert "hit-area" in recon and "mousedown/mouseup/click" in recon
+    assert "אימות אבטחה" in recon
+    assert "גוש" in recon  # אולמות גדולים — בחירת גוש/מפלס לפני מפת המושבים
+    # קיר התשלום הוא הסוף הטבעי (כרטיס דיגיטלי) — כמו קולנוע
+    assert "מסך התשלום הוא מסך הסיכום" in recon and "מסך התשלום הוא מסך הסיכום" in commit
+
+
+def test_concert_task_sms_code_wall_is_missing_not_failed():
+    """קיר קוד-SMS של קופת (סבב 4) = עצירת לקוח-בלולאה: MISSING:sms_code והסשן
+    ממתין — לא FAILED:login_required, גם כשהקיר הוא חלק ממסך התחברות; קוד שנדחה →
+    MISSING:sms_code שוב, בלי לנחש."""
+    recon = _build_task({**_EJOB, "dry_run": True})
+    assert "MISSING:sms_code" in recon
+    assert "לעולם אל תמציא ואל תנחש קוד" in recon
+    flat = " ".join(recon.split())
+    assert "אל תדווח עליו FAILED:login_required" in flat
+    assert "MISSING:sms_code שוב" in recon
+    # login_required נשאר לקירות חשבון אמיתיים (בלי רכישה כאורח)
+    assert "FAILED:login_required" in recon
+
+
+def test_concert_task_optional_date_and_venue():
+    """בלי date — ה-task לא ממציא תאריך ומנחה MISSING:date על ריבוי מועדים;
+    בלי venue — אין ' ב-' ריק בכותרת המשימה."""
+    bare = _build_task({**_EJOB, "date": "", "venue": "", "dry_run": True})
+    assert "בתאריך" not in bare.split("\n")[2]  # שורת המשימה בלי זנב תאריך ריק
+    assert "לא צוין" in bare  # date_line מציין שאין תאריך מבוקש
+    assert "MISSING:date" in bare
+
+
+def test_concert_task_injects_notes_and_contact():
+    """העדפת מחיר/ישיבה ('הכי זול') מגיעה ב-notes — _notes_line הקיים, בלי מנגנון חדש."""
+    with_notes = _build_task({**_EJOB, "dry_run": True, "notes": "הכי זול"})
+    assert "הכי זול" in with_notes and "העדפות מהלקוח" in with_notes
+    bare = _build_task({**_EJOB, "dry_run": True})
+    assert "העדפות מהלקוח" not in bare
+    assert "אלון" in bare and "a@b.com" in bare
+
+
+def test_concert_resume_continues_frozen_screen():
+    """resume: intro של המשך — בלי 'התחל מהכתובת', עם ה-recap."""
+    t = _build_task({**_EJOB, "dry_run": True, "resume": {"recap": "עצרתי על בחירת קטגוריה"}})
+    assert "אל תנווט" in t and "עצרתי על בחירת קטגוריה" in t
+    assert "התחל מהכתובת" not in t and _EJOB["url"] not in t
+
+
+def test_parse_result_concert_price_lives_in_pipe_section():
+    """אפס שינוי ב-_parse_result: המחיר חי במקטע ה-| — seats מכיל קטגוריה+מחיר,
+    time נתפס, card_required נדלק מה-marker."""
+    final = 'SUMMARY_REACHED 21:00 | פרטר שורה 12 מושבים 7,8 — סה"כ 640 ש"ח CARD_REQUIRED'
+    r = _parse_result(f"נבחר מופע 11/08.\n{final}", commit=False)
+    assert r["success"] is True
+    assert r["time"] == "21:00"
+    assert r["card_required"] is True
+    seats = r["seats"]
+    assert "640" in seats and "פרטר" in seats
+    assert "CARD_REQUIRED" not in seats and "SUMMARY_REACHED" not in seats
+
+
+def test_parse_result_concert_options_with_prices():
+    """OPTIONS של קטגוריות מחיר → שתי אופציות עם המחירים כלשונן."""
+    r = _parse_result('OPTIONS: פרטר 320 ש"ח | יציע 180 ש"ח\nMISSING:price_category', commit=False)
+    assert r["missing"] == "price_category"
+    assert r["options"] == ['פרטר 320 ש"ח', 'יציע 180 ש"ח']
+
+
+def test_parse_result_concert_missing_date_with_venues():
+    """MISSING:date + OPTIONS של מועדים (כולל עיר/היכל) — הרשימה שהלקוח יקבל."""
+    r = _parse_result(
+        'OPTIONS: 11/08 היכל מנורה ת"א | 15/08 היכל הפיס חיפה\nMISSING:date', commit=False
+    )
+    assert r["missing"] == "date"
+    assert r["options"] == ['11/08 היכל מנורה ת"א', "15/08 היכל הפיס חיפה"]
 
 
 # --- _il_tz_hook: שעון ישראל לדפדפן (נצפה חי ev3: לאן הציגה 13:00 EDT למופע של 20:00 IL) ---

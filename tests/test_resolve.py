@@ -568,6 +568,16 @@ def test_phone_hint_absent_stays_none(monkeypatch):
 
 # --- קולנוע: _CINEMA_PLATFORMS + resolve_cinema_url (אותו חוזה החזרה) ---
 
+
+def _fake_search_list(cands):
+    """כמו _fake_search אבל לחוזה-הרשימה של search_cinema/search_events (בלי raw)."""
+
+    async def fake(name, extra=""):
+        return cands
+
+    return fake
+
+
 _PLANET_RE = resolve._CINEMA_PLATFORMS[0][1]
 _RAVHEN_RE = resolve._CINEMA_PLATFORMS[1][1]
 _CC_RE = resolve._CINEMA_PLATFORMS[2][1]
@@ -1371,3 +1381,164 @@ def test_resolve_internal_many_asks_client(monkeypatch):
     assert res["status"] == "many"
     assert res["via"] == "internal"
     assert len(res["candidates"]) == 2
+
+
+# --- הופעות: _EVENT_PLATFORMS + resolve_event_url (אותו חוזה החזרה) ---
+
+_LEAAN_RE = resolve._EVENT_PLATFORMS[0][1]
+_KUPAT_RE = resolve._EVENT_PLATFORMS[1][1]
+
+_LEAAN_SLUG = "%D7%A7%D7%95%D7%91%D7%99-%D7%A4%D7%A8%D7%A5/5514"  # קובי-פרץ/5514 מקודד
+
+
+def test_event_regexes_match_live_url_shapes():
+    """הצורות שאומתו חיות (15.07.26): לאן /events/<slug מקודד>/<id>, קופת /show/<slug>."""
+    m = _LEAAN_RE.search(f"https://www.leaan.co.il/events/{_LEAAN_SLUG}")
+    assert m and m.group(1) == _LEAAN_SLUG
+    # הסאב-אתר הישן של לאן — לא דף אירוע, אסור לתפוס
+    assert not _LEAAN_RE.search("https://www.leaan.co.il/eco99/he-IL/shows/12345")
+    m = _KUPAT_RE.search("https://www.kupat.co.il/show/omer-adam")
+    assert m and m.group(1) == "omer-adam"
+    m = _KUPAT_RE.search("https://kupat.co.il/show/eyalgolan?utm=x")
+    assert m and m.group(1) == "eyalgolan"
+
+
+def test_from_brave_events_canonicalizes_and_dedups():
+    """קנוניזציה ל-URL הרשמי + dedup לפי (platform, id); שני עמודי קופת לאותו אמן
+    (eyalgolan / eyalgolan-idf) = שתי רשומות מובחנות בכוונה."""
+    data = {
+        "web": {
+            "results": [
+                {
+                    "url": f"https://leaan.co.il/events/{_LEAAN_SLUG}?utm_source=brave",
+                    "title": "קובי פרץ - הופעה חיה בתל אביב | 11/08/26 היכל מנורה | כרטיסים רשמיים בלאן",
+                },
+                {  # אותו אירוע שוב — נבלע ב-dedup
+                    "url": f"https://www.leaan.co.il/events/{_LEAAN_SLUG}",
+                    "title": "קובי פרץ | כרטיסים בלאן",
+                },
+                {"url": "https://www.kupat.co.il/show/eyalgolan", "title": "אייל גולן"},
+                {
+                    "url": "https://www.kupat.co.il/show/eyalgolan-idf",
+                    "title": "אייל גולן לובש מדים",
+                },
+            ]
+        }
+    }
+    out = _from_brave(data, resolve._EVENT_PLATFORMS)
+    assert [c["url"] for c in out] == [
+        f"https://www.leaan.co.il/events/{_LEAAN_SLUG}",
+        "https://www.kupat.co.il/show/eyalgolan",
+        "https://www.kupat.co.il/show/eyalgolan-idf",
+    ]
+    assert out[0]["platform"] == "leaan" and out[1]["platform"] == "kupat"
+
+
+def test_leaan_title_suffix_keeps_date_and_venue():
+    """חותכים רק את זנב שם-האתר — התאריך וההיכל נשארים (הם רשימת הבחירה של הלקוח)."""
+    seen = set()
+    c = resolve._candidate(
+        f"https://www.leaan.co.il/events/{_LEAAN_SLUG}",
+        "קובי פרץ - הופעה חיה בתל אביב | 11/08/26 היכל מנורה | כרטיסים רשמיים בלאן",
+        seen,
+        resolve._EVENT_PLATFORMS,
+    )
+    assert c["title"] == "קובי פרץ - הופעה חיה בתל אביב | 11/08/26 היכל מנורה"
+
+
+def test_leaan_title_suffix_all_tail_variants():
+    """שלושת וריאנטי הזנב שנצפו חי: '| כרטיסים רשמיים בלאן', '| כרטיסים רשמיים | לאן',
+    '| כרטיסים בלאן' — כולם נחתכים, בלי לגעת בשאר הכותרת."""
+    for tail in (" | כרטיסים רשמיים בלאן", " | כרטיסים רשמיים | לאן", " | כרטיסים בלאן"):
+        assert (
+            resolve._LEAAN_TITLE_SUFFIX.sub("", f"קובי פרץ | 11/08/26 היכל מנורה{tail}").strip()
+            == "קובי פרץ | 11/08/26 היכל מנורה"
+        )
+
+
+def test_kupat_title_suffix():
+    seen = set()
+    c = resolve._candidate(
+        "https://www.kupat.co.il/show/omer-adam",
+        "עומר אדם הופעות 2026 - הזמנת כרטיסים ישירה להופעה של עומר אדם",
+        seen,
+        resolve._EVENT_PLATFORMS,
+    )
+    assert c["title"] == "עומר אדם הופעות 2026"
+
+
+def test_resolve_event_two_dates_same_artist_is_many(monkeypatch):
+    """שני מועדים לאותו אמן בלאן → many עם שתי כותרות מובחנות (תאריך+היכל) —
+    זה הפיצ'ר: רשימת הבחירה של הלקוח היא המועדים האמיתיים."""
+    monkeypatch.setattr(
+        resolve,
+        "search_events",
+        _fake_search_list(
+            [
+                {
+                    "title": "קובי פרץ - הופעה חיה בתל אביב | 11/08/26 היכל מנורה",
+                    "url": "https://www.leaan.co.il/events/a/1",
+                    "platform": "leaan",
+                },
+                {
+                    "title": "קובי פרץ - הופעה חיה בחיפה | 15/08/26 היכל הפיס",
+                    "url": "https://www.leaan.co.il/events/b/2",
+                    "platform": "leaan",
+                },
+            ]
+        ),
+    )
+    res = asyncio.run(resolve.resolve_event_url("קובי פרץ"))
+    assert res["status"] == "many"
+    titles = [c["title"] for c in res["candidates"]]
+    assert len(titles) == 2 and titles[0] != titles[1]
+    assert "היכל מנורה" in titles[0] and "היכל הפיס" in titles[1]
+
+
+def test_resolve_event_leaan_primary_kupat_fallback(monkeypatch):
+    """match חזק בלאן וגם בקופת → one על לאן (ראשית) עם fallback מקופת."""
+    monkeypatch.setattr(
+        resolve,
+        "search_events",
+        _fake_search_list(
+            [
+                {
+                    "title": "עומר אדם - הופעה חיה | 20/09/26 פארק הירקון",
+                    "url": "https://www.leaan.co.il/events/omer/9",
+                    "platform": "leaan",
+                },
+                {
+                    "title": "עומר אדם הופעות 2026",
+                    "url": "https://www.kupat.co.il/show/omer-adam",
+                    "platform": "kupat",
+                },
+            ]
+        ),
+    )
+    res = asyncio.run(resolve.resolve_event_url("עומר אדם"))
+    assert res["status"] == "one"
+    assert res["url"] == "https://www.leaan.co.il/events/omer/9" and res["platform"] == "leaan"
+    assert res["fallback"] == {"url": "https://www.kupat.co.il/show/omer-adam", "platform": "kupat"}
+
+
+def test_resolve_event_none_has_no_restaurant_fallbacks(monkeypatch):
+    """אפס מועמדים → none נקי: בלי phone_hint ובלי משיכת אתר-עצמי (מסעדות בלבד)."""
+    monkeypatch.setattr(resolve, "search_events", _fake_search_list([]))
+    res = asyncio.run(resolve.resolve_event_url("להקה לא קיימת"))
+    assert res["status"] == "none"
+    assert "phone_hint" not in res
+
+
+def test_search_events_venue_enters_query(monkeypatch):
+    """venue מחדד את השאילתה לאמן רב-ערים; בלי venue — בלי רווח כפול."""
+    queries = []
+
+    async def fake_raw(q):
+        queries.append(q)
+        return []
+
+    monkeypatch.setattr(resolve, "_brave_raw", fake_raw)
+    asyncio.run(resolve.search_events("אייל גולן", "היכל מנורה"))
+    asyncio.run(resolve.search_events("אייל גולן"))
+    assert queries[0] == "אייל גולן היכל מנורה כרטיסים הופעה"
+    assert queries[1] == "אייל גולן כרטיסים הופעה"
