@@ -39,6 +39,7 @@ from app.llm.intent import (
     character_leaks,
     gender_line,
 )
+from app.llm.recommend import REC_TIMEOUT_S, recommend_movies, recommend_places
 from app.whatsapp.client import send_list, send_text, send_typing
 
 # ponytail: המנגנון הוא חוזה API, לא התנהגות — רק כאן מותר להיות ספציפי-מכני.
@@ -61,7 +62,7 @@ _EXTRACT = (
     "· צימוד מוחלט בין דיבור למעשה: אמרת ללקוח שאתה על זה או שתעדכן אותו ⇔ סימנת "
     "דגל באותו JSON. בלי דגל — אין הבטחה ואין 'שנייה', יש שאלה; וגם עם דגל הביצוע "
     "לוקח כמה דקות — תדבר בהתאם.\n"
-    "· task_type: 'restaurant', 'cinema', 'other' או 'unsure'. סווג לפי ההקשר של "
+    "· task_type: 'restaurant', 'cinema', 'recommend', 'other' או 'unsure'. סווג לפי ההקשר של "
     "הבקשה, לא לפי היכרות עם השם: סרט/קולנוע/כרטיסים/הקרנה → cinema; "
     "שולחן/מסעדה/אוכל/סועדים/אנשים בשעה מסוימת → restaurant. שם שנשמע ככותר של "
     "יצירה בלי אף סימן מסעדה ('תזמין לי את האודיסאה בכפר סבא') — חשד לסרט. "
@@ -78,6 +79,13 @@ _EXTRACT = (
     "לבד הוא מותג טלקום, לא רשת — בלי 'סינמה' אל תמפה); לא נקב → השמט את השדה, "
     "רשת היא לא ניחוש שלך. "
     "chain הוא לא city — 'רב חן גבעתיים' זה chain=rav-hen וגם city=גבעתיים.\n"
+    "· בקשת המלצה ('תמליץ לי', 'איפה שווה לאכול', 'מה שווה לראות עכשיו') → "
+    "task_type='recommend'. ready=true מפעיל בדיקת דירוגים אמיתית; התנאי: ברור מה "
+    "מחפשים ואיפה. השדות — ב-recommend בלבד — באנגלית (הבדיקה עובדת רק באנגלית): "
+    "category ('restaurant'/'bar'/'cafe'/'movie'...), city = האזור או השכונה "
+    "('Ramat Hahayal, Tel Aviv'; לסרט לא חובה), notes = אילוצים ('kosher', 'romantic'). "
+    "מקום בלי אזור → ready=false ושאלה קצרה איפה. הבדיקה לוקחת רגע — reply קצר שאתה "
+    "בודק, בלי להמליץ בעצמך ובלי להבטיח כמה מהר.\n"
     "· notes: העדפות ביצוע שהלקוח נתן (אזור ישיבה, אירוע, בקשה מיוחדת) — טקסט קצר, "
     "כולל הסיבה אם נתן אחת ('בחוץ — מעשנים', לא רק 'בחוץ'; הסיבה משנה את הבחירה בטופס); "
     "מגיע למי שמבצע. השלמה של שדה שביקשת (שם משפחה) הולכת לשדה עצמו, לא לכאן.\n"
@@ -99,8 +107,12 @@ _SCHEMA = {
         "reply": {"type": "string"},
         "ready": {"type": "boolean"},
         "confirm": {"type": "boolean"},
-        "task_type": {"type": "string", "enum": ["restaurant", "cinema", "other", "unsure"]},
+        "task_type": {
+            "type": "string",
+            "enum": ["restaurant", "cinema", "recommend", "other", "unsure"],
+        },
         "restaurant": {"type": "string"},
+        "category": {"type": "string"},
         "movie": {"type": "string"},
         "chain": {"type": "string", "enum": list(_CINEMA_CHAINS)},
         "city": {"type": "string"},
@@ -161,6 +173,10 @@ _preresolve: dict = {}
 # עצירת MISSING עם אופציות ששלחנו: phone -> {"fields","field","options"}. תשובה
 # שתואמת אופציה אחת-לאחת נורית דטרמיניסטית (בלי לסמוך על ה-extract — המלצת התחקיר).
 _await_answer: dict = {}
+# ההמלצות האחרונות שנשלחו: phone -> [שמות]. בזיכרון הזרימה בלבד — לא ל-DB ולא
+# ל-_flow (תנאי Google: לא שומרים נתוני מקומות; מותר place_id בלבד, ואין בו צורך).
+# משמש את _recs_note כדי ש"תסגור את הראשון" יתורגם לשם המדויק בלי המצאות.
+_recs: dict = {}
 
 # פער שאחריו פותחים "דף חדש": שיחה טרייה במקום לגרור את ההיסטוריה הישנה.
 SESSION_GAP_S = 3 * 60 * 60  # ~3 שעות
@@ -444,6 +460,13 @@ RESUME_ACK_MSGS = (
     "קיבלתי — ממשיך בדיוק מאיפה שעצרתי 🦾",
     "על זה — ממשיך מאותה נקודה 🤝",
     "מעולה, לוקח את זה מהמקום שעצרנו 🎯",
+)
+
+# כשל בבדיקת המלצות — כנות בלי להמציא שמות. עוגן _vary: "?" (הצעת המשך).
+REC_FAILED_MSGS = (
+    "לא הצלחתי לבדוק את זה עכשיו 🫠 ננסה שוב עוד כמה דקות? או שתזרוק שם ואני סוגר",
+    "הבדיקה נתקעה לי ואני לא זורק שמות מהראש — מנסים שוב עוד מעט?",
+    "לא הסתדר לי לבדוק כרגע 😮‍💨 עוד ניסיון בעוד כמה דקות? ואם יש לך שם בראש אני סוגר",
 )
 
 # אונבורדינג מרוכז (בקשת אלון #6): ההודעה הראשונה אי-פעם — גבר מציג את עצמו קצר
@@ -779,6 +802,37 @@ INTENTS: dict[str, dict] = {
         "fallback": None,
         "site": "run_booking (status=many, inline ×3: רשימה/יחיד/סניף-עיר)",
         "test": "tests/test_resolve.py, tests/test_realbooking.py",
+    },
+    # ── המלצות ──
+    "recommend_results": {
+        "goal": (
+            "בדקת באמת מה שווה (דירוגי Google Maps) ואלו התוצאות — הצג אותן בקול "
+            "שלך: כל שורת-מקום מההקשר חייבת להופיע בדיוק כמו שכתוב, ומותר לך "
+            "מילה משלך סביבה; אסור להמציא מקומות, דירוגים או חוויות ('אכלתי שם') "
+            "שלא בהקשר. חובה גם שורת המקור (attribution) והלינק (link) כלשונם, "
+            "וסיים בהצעה לסגור אחת מהן"
+        ),
+        "ctx": ("place1", "place2", "place3", "attribution", "link", "category"),
+        "forbid": _NOT_DONE + (r"(?<!לא )הזמנתי",),
+        "must": (r"סגור|סוגר", r"\?"),
+        "must_ctx": ("place1", "place2", "place3", "attribution", "link"),
+        "max_chars": 600,
+        "fallback": None,
+        "site": "run_recommend (inline)",
+        "test": "tests/test_recommend.py",
+    },
+    "recommend_failed": {
+        "goal": (
+            "ניסית לבדוק המלצות והבדיקה לא הסתדרה — כנות קצרה בלי להמציא שמות, "
+            "דירוגים או סיבה: לא הצלחת לבדוק עכשיו, והצע לנסות שוב עוד כמה דקות "
+            "או שהלקוח יזרוק שם משלו ואתה סוגר"
+        ),
+        "ctx": ("category",),
+        "forbid": _NOT_DONE + _NO_REASON,
+        "must": (r"\?",),
+        "fallback": REC_FAILED_MSGS,
+        "site": "run_recommend (כשל/timeout) → REC_FAILED_MSGS",
+        "test": "tests/test_recommend.py",
     },
     # ── באמצע הריצה ──
     "retry_other_path": {
@@ -1530,6 +1584,7 @@ async def _chat_for(phone: str) -> tuple:
 
     if fresh:
         turns: list = []
+        _recs.pop(phone, None)  # דף חדש — המלצות ישנות כבר לא "הרגע"
     else:
         turns = _turns.get(phone)
         if turns is None:  # זיכרון-בתהליך ריק (restart/worker חדש) — שחזור מ-Supabase
@@ -1543,7 +1598,9 @@ async def _chat_for(phone: str) -> tuple:
         config=types.GenerateContentConfig(
             # ה-truth_note חי ב-system (לא כ-prefix להודעת המשתמש) — משתמש שמחקה את
             # הפורמט "[אמת-למערכת...]" נשאר בתוך תור user רגיל ולא מזייף אמת-מערכת.
-            system_instruction=_seed_from(profile, bookings) + _truth_note(phone),
+            system_instruction=_seed_from(profile, bookings)
+            + _truth_note(phone)
+            + _recs_note(phone),
             temperature=0.7,
             response_mime_type="application/json",
             response_schema=_SCHEMA,
@@ -1642,6 +1699,21 @@ def _truth_note(phone: str) -> str:
     return ""
 
 
+def _recs_note(phone: str) -> str:
+    """אמת-קרקע להמלצות שנשלחו הרגע: "תסגור את הראשון" חייב להיתרגם לשם המדויק
+    מהרשימה — לא לניחוש. מוזרק ל-system לצד _truth_note; ריק כשאין המלצות חיות."""
+    names = _recs.get(phone)
+    if not names:
+        return ""
+    return (
+        "[אמת-למערכת בלבד: ההמלצות שנתת ללקוח הרגע (נבדקו באמת): "
+        + " / ".join(names)
+        + ". אלו האפשרויות היחידות — אל תמליץ על מקומות אחרים מהראש. הלקוח בוחר אחת "
+        "('הראשון' / בשמה) ורוצה לסגור → זו בקשת הזמנה רגילה עם restaurant (או movie אם "
+        "זה סרט) = השם המדויק מהרשימה, והמשך לאסוף תאריך/שעה/כמות כרגיל.]\n\n"
+    )
+
+
 async def converse(phone: str, text: str) -> dict:
     """תור שיחה אחד. הקריאה ל-Gemini חוסמת — מריצים ב-thread כדי לא לחסום.
     שומר את התור (טקסט המשתמש + ה-reply בדמות, בלי ה-truth_note) ל-_turns ול-Supabase,
@@ -1672,6 +1744,64 @@ def _il_phone(p: str) -> str:
     """מספר וואטסאפ (972XXXXXXXXX) → פורמט ישראלי מקומי (0XXXXXXXXX) שהטופס מצפה לו."""
     p = (p or "").lstrip("+")
     return "0" + p[3:] if p.startswith("972") else p
+
+
+async def run_recommend(phone: str, fields: dict) -> None:
+    """רץ ברקע על task_type='recommend': בדיקת דירוגים אמיתית (Maps/Search
+    grounding) → 2-3 המלצות בקול חופשי עם עוגני-אמת מילה-במילה + חובת attribution
+    (תנאי השימוש של Google). כשל/timeout → כנות, בלי להמציא המלצות. השמות נשמרים
+    ב-_recs (זיכרון בלבד) כדי ש"תסגור את הראשון" יזרום להזמנה רגילה."""
+    category = (fields.get("category") or "").strip()
+    area = (fields.get("city") or "").strip()
+    constraints = (fields.get("notes") or "").strip()
+    movies = "movie" in category.lower() or "סרט" in category
+    t0 = time.monotonic()
+    try:
+        items = await asyncio.wait_for(
+            recommend_movies(constraints)
+            if movies
+            else recommend_places(category, area, constraints),
+            timeout=REC_TIMEOUT_S,
+        )
+    except Exception:
+        log.exception("recommend failed for %s", phone)
+        items = []
+    log.info("run_recommend: %s -> %d items in %.1fs", phone, len(items), time.monotonic() - t0)
+    if not items:
+        await _send_and_record(phone, await _say("recommend_failed", {"category": category}))
+        return
+    items = items[:3]
+    lines = []
+    for p in items:
+        if p.get("rating") is not None:
+            lines.append(f"{p['name']} — {p['rating']} ({p['reviews']:,} ביקורות)")
+        else:
+            line = p["name"]
+            if p.get("blurb"):
+                line += f" — {p['blurb']}"
+            lines.append(line)
+    link = next((p["uri"] for p in items if p.get("uri")), "")
+    attribution = "מקור: Google Maps" if not movies else "מקור: Google"
+    _recs[phone] = [p["name"] for p in items]
+    # link כמפתח must_ctx נפרד (לא בתוך attribution) — עוגן חד-שורתי שהמודל מסוגל
+    # לשחזר מילה-במילה (אומת חי: עוגן רב-שורתי נפסל תמיד ונפל למאגר).
+    ctx = {"category": category, "attribution": attribution, "link": link}
+    for i, line in enumerate(lines, 1):
+        ctx[f"place{i}"] = line
+    block = "\n".join(f"{i}. {line}" for i, line in enumerate(lines, 1))
+    tail = f"{attribution}" + (f"\n{link}" if link else "")
+    await _send_and_record(
+        phone,
+        await _say(
+            "recommend_results",
+            ctx,
+            fallback=(
+                f"בדקתי מה רץ טוב באמת — אלו המובילות:\n{block}\n{tail}\nלסגור לך אחת מהן?",
+                f"הנה מה שעולה הכי חזק:\n{block}\n{tail}\nסוגר לך אחת?",
+                f"עברתי על הדירוגים — אלו השוות:\n{block}\n{tail}\nרוצה שאסגור באחת מהן?",
+            ),
+        ),
+    )
 
 
 async def run_booking(phone: str, fields: dict) -> None:
@@ -2903,6 +3033,11 @@ async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = 
         _booking[phone] = {"state": "working", "info": ""}
         _spawn(run_commit(phone))  # 'מאשר' על הזמנה ממתינה → סגירה אמיתית
     elif result.get("ready"):
+        if (result.get("task_type") or "") == "recommend":
+            # המלצות: בדיקה אמיתית ברקע — בלי resolve/booking, בלי לגעת ב-gate של
+            # הזמנה ממתינה (בקשת המלצה לא נוטשת סגירה פתוחה) ובלי דרישת שם/מייל.
+            _spawn(run_recommend(phone, result))
+            return
         stale = _pending_commit.pop(phone, None)  # התחלת/שינוי הזמנה — נוטשים gate ישן
         if stale and stale.get("session_id"):
             # ה-gate הישן החזיק סשן חי על מסך סיכום — משחררים, לא מדליפים דקות דפדפן
