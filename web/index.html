@@ -5,18 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>גבר. צריך משהו? גבר עושה.</title>
 <meta name="description" content="גבר סוגר לך שולחן במסעדה מתוך וואטסאפ: משפט אחד ממך, והוא מוצא מקום, ממלא את הפרטים ומאשר על שמך. בלי אפליקציות ובלי טפסים. עכשיו בבטא סגורה.">
-<meta property="og:title" content="גבר. צריך משהו? גבר עושה.">
+<meta property="og:title" content="גבר — צריך משהו? גבר עושה.">
 <meta property="og:description" content="משפט אחד בוואטסאפ — וגבר סוגר לך שולחן במסעדה. בלי אפליקציות, בלי טפסים. עכשיו בבטא סגורה.">
 <meta property="og:url" content="https://alonb-ai.github.io/gever/">
 <meta property="og:site_name" content="גבר">
 <meta property="og:locale" content="he_IL">
 <meta property="og:type" content="website">
-<meta name="twitter:card" content="summary">
-<!-- WHATSAPP_NUMBER — placeholder עד C1 (מספר וואטסאפ אמיתי). בדף יש 4 קישורי wa.me: ניווט, hero, CTA סופי, פוטר.
-     החלפה של כולם בפקודה אחת: sed -i '' 's/WHATSAPP_NUMBER/9725XXXXXXXX/g' web/index.html -->
+<meta property="og:image" content="https://alonb-ai.github.io/gever/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<!-- 15556718899 — מספר טסט, יוחלף במספר הקבוע (roadmap C1). בדף יש 4 קישורי wa.me: ניווט, hero, CTA סופי, פוטר.
+     החלפה של כולם בפקודה אחת: sed -i '' 's/15556718899/9725XXXXXXXX/g' web/index.html -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Alef:wght@400;700&family=Frank+Ruhl+Libre:wght@700;900&family=IBM+Plex+Sans+Hebrew:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Alef:wght@700&family=IBM+Plex+Sans+Hebrew:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
@@ -28,6 +30,9 @@ body{background:#16140f;-webkit-font-smoothing:antialiased;text-rendering:optimi
 details summary{list-style:none;outline:none}
 details summary::-webkit-details-marker{display:none}
 a{text-decoration:none;color:inherit}
+section[id]{scroll-margin-top:110px}
+.fq::before{content:'+'}
+details[open] .fq::before{content:'−'}
 .skip{position:absolute;inset-inline-start:-9999px;top:0;background:#F3ECDD;color:#16140f;padding:10px 16px;z-index:100;border-radius:0 0 10px 0}
 .skip:focus{inset-inline-start:0}
 :focus-visible{outline:3px solid #54c9c9;outline-offset:2px;border-radius:6px}
@@ -37,8 +42,10 @@ a{text-decoration:none;color:inherit}
   .r-3{grid-template-columns:1fr!important}
   .r-vs{grid-template-columns:1fr!important}
   .r-price{grid-template-columns:minmax(0,360px)!important}
+  .cta-br{display:none}
 }
 @media(max-width:760px){.lnk{display:none!important}}
+@media(max-width:480px){.rotor-row{flex-direction:column!important;align-items:flex-start!important;gap:8px!important}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important}}
 </style>
 </head>
@@ -56,7 +63,7 @@ a{text-decoration:none;color:inherit}
           <a class="lnk" href="#how" style="color:#c4bcad">איך זה עובד</a>
           <a class="lnk" href="#actions" style="color:#c4bcad">מה גבר עושה</a>
           <a class="lnk" href="#faq" style="color:#c4bcad">שאלות</a>
-          <a href="https://wa.me/WHATSAPP_NUMBER?text=היי%20גבר%2C%20בוא%20ננסה" target="_blank" rel="noopener" style="background:var(--accent,#FF6B35);color:#16140f;font-weight:600;padding:11px 20px;border-radius:12px;white-space:nowrap">דבר עם גבר</a>
+          <a href="https://wa.me/15556718899?text=היי%20גבר%2C%20בוא%20ננסה" target="_blank" rel="noopener" style="background:var(--accent,#FF6B35);color:#16140f;font-weight:600;padding:11px 20px;border-radius:12px;white-space:nowrap">דבר עם גבר</a>
         </nav>
       </div>
     </div>
@@ -70,13 +77,13 @@ a{text-decoration:none;color:inherit}
         <h1 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(50px,7vw,92px);line-height:.98;letter-spacing:-.01em">צריך שולחן?<br><span style="color:var(--accent,#FF6B35)">גבר סוגר</span></h1>
         <p style="font-size:clamp(18px,2vw,21px);line-height:1.62;color:#c4bcad;max-width:486px;margin:26px 0 0">שולחן במסעדה בלי טלפונים, בלי אפליקציות ובלי טפסים. אתה זורק לגבר משפט אחד בוואטסאפ — והוא מוצא, ממלא ומאשר לך על שמך.</p>
 
-        <div style="display:flex;align-items:center;gap:14px;margin:30px 0;padding:16px 20px;background:#211e17;border-radius:16px">
+        <div class="rotor-row" style="display:flex;align-items:center;gap:14px;margin:30px 0;padding:16px 20px;background:#211e17;border-radius:16px">
           <span style="font-weight:600;font-size:14px;color:#8c8475;white-space:nowrap;flex:none">למשל, תזרוק לגבר</span>
           <span id="rotor" style="font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:clamp(18px,2.4vw,25px);color:var(--accent,#FF6B35);line-height:1.1;display:inline-block">שולחן ל-6 על הים בשישי</span>
         </div>
 
         <div style="display:flex;flex-wrap:wrap;gap:13px;align-items:center">
-          <a href="https://wa.me/WHATSAPP_NUMBER?text=היי%20גבר%2C%20בוא%20ננסה" target="_blank" rel="noopener" style="background:var(--accent,#FF6B35);color:#16140f;font-weight:600;font-size:17px;padding:16px 30px;border-radius:14px;box-shadow:0 12px 28px rgba(255,107,53,.26)">דבר עם גבר בוואטסאפ</a>
+          <a href="https://wa.me/15556718899?text=היי%20גבר%2C%20בוא%20ננסה" target="_blank" rel="noopener" style="background:var(--accent,#FF6B35);color:#16140f;font-weight:600;font-size:17px;padding:16px 30px;border-radius:14px;box-shadow:0 12px 28px rgba(255,107,53,.26)">דבר עם גבר בוואטסאפ</a>
           <a href="#how" style="display:inline-flex;align-items:center;gap:9px;background:#211e17;color:#F3ECDD;font-weight:600;font-size:17px;padding:15px 26px;border-radius:14px">רגע, איך זה עובד?</a>
         </div>
         <p style="font-size:13.5px;color:#8c8475;margin-top:18px">הבטא חינם — בלי כרטיס אשראי ובלי התחייבות</p>
@@ -224,23 +231,23 @@ a{text-decoration:none;color:inherit}
       <div style="font-weight:600;font-size:13px;letter-spacing:.04em;color:#54c9c9;margin-bottom:16px">שאלות</div>
       <h2 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(32px,4.6vw,54px);line-height:1.04;letter-spacing:-.01em">מה שכולם שואלים את גבר</h2>
     </div>
-    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">זה בוט או בן אדם?<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">גבר הוא עוזר AI. כותבים איתו בעברית רגילה — בלי תפריטים ובלי "הקש 1" — והוא נכנס לאתר ועושה את העבודה בעצמו. הוא לא מתחזה לבן אדם. הוא פשוט סוגר.</p></details>
-    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">אתם נוגעים בכרטיס האשראי שלי?<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">לא. כשמסעדה מבקשת כרטיס להבטחת הזמנה, גבר עוצר ומעביר אליך את ההשלמה — אתה מזין את הפרטים בעצמך. גבר לא רואה ולא שומר פרטי אשראי.</p></details>
-    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">ומה אם גבר טועה?<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">לפני כל סגירה מחייבת גבר מוודא איתך. ואם בכל זאת יצאה טעות — כותבים לו והוא מסדר, לא נשארת עם זה לבד. בזמן הבטא גם הצוות עוקב מקרוב על כל הזמנה.</p></details>
-    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">כמה זמן זה לוקח?<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">בדרך כלל כמה דקות מההודעה ועד האישור. ואם השעה שרצית תפוסה, גבר לא מרים ידיים — הוא חוזר אליך עם חלופות שפנויות באמת.</p></details>
-    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">כמה זה עולה?<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">בבטא — כלום. גבר עוד לומד, אז הכול חינם ובלי כרטיס אשראי. כשיגיע תמחור, מי שהיה בבטא ישמע ראשון.</p></details>
-    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">ורק מסעדות?<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">כרגע כן — גבר עושה דבר אחד ועושה אותו עד הסוף. כרטיסים, ביטוחים ותורים בדרך, וחברי הבטא ינסו אותם ראשונים.</p></details>
-    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">איך נכנסים לבטא?<span style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif">+</span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">שולחים לגבר הודעה בוואטסאפ מאחד הכפתורים בדף. הבטא נפתחת בקבוצות קטנות, ומי שכתב — ראשון בתור.</p></details>
+    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">זה בוט או בן אדם?<span class="fq" style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif" aria-hidden="true"></span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">גבר הוא עוזר AI. כותבים איתו בעברית רגילה — בלי תפריטים ובלי "הקש 1" — והוא נכנס לאתר ועושה את העבודה בעצמו. הוא לא מתחזה לבן אדם. הוא פשוט סוגר.</p></details>
+    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">אתם נוגעים בכרטיס האשראי שלי?<span class="fq" style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif" aria-hidden="true"></span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">לא. כשמסעדה מבקשת כרטיס להבטחת הזמנה, גבר עוצר ומעביר אליך את ההשלמה — אתה מזין את הפרטים בעצמך. גבר לא רואה ולא שומר פרטי אשראי.</p></details>
+    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">ומה אם גבר טועה?<span class="fq" style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif" aria-hidden="true"></span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">לפני כל סגירה מחייבת גבר מוודא איתך. ואם בכל זאת יצאה טעות — כותבים לו והוא מסדר, לא נשארת עם זה לבד. בזמן הבטא גם הצוות עוקב מקרוב על כל הזמנה.</p></details>
+    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">כמה זמן זה לוקח?<span class="fq" style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif" aria-hidden="true"></span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">בדרך כלל כמה דקות מההודעה ועד האישור. ואם השעה שרצית תפוסה, גבר לא מרים ידיים — הוא חוזר אליך עם חלופות שפנויות באמת.</p></details>
+    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">כמה זה עולה?<span class="fq" style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif" aria-hidden="true"></span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">בבטא — כלום. גבר עוד לומד, אז הכול חינם ובלי כרטיס אשראי. כשיגיע תמחור, מי שהיה בבטא ישמע ראשון.</p></details>
+    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">ורק מסעדות?<span class="fq" style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif" aria-hidden="true"></span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">כרגע כן — גבר עושה דבר אחד ועושה אותו עד הסוף. כרטיסים, ביטוחים ותורים בדרך, וחברי הבטא ינסו אותם ראשונים.</p></details>
+    <details style="background:#211e17;border-radius:16px;margin-bottom:12px"><summary style="cursor:pointer;padding:20px 24px;font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:20px;display:flex;justify-content:space-between;gap:16px;align-items:center">איך נכנסים לבטא?<span class="fq" style="color:var(--accent,#FF6B35);font-size:24px;font-weight:400;font-family:'IBM Plex Sans Hebrew',sans-serif" aria-hidden="true"></span></summary><p style="font-size:16.5px;color:#c4bcad;line-height:1.6;padding:0 24px 22px">שולחים לגבר הודעה בוואטסאפ מאחד הכפתורים בדף. הבטא נפתחת בקבוצות קטנות, ומי שכתב — ראשון בתור.</p></details>
   </section>
 
   <!-- FINAL CTA -->
   <section id="cta" style="max-width:1160px;margin:0 auto;padding:0 26px 80px">
     <div style="background:var(--accent,#FF6B35);color:#16140f;border-radius:32px;padding:84px 40px;text-align:center;box-shadow:0 28px 60px rgba(255,107,53,.28)">
       <div style="font-family:var(--display,'Alef',sans-serif);font-weight:700;font-size:clamp(18px,2.2vw,26px);margin-bottom:14px;opacity:.72">גברי איתך</div>
-      <h2 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(36px,5.2vw,64px);line-height:1.02;letter-spacing:-.01em;margin-bottom:18px">יש מסעדה שאתה דוחה כבר שבוע?<br>תזרוק אותה על גבר</h2>
+      <h2 style="font-family:var(--display,'Alef',sans-serif);font-weight:900;font-size:clamp(36px,5.2vw,64px);line-height:1.02;letter-spacing:-.01em;margin-bottom:18px">יש מסעדה שאתה דוחה כבר שבוע?<br class="cta-br"> תזרוק אותה על גבר</h2>
       <p style="font-size:20px;line-height:1.6;max-width:560px;margin:0 auto 34px;color:#4a2a18">הבטא סגורה ונפתחת בקבוצות קטנות. מי שכותב עכשיו — נכנס ראשון, וכל זה חינם.</p>
       <div style="display:flex;flex-wrap:wrap;gap:13px;justify-content:center">
-        <a href="https://wa.me/WHATSAPP_NUMBER?text=היי%20גבר%2C%20בוא%20ננסה" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:9px;background:#fff;color:#16140f;font-weight:600;font-size:18px;padding:16px 30px;border-radius:14px"><svg width="20" height="20" viewBox="0 0 24 24" fill="#25D366" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.8 4.9-1.3A10 10 0 1 0 12 2Zm5.8 14.3c-.2.7-1.4 1.3-2 1.4-.5.1-1.2.1-1.9-.1-.4-.1-1-.3-1.8-.6-3-1.3-5-4.4-5.1-4.6-.2-.2-1.3-1.7-1.3-3.2 0-1.5.8-2.3 1.1-2.6.3-.3.6-.4.8-.4h.6c.2 0 .5 0 .7.5l.9 2.1c.1.2.1.4 0 .6l-.4.6-.4.4c-.1.1-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.4 2.4 1.5.3.1.5.1.6-.1l.8-1c.2-.2.4-.2.6-.1l2 1c.3.1.4.2.5.3.1.2.1.6-.1 1.3Z"/></svg>דבר עם גבר בוואטסאפ</a>
+        <a href="https://wa.me/15556718899?text=היי%20גבר%2C%20בוא%20ננסה" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:9px;background:#fff;color:#16140f;font-weight:600;font-size:18px;padding:16px 30px;border-radius:14px"><svg width="20" height="20" viewBox="0 0 24 24" fill="#25D366" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.8 4.9-1.3A10 10 0 1 0 12 2Zm5.8 14.3c-.2.7-1.4 1.3-2 1.4-.5.1-1.2.1-1.9-.1-.4-.1-1-.3-1.8-.6-3-1.3-5-4.4-5.1-4.6-.2-.2-1.3-1.7-1.3-3.2 0-1.5.8-2.3 1.1-2.6.3-.3.6-.4.8-.4h.6c.2 0 .5 0 .7.5l.9 2.1c.1.2.1.4 0 .6l-.4.6-.4.4c-.1.1-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.4 2.4 1.5.3.1.5.1.6-.1l.8-1c.2-.2.4-.2.6-.1l2 1c.3.1.4.2.5.3.1.2.1.6-.1 1.3Z"/></svg>דבר עם גבר בוואטסאפ</a>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:20px;justify-content:center;margin-top:24px">
         <span style="display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:#5a3320"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5a3320" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>כל סגירה מחייבת — רק באישור שלך</span>
@@ -258,7 +265,7 @@ a{text-decoration:none;color:inherit}
         <p style="font-size:15px;margin-top:8px;max-width:320px;line-height:1.5;color:#9c9485">אתה כותב, גבר עושה. גברי איתך.</p>
       </div>
       <nav style="display:flex;gap:24px;flex-wrap:wrap;font-weight:500;font-size:15px;color:#9c9485" aria-label="ניווט פוטר">
-        <a href="#how">איך זה עובד</a><a href="#actions">מה גבר עושה</a><a href="#faq">שאלות</a><a href="https://wa.me/WHATSAPP_NUMBER?text=היי%20גבר" target="_blank" rel="noopener">וואטסאפ</a>
+        <a href="#how">איך זה עובד</a><a href="#actions">מה גבר עושה</a><a href="#faq">שאלות</a><a href="https://wa.me/15556718899?text=היי%20גבר" target="_blank" rel="noopener">וואטסאפ</a>
       </nav>
     </div>
     <div style="border-top:1px solid rgba(243,236,221,.12);margin-top:26px;padding-top:18px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;font-size:13px;color:#7a7367">
