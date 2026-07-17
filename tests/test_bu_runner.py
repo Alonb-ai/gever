@@ -60,6 +60,16 @@ def test_build_task_forbids_search_engines_and_fails_fast_on_server_error():
     assert "FAILED:broken_page מיד" in task
 
 
+def test_restaurant_task_click_sequence_rule_in_both_variants():
+    """ממצא בטא #4 (אונטופו של גאיג'ין, 2 ריצות): שעה/תאריך נראו זמינים אך הלחיצות
+    לא הובילו למעבר דף — הנחיית רצף-העכבר (אלמנט לחיץ ולא עטיפה, mousedown/mouseup/
+    click, אזור אחר) חלה גם על שני נוסחי המסעדות (חוק-שעה רגיל וגמיש)."""
+    for extra in ({}, {"time_flex": True}):
+        task = _build_task({**_JOB, "dry_run": True, **extra})
+        assert "mousedown/mouseup/click" in task
+        assert "האלמנט הלחיץ" in task and "עטיפה" in task and "אזור אחר" in task
+
+
 def test_markers_only_from_last_line_case_sensitive():
     # R1: פרוזת כישלון באנגלית עם 'booked' באותיות קטנות — לא הזמנה.
     r = _parse_result("The restaurant is fully booked for tonight", commit=True)
