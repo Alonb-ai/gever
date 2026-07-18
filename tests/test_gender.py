@@ -100,6 +100,27 @@ def test_gender_line_female_is_rich():
     assert "לא ידוע" in gender_line(None)  # בלי מידע — ניטרלי, לא מטים
 
 
+def test_gender_line_female_keeps_first_person_masculine():
+    """ממצא חי 18.7: מול לקוחה גבר דיבר על *עצמו* בנקבה ('ואני בודקת לך שוב',
+    'ואני סוגרת'). השורה הנשית חייבת לנעול: ההטיה הנשית היא כלפיה בלבד,
+    גוף ראשון תמיד זכר."""
+    line = gender_line("female")
+    assert "אני בודק" in line
+    assert "אני סוגר" in line
+    assert "'בודקת'" in line  # הדוגמה השלילית המפורשת
+
+
+def test_extract_gender_only_from_self_language():
+    """ממצא חי 18.7: משתמש שכתב 'אני מחפש... לצאת לדייט' נשמר gender=female —
+    המודל הסיק מתוכן הבקשה (דייט). ההנחיה נועלת: מין רק מלשון גוף ראשון,
+    לעולם לא מהתוכן, וספק = לא שולחים."""
+    assert "'אני מחפש' = זכר" in pipeline._EXTRACT
+    assert "'אני מחפשת' = נקבה" in pipeline._EXTRACT
+    assert "לעולם לא תוכן הבקשה" in pipeline._EXTRACT
+    assert "דייט" in pipeline._EXTRACT
+    assert "אל תשלח את השדה" in pipeline._EXTRACT
+
+
 def test_gender_line_male_rotates_wide_repertoire():
     """בקשת אלון 17.7 ('לא רואה מספיק אלוף, דוד, חיים שלי — בעיקר אחי'): הפנייה
     הגברית נושאת רפרטואר רחב + הוראת רוטציה מפורשת, לא רק 'אחי'."""
