@@ -205,6 +205,7 @@ def test_partial_answers_update_remaining_without_firing(monkeypatch):
     """ענה רק על חלק → remaining מתעדכן (ה-truth_note הבא יבקש רק את החסר), לא יורים."""
     _reset()
     conv, sent, booked = _wire(monkeypatch)
+    pipeline._last_seen["p1"] = 10**12  # לא מגע ראשון — האונבורדינג לא חלק מהטסט
     pipeline._booking["p1"] = {
         "state": "missing",
         "info": "x",
@@ -230,6 +231,7 @@ def test_full_answers_fire_run_booking_with_form_answers(monkeypatch):
     """כל המפתחות נענו (גם על פני שני תורים) → ירי דטרמיניסטי עם form_answers."""
     _reset()
     conv, sent, booked = _wire(monkeypatch)
+    pipeline._last_seen["p1"] = 10**12  # לא מגע ראשון — האונבורדינג לא חלק מהטסט
     pend = _pend()
     pend["answered"] = {"id_number": "123456782"}  # התור הקודם כבר ענה על אחד
     pipeline._booking["p1"] = {

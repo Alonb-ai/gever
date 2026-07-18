@@ -253,6 +253,7 @@ def _route(monkeypatch, *, dry_run, result, pending=False):
     monkeypatch.setattr(pipeline, "send_typing", fake_send_typing)
     monkeypatch.setattr(pipeline, "_spawn", fake_spawn)
     monkeypatch.setattr(pipeline.settings, "dry_run", dry_run)
+    pipeline._last_seen["pX"] = 10**12  # לא מגע ראשון — הודעת האונבורדינג לא חלק מהטסט
     if pending:
         pipeline._pending_commit["pX"] = {
             "restaurant": "הדסון",
@@ -882,6 +883,7 @@ def test_every_vary_variant_carries_its_anchors(monkeypatch):
 
     _reset()
     captured.clear()
+    pipeline._last_seen["vH"] = 10**12  # לא מגע ראשון — הודעת האונבורדינג לא חלק מהטסט
     monkeypatch.setattr(pipeline, "converse", empty_converse)
     asyncio.run(pipeline.handle_inbound("vH", "הי"))
     check("רגע")
@@ -891,6 +893,7 @@ def test_every_vary_variant_carries_its_anchors(monkeypatch):
 
     _reset()
     captured.clear()
+    pipeline._last_seen["vH"] = 10**12  # לא מגע ראשון — הודעת האונבורדינג לא חלק מהטסט
     monkeypatch.setattr(pipeline, "converse", leaking_converse)
     asyncio.run(pipeline.handle_inbound("vH", "הי"))
     check("רגע")
@@ -1029,6 +1032,7 @@ def test_handle_inbound_suppresses_character_leak(monkeypatch):
     monkeypatch.setattr(pipeline, "converse", fake_converse)
     monkeypatch.setattr(pipeline, "send_text", fake_send_text)
     monkeypatch.setattr(pipeline, "send_typing", fake_send_typing)
+    pipeline._last_seen["pL"] = 10**12  # לא מגע ראשון — הודעת האונבורדינג לא חלק מהטסט
     asyncio.run(pipeline.handle_inbound("pL", "תזמין לי שולחן"))
 
     assert sent and "כמודל" not in sent[-1]  # הדליפה לא הגיעה ללקוח
@@ -1224,6 +1228,7 @@ def test_route_double_fire_guard_blocks_second_booking(monkeypatch):
     monkeypatch.setattr(pipeline, "_spawn", fake_spawn)
     monkeypatch.setattr(pipeline.settings, "dry_run", False)
 
+    pipeline._last_seen["pY"] = 10**12  # לא מגע ראשון — הודעת האונבורדינג לא חלק מהטסט
     pipeline._booking["pY"] = {"state": "working", "info": ""}
     asyncio.run(pipeline.handle_inbound("pY", "?"))
     assert spawned == []  # הזמנה כבר בתהליך — לא יורים שנייה
