@@ -247,9 +247,12 @@ _preresolve: dict = {}
 # עצירת MISSING עם אופציות ששלחנו: phone -> {"fields","field","options"}. תשובה
 # שתואמת אופציה אחת-לאחת נורית דטרמיניסטית (בלי לסמוך על ה-extract — המלצת התחקיר).
 _await_answer: dict = {}
-# ההמלצות האחרונות שנשלחו: phone -> [שמות]. בזיכרון הזרימה בלבד — לא ל-DB ולא
-# ל-_flow (תנאי Google: לא שומרים נתוני מקומות; מותר place_id בלבד, ואין בו צורך).
-# משמש את _recs_note כדי ש"תסגור את הראשון" יתורגם לשם המדויק בלי המצאות.
+# ההמלצות של הסשן: phone -> {"items": כל המדורגים מה-grounding, "shown": כמה
+# כבר הוצגו, "key": (category, area, notes) לזיהוי "עוד מאותה בקשה"}. בזיכרון
+# הזרימה בלבד — לא ל-DB ולא ל-_flow (תנאי Google: לא שומרים נתוני מקומות; מותר
+# place_id בלבד, ואין בו צורך). משמש את _recs_note כדי ש"תסגור את הראשון" יתורגם
+# לשם המדויק בלי המצאות, ואת run_recommend כדי ש"מה עוד יש?" יגיש את הבאות בתור
+# במקום "אין לי עוד" (נצפה חי — רק 3 נשמרו והשאר נזרקו).
 _recs: dict = {}
 # טיוטת חבילת הביטוח שנצברת על פני תורות: phone -> {"fields", "ts"}. נצפה חי
 # (סבב 4): ה-extract הפיל בתור ה-ready שדות שנמסרו תור קודם (travelers/return_date)
@@ -909,9 +912,21 @@ INTENTS: dict[str, dict] = {
             "הם רקע פנימי בלבד: מותר תחושה חופשית ('מדורג חזק', 'כולם מדברים "
             "עליו'), אסור מספרים או ציונים, ואסור להזכיר גוגל, מפות, לינקים או "
             "מאיפה המידע. אם יש בהקשר avoid — זה מקום שהלקוח הרגע ניסה ולא "
-            "הסתדר: אסור להציע או להזכיר אותו. סיים בהצעה לסגור אחת מהן"
+            "הסתדר: אסור להציע או להזכיר אותו. אם יש בהקשר more — הלקוח ביקש "
+            "עוד ואלו הבאות בתור: הגש כהמשך טבעי בלי לחזור על הקודמות. "
+            "אל תטען שאלו האפשרויות האחרונות או שאין עוד. סיים בהצעה לסגור אחת מהן"
         ),
-        "ctx": ("place1", "place2", "place3", "info1", "info2", "info3", "category", "avoid"),
+        "ctx": (
+            "place1",
+            "place2",
+            "place3",
+            "info1",
+            "info2",
+            "info3",
+            "category",
+            "avoid",
+            "more",
+        ),
         "forbid": _NOT_DONE
         + (
             r"(?<!לא )הזמנתי",
@@ -926,7 +941,7 @@ INTENTS: dict[str, dict] = {
         "must_ctx": ("place1", "place2", "place3"),
         "max_chars": 600,
         "fallback": None,
-        "site": "run_recommend (inline)",
+        "site": "run_recommend → _send_rec_batch",
         "test": "tests/test_recommend.py",
     },
     "recommend_failed": {
@@ -2037,18 +2052,26 @@ def _truth_note(phone: str) -> str:
     return ""
 
 
+def _recs_shown(phone: str) -> list[str]:
+    """שמות כל ההמלצות שכבר הוצגו ללקוח בסשן (כל הסבבים) — כולם ניתנים לבחירה."""
+    r = _recs.get(phone)
+    return [p["name"] for p in r["items"][: r["shown"]]] if r else []
+
+
 def _recs_note(phone: str) -> str:
     """אמת-קרקע להמלצות שנשלחו הרגע: "תסגור את הראשון" חייב להיתרגם לשם המדויק
     מהרשימה — לא לניחוש. מוזרק ל-system לצד _truth_note; ריק כשאין המלצות חיות."""
-    names = _recs.get(phone)
+    names = _recs_shown(phone)
     if not names:
         return ""
     return (
-        "[אמת-למערכת בלבד: ההמלצות שנתת ללקוח הרגע (נבדקו באמת): "
+        "[אמת-למערכת בלבד: ההמלצות שנתת ללקוח עד עכשיו (נבדקו באמת): "
         + " / ".join(names)
-        + ". אלו האפשרויות היחידות — אל תמליץ על מקומות אחרים מהראש. הלקוח בוחר אחת "
-        "('הראשון' / בשמה) ורוצה לסגור → זו בקשת הזמנה רגילה עם restaurant (או movie אם "
-        "זה סרט) = השם המדויק מהרשימה, והמשך לאסוף תאריך/שעה/כמות כרגיל.]\n\n"
+        + ". אל תמליץ על מקומות אחרים מהראש. הלקוח בוחר אחת ('הראשון' / בשמה) ורוצה "
+        "לסגור → זו בקשת הזמנה רגילה עם restaurant (או movie אם זה סרט) = השם המדויק "
+        "מהרשימה, והמשך לאסוף תאריך/שעה/כמות כרגיל. מבקש עוד המלצות → אל תגיד שאין "
+        "עוד: זו שוב בקשת recommend (ready=true, אותם category/city/notes) — הבדיקה "
+        "תביא את הבאות בתור.]\n\n"
     )
 
 
@@ -2103,44 +2126,18 @@ def _il_phone(p: str) -> str:
     return "0" + p[3:] if p.startswith("972") else p
 
 
-async def run_recommend(phone: str, fields: dict) -> None:
-    """רץ ברקע על task_type='recommend': בדיקת דירוגים אמיתית (Maps/Search
-    grounding) → 2-3 המלצות בקול חופשי: שמות המקומות עוגני-אמת מילה-במילה,
-    והדירוגים רקע פנימי לניסוח בלבד — בלי מספרים, בלי מקור ובלי לינק בהודעה
-    (פידבק אלון, החלטת בעלים מודעת). כשל/timeout → כנות, בלי להמציא המלצות.
-    השמות נשמרים ב-_recs (זיכרון בלבד) כדי ש"תסגור את הראשון" יזרום להזמנה רגילה."""
-    category = (fields.get("category") or "").strip()
-    area = (fields.get("city") or "").strip()
-    constraints = (fields.get("notes") or "").strip()
-    movies = "movie" in category.lower() or "סרט" in category
-    t0 = time.monotonic()
-    try:
-        items = await asyncio.wait_for(
-            recommend_movies(constraints)
-            if movies
-            else recommend_places(category, area, constraints),
-            timeout=REC_TIMEOUT_S,
-        )
-    except Exception:
-        log.exception("recommend failed for %s", phone)
-        items = []
-    log.info("run_recommend: %s -> %d items in %.1fs", phone, len(items), time.monotonic() - t0)
-    # נצפה חי (גרקו הרצליה): ההזמנה נכשלה, גבר הציע חלופות — ואחת מהן הייתה גרקו
-    # עצמו. מקום שהרגע לא הסתדר לא חוזר כהמלצה; רשימה שהתרוקנה → הכנות הקיימת.
-    avoid = _failed_place(phone)
-    if avoid:
-        items = [p for p in items if not _rec_excluded(p["name"], avoid)]
-    if not items:
-        await _send_and_record(phone, await _say("recommend_failed", {"category": category}))
-        return
-    items = items[:3]
-    _recs[phone] = [p["name"] for p in items]
-    # עוגני must_ctx = שמות בלבד — "תסגור את הראשון" זורם להזמנה על השם המדויק.
-    # הדירוגים/ביקורות נכנסים כ-info רקע לניסוח (המודל מתרגם לתחושה, לא למספר).
+async def _send_rec_batch(
+    phone: str, category: str, batch: list[dict], avoid: str, more: bool
+) -> None:
+    """הגשת סבב המלצות אחד ללקוח בקול חופשי: עוגני must_ctx = שמות בלבד —
+    "תסגור את הראשון" זורם להזמנה על השם המדויק. הדירוגים/ביקורות נכנסים כ-info
+    רקע לניסוח (המודל מתרגם לתחושה, לא למספר)."""
     ctx = {"category": category}
     if avoid:
         ctx["avoid"] = avoid
-    for i, p in enumerate(items, 1):
+    if more:
+        ctx["more"] = "כן — הלקוח ביקש עוד, אלו הבאות בתור אחרי סבב קודם"
+    for i, p in enumerate(batch, 1):
         ctx[f"place{i}"] = p["name"]
         facts = []
         if p.get("blurb"):
@@ -2151,19 +2148,84 @@ async def run_recommend(phone: str, fields: dict) -> None:
             facts.append("פתוח עכשיו")
         if facts:
             ctx[f"info{i}"] = "; ".join(facts)
-    block = "\n".join(p["name"] for p in items)
+    block = "\n".join(p["name"] for p in batch)
     await _send_and_record(
         phone,
         await _say(
             "recommend_results",
             ctx,
             fallback=(
-                f"בדקתי מה באמת שווה עכשיו — אלו האופציות:\n{block}\nלסגור לך אחת מהן?",
-                f"עשיתי סיבוב ואלו החזקות כרגע:\n{block}\nסוגר לך אחת?",
-                f"אם כבר יוצאים אז לאחת מאלו:\n{block}\nרוצה שאסגור?",
+                (
+                    f"יש עוד — אלו הבאות בתור:\n{block}\nלסגור לך אחת מהן?",
+                    f"בדקתי עוד ואלו שוות גם:\n{block}\nסוגר לך אחת?",
+                )
+                if more
+                else (
+                    f"בדקתי מה באמת שווה עכשיו — אלו האופציות:\n{block}\nלסגור לך אחת מהן?",
+                    f"עשיתי סיבוב ואלו החזקות כרגע:\n{block}\nסוגר לך אחת?",
+                    f"אם כבר יוצאים אז לאחת מאלו:\n{block}\nרוצה שאסגור?",
+                )
             ),
         ),
     )
+
+
+async def run_recommend(phone: str, fields: dict) -> None:
+    """רץ ברקע על task_type='recommend': בדיקת דירוגים אמיתית (Maps/Search
+    grounding) → 2-3 המלצות בקול חופשי: שמות המקומות עוגני-אמת מילה-במילה,
+    והדירוגים רקע פנימי לניסוח בלבד — בלי מספרים, בלי מקור ובלי לינק בהודעה
+    (פידבק אלון, החלטת בעלים מודעת). כשל/timeout → כנות, בלי להמציא המלצות.
+    כל המדורגים נשמרים ב-_recs (זיכרון בלבד): "תסגור את הראשון" זורם להזמנה
+    רגילה, ו"מה עוד יש?" (אותה בקשה בסשן חי) מגיש את הבאות בתור בלי קריאה
+    חדשה; נגמר הבאפר → קריאה אחת עם exclude של מה שכבר הוצג."""
+    category = (fields.get("category") or "").strip()
+    area = (fields.get("city") or "").strip()
+    constraints = (fields.get("notes") or "").strip()
+    movies = "movie" in category.lower() or "סרט" in category
+    # נצפה חי (גרקו הרצליה): ההזמנה נכשלה, גבר הציע חלופות — ואחת מהן הייתה גרקו
+    # עצמו. מקום שהרגע לא הסתדר לא חוזר כהמלצה; רשימה שהתרוקנה → הכנות הקיימת.
+    avoid = _failed_place(phone)
+    key = (category.casefold(), area.casefold(), constraints.casefold())
+    rec = _recs.get(phone)
+    cont = bool(rec) and rec["key"] == key  # אותה בקשה שוב = "מה עוד יש?"
+    if cont:
+        pool = rec["items"][rec["shown"] :]
+        if avoid:
+            pool = [p for p in pool if not _rec_excluded(p["name"], avoid)]
+            rec["items"] = rec["items"][: rec["shown"]] + pool
+        if pool:  # יש עוד בבאפר — מגישים את הבאות בתור, בלי קריאת grounding
+            batch = pool[:3]
+            rec["shown"] += len(batch)
+            await _send_rec_batch(phone, category, batch, avoid, more=True)
+            return
+    shown = _recs_shown(phone) if cont else []
+    t0 = time.monotonic()
+    try:
+        items = await asyncio.wait_for(
+            recommend_movies(constraints, exclude=shown or None)
+            if movies
+            else recommend_places(category, area, constraints, exclude=shown or None),
+            timeout=REC_TIMEOUT_S,
+        )
+    except Exception:
+        log.exception("recommend failed for %s", phone)
+        items = []
+    log.info("run_recommend: %s -> %d items in %.1fs", phone, len(items), time.monotonic() - t0)
+    if avoid:
+        items = [p for p in items if not _rec_excluded(p["name"], avoid)]
+    if shown:  # ה-exclude בפרומפט הוא בקשה — הסינון כאן דטרמיניסטי
+        seen = {n.casefold() for n in shown}
+        items = [p for p in items if p["name"].casefold() not in seen]
+    if not items:
+        await _send_and_record(phone, await _say("recommend_failed", {"category": category}))
+        return
+    batch = items[:3]
+    if cont:  # סבב המשך: הישנות נשארות בבאפר — כולן עדיין ניתנות לבחירה
+        rec["items"] = rec["items"][: rec["shown"]] + items
+        rec["shown"] += len(batch)
+    else:
+        _recs[phone] = {"items": items, "shown": len(batch), "key": key}
+    await _send_rec_batch(phone, category, batch, avoid, more=cont)
 
 
 async def run_booking(phone: str, fields: dict) -> None:

@@ -92,14 +92,19 @@ def rank(places: list[dict], limit: int = 3) -> list[dict]:
     return (rated + unrated)[:limit]
 
 
-async def recommend_places(category: str, area: str = "", constraints: str = "") -> list[dict]:
-    """עד 3 מקומות אמיתיים מ-Maps grounding. הקלטים כבר באנגלית (מה-extract)."""
+async def recommend_places(
+    category: str, area: str = "", constraints: str = "", exclude: list[str] | None = None
+) -> list[dict]:
+    """מקומות אמיתיים מ-Maps grounding, ממוינים — הרשימה המלאה (המציג קוצץ ל-3
+    ושומר את השאר ל"עוד"). הקלטים כבר באנגלית (מה-extract). exclude — שמות שכבר
+    הוצגו ללקוח, לא לחזור עליהם."""
     what = category or "restaurant"
     if constraints:
         what += f", {constraints}"
     where = f" in {area}, Israel" if area else " in Israel"
+    skip = f"Do not include: {', '.join(exclude)}. " if exclude else ""
     prompt = (
-        f"Recommend up to 5 highly-rated {what} options{where}. "
+        f"Recommend up to 5 highly-rated {what} options{where}. {skip}"
         "For each place give its name, star rating, and number of reviews. Be concise."
     )
     config = types.GenerateContentConfig(
@@ -110,15 +115,19 @@ async def recommend_places(category: str, area: str = "", constraints: str = "")
     resp = await _generate(prompt, config)
     cand = resp.candidates[0] if resp.candidates else None
     gm = getattr(cand, "grounding_metadata", None) if cand else None
-    return rank(parse_maps_chunks(getattr(gm, "grounding_chunks", None)))
+    # limit=10 ולא 3: העודף נשמר אצל המציג כבאפר ל"מה עוד יש?" (נצפה חי —
+    # ה-grounding מחזיר 5+ והקיצוץ כאן זרק אותם).
+    return rank(parse_maps_chunks(getattr(gm, "grounding_chunks", None)), limit=10)
 
 
-async def recommend_movies(constraints: str = "") -> list[dict]:
+async def recommend_movies(constraints: str = "", exclude: list[str] | None = None) -> list[dict]:
     """עד 3 סרטים שרצים עכשיו — search grounding (אין דירוגי Maps לסרטים);
-    השם והשורה מגיעים מהפלט הכפוי-פורמט, לא מהמצאה של מודל השיחה."""
+    השם והשורה מגיעים מהפלט הכפוי-פורמט, לא מהמצאה של מודל השיחה.
+    exclude — סרטים שכבר הומלצו, לא לחזור עליהם."""
     extra = f" ({constraints})" if constraints else ""
+    skip = f" חוץ מ-{', '.join(exclude)} שכבר הומלצו." if exclude else ""
     prompt = (
-        f"אילו 3 סרטים שמוקרנים עכשיו בבתי הקולנוע בישראל הכי שווים{extra}? "
+        f"אילו 3 סרטים שמוקרנים עכשיו בבתי הקולנוע בישראל הכי שווים{extra}?{skip} "
         "ענה בדיוק שורה אחת לכל סרט בפורמט: שם הסרט | סיבה קצרה אחת לפי הביקורות. "
         "בלי שום טקסט אחר."
     )
