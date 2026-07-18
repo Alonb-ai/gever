@@ -145,6 +145,7 @@ def test_ready_releases_stale_commit_session(monkeypatch):
     _wire_inbound(monkeypatch, {"reply": "סוגר", "ready": True, "restaurant": "רוסטיקו"})
     monkeypatch.setattr(pipeline, "release_session", fake_release)
     monkeypatch.setattr(pipeline, "run_booking", fake_run_booking)
+    pipeline._last_seen["p1"] = 10**12  # לא מגע ראשון — האונבורדינג לא חלק מהטסט
     pipeline._pending_commit["p1"] = {"restaurant": "הדסון", "session_id": "s-old", "name": "א"}
     asyncio.run(_inbound_and_drain("p1", "תזמין רוסטיקו מחר ב-20:00 לשניים"))
     assert released == ["s-old"]
@@ -163,6 +164,7 @@ def test_preresolve_fires_on_partial_and_run_booking_consumes(monkeypatch):
 
     _wire_inbound(monkeypatch, {"reply": "לאיזו שעה?", "ready": False, "restaurant": "הדסון"})
     monkeypatch.setattr(pipeline, "resolve_reservation_url", fake_resolve)
+    pipeline._last_seen["p1"] = 10**12  # לא מגע ראשון — האונבורדינג לא חלק מהטסט
     asyncio.run(_inbound_and_drain("p1", "תסגור לי שולחן בהדסון"))
     assert resolve_calls == ["הדסון"]  # נורה כבר מהשיחה
     assert pipeline._preresolve["p1"]["name"] == "הדסון"

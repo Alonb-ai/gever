@@ -104,6 +104,7 @@ def test_unsure_ready_from_converse_gated(monkeypatch, _patch_io):
 
     monkeypatch.setattr(pipeline, "converse", fake_converse)
     monkeypatch.setattr(pipeline, "send_typing", fake_typing)
+    pipeline._last_seen["u3"] = 10**12  # לא מגע ראשון — האונבורדינג לא חלק מהטסט
 
     async def go():
         await pipeline.handle_inbound("u3", "תזמין לי את האודיסאה בכפר סבא")

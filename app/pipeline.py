@@ -3529,13 +3529,18 @@ async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = 
             ][-CHAT_TURNS:]
             await _send_and_record(phone, await _say("intake_ack"))
             return
-    # אונבורדינג (בקשת אלון #6): מגע ראשון אי-פעם — גבר מציג את עצמו קצר ומבקש
-    # פעם אחת שם ומייל, לפני שהשיחה הרגילה עונה. נרשם ל-_turns לפני converse —
-    # המודל רואה שההיכרות כבר קרתה ולא שואל שוב.
-    introduced = False
+    # אונבורדינג (בקשת אלון #6 + פידבק חי 18.7): מגע ראשון אי-פעם — קודם שלום
+    # והיכרות, והיא התשובה היחידה בתור הזה: בלי converse שעונה "אהלן, מה סוגרים
+    # היום?" גנרי מעליה (ברכה כפולה = חתימת בוט). ההודעה הראשונה כן נרשמת
+    # להיסטוריה — ה-converse של התור הבא רואה מה ביקשו, כך שבקשת הזמנה מיידית
+    # לא אובדת: ההיכרות כבר ביקשה שם+מייל, והתשובה עליהם תמשיך את הבקשה.
     if await _is_first_contact(phone):
+        _turns[phone] = [
+            *(_turns.get(phone) or []),
+            {"role": "user", "text": text, "ts": time.time()},
+        ][-CHAT_TURNS:]
         await _send_and_record(phone, await _say("onboarding_intro"))
-        introduced = True
+        return
     result = await converse(phone, text)
     # ביטוח: צבירת חבילת-המראש על פני תורות — ready שנורה בלי שדה שנמסר קודם
     # (ה-extract שכח) יוצא בכל זאת עם החבילה המלאה מהטיוטה.
@@ -3645,19 +3650,18 @@ async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = 
                     fields["email"] = known_email
                 _await_answer[phone] = {"fields": fields, "field": field, "options": []}
                 _booking[phone] = {"state": "missing", "info": field}
-                if not introduced:  # הודעת הפתיחה הרגע ביקשה בדיוק את זה — לא שואלים פעמיים
-                    await _send_and_record(
-                        phone,
-                        await _say(
-                            "ask_missing",
-                            {"field": label},
-                            fallback=(
-                                f"לפני שאני יוצא לדרך צריך פעם אחת {label} להזמנה — מה נרשום?",
-                                f"רק דבר אחד לפני שאני רץ: {label} להזמנה 🤙",
-                                f"צריך {label} פעם אחת בשביל ההזמנות ואני יוצא לדרך — מה נרשום?",
-                            ),
+                await _send_and_record(
+                    phone,
+                    await _say(
+                        "ask_missing",
+                        {"field": label},
+                        fallback=(
+                            f"לפני שאני יוצא לדרך צריך פעם אחת {label} להזמנה — מה נרשום?",
+                            f"רק דבר אחד לפני שאני רץ: {label} להזמנה 🤙",
+                            f"צריך {label} פעם אחת בשביל ההזמנות ואני יוצא לדרך — מה נרשום?",
                         ),
-                    )
+                    ),
+                )
                 _arm_nudge(phone, "question", ctx={"field": label})
                 return
         # info = שם המסעדה/הסרט/המופע בתהליך — ה-truth_note ינקוב בו אם תגיע בקשה אחרת בזמן ריצה.

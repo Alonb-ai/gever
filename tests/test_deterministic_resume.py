@@ -235,6 +235,7 @@ def test_missing_name_question_falls_to_converse(monkeypatch):
     monkeypatch.setattr(pipeline, "converse", fake_converse)
     monkeypatch.setattr(pipeline, "send_text", fake_send_text)
     monkeypatch.setattr(pipeline, "send_typing", fake_typing)
+    pipeline._last_seen["p1"] = 10**12  # לא מגע ראשון — האונבורדינג לא חלק מהטסט
     pipeline._booking["p1"] = {"state": "missing", "info": "name"}
     pipeline._await_answer["p1"] = {
         "fields": {"restaurant": "גאיג'ין", "time": "20:00"},
@@ -265,6 +266,7 @@ def test_free_text_answer_falls_through_to_converse(monkeypatch):
     monkeypatch.setattr(pipeline, "converse", fake_converse)
     monkeypatch.setattr(pipeline, "send_text", fake_send_text)
     monkeypatch.setattr(pipeline, "send_typing", fake_typing)
+    pipeline._last_seen["p1"] = 10**12  # לא מגע ראשון — האונבורדינג לא חלק מהטסט
     pipeline._booking["p1"] = {"state": "missing", "info": "שעה"}
     pipeline._await_answer["p1"] = {
         "fields": {"restaurant": "הדסון", "time": "20:00"},
