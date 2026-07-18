@@ -14,6 +14,7 @@ import re
 import time
 from collections.abc import Sequence
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
@@ -46,7 +47,13 @@ from app.llm.intent import (
 )
 from app.llm.recommend import REC_TIMEOUT_S, recommend_movies, recommend_places
 from app.llm.transcribe import MAX_VOICE_BYTES, transcribe_voice
-from app.whatsapp.client import download_media, send_list, send_text, send_typing
+from app.whatsapp.client import (
+    download_media,
+    send_list,
+    send_sticker_file,
+    send_text,
+    send_typing,
+)
 
 # ponytail: המנגנון הוא חוזה API, לא התנהגות — רק כאן מותר להיות ספציפי-מכני.
 # ההתנהגות עצמה חיה בפרסונה כעקרונות. כל שינוי כאן: לשמור על ההפרדה הזאת.
@@ -3108,6 +3115,26 @@ async def run_booking(phone: str, fields: dict) -> None:
         log.info("run_booking done: %s -> state=%s", phone, _booking.get(phone, {}).get("state"))
 
 
+# סטיקר חגיגה אחרי סגירה אמיתית — מתג קוד דטרמיניסטי, לא בחירת מודל: נורה רק
+# מ-run_commit על הצלחה, ולכל היותר אחד ללקוח ביום (הדמות לא ליצן; סטיקר בכל
+# סגירה הופך לג'ינגל). best-effort: כשל שליחה לא נוגע בזרימת האישור.
+STICKER_GAP_S = 24 * 60 * 60
+STICKER_DIR = Path(__file__).resolve().parent.parent / "assets" / "stickers"
+CELEBRATION_STICKERS = ("sagur.webp", "yesh.webp", "alia.webp")
+_last_sticker: dict = {}  # phone -> ts; בזיכרון בלבד (restart = לכל היותר סטיקר עודף אחד)
+
+
+async def _maybe_celebrate(phone: str) -> None:
+    """סטיקר חגיגה אחרי booked_confirmed — פעם ביום לכל היותר, בלי לגעת בזרימה."""
+    if time.time() - _last_sticker.get(phone, 0) < STICKER_GAP_S:
+        return
+    _last_sticker[phone] = time.time()
+    try:
+        await send_sticker_file(phone, str(STICKER_DIR / random.choice(CELEBRATION_STICKERS)))
+    except Exception:  # noqa: BLE001 — סטיקר הוא קישוט; כשל מתועד ולא שובר כלום
+        log.warning("celebration sticker failed for %s", phone, exc_info=True)
+
+
 async def run_commit(phone: str) -> None:
     """הסגירה האמיתית אחרי 'מאשר': מריץ מחדש את ה-playbook עם dry_run=False, סוגר,
     רושם, ושולח 'סגור ✅' ללקוח. אם המקום דורש כרטיס אשראי — לא נסגר (PCI), מודיעים בכנות.
@@ -3216,6 +3243,7 @@ async def run_commit(phone: str) -> None:
                 if conf:
                     msg += "\n" + _vary(f"מספר אישור: {conf}", f"מספר האישור שלך: {conf}")
                 await _send_and_record(phone, msg)
+                await _maybe_celebrate(phone)
                 return
             if (job.get("task_type") or "restaurant") == "cinema":
                 # קולנוע: restaurant = שם הסרט — "שולחן/סועדים/מהמסעדה" היו שקר בדמות.
@@ -3231,6 +3259,7 @@ async def run_commit(phone: str) -> None:
                 if conf:
                     msg += "\n" + _vary(f"מספר אישור: {conf}", f"מספר האישור שלך: {conf}")
                 await _send_and_record(phone, msg)
+                await _maybe_celebrate(phone)
                 return
             msg = _vary(
                 f"סגור ✅ {job['restaurant']} {when}בשעה {at_time} "
@@ -3244,6 +3273,7 @@ async def run_commit(phone: str) -> None:
                 msg += "\n" + _vary(f"מספר אישור: {conf}", f"מספר האישור שלך: {conf}")
             msg += _agreed_line(d)
             await _send_and_record(phone, msg)
+            await _maybe_celebrate(phone)
         elif (res.details or {}).get("card_required"):
             # זרוע C — קיר כרטיס: המקום דורש תשלום מראש, לא סוגרים אוטומטית (PCI).
             # Live View של הסשן החי קודם (ממשיך מאותו מסך); אין → לינק דף רגיל.
