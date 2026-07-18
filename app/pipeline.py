@@ -3295,6 +3295,46 @@ async def run_commit(phone: str) -> None:
         await _save_flow(phone)  # אחרי ניקוי ה-gate — ה-_flow המותמד משקף את הסיום
 
 
+# ─── שער הגישה (ACCESS_GATE) — הכנה למספר האמיתי ───
+# גבר עונה רק למאושרים (prefs.approved). זר מקבל תשובת-שער סטטית אחת ואז שתיקה;
+# קוד הזמנה תקף (INVITE_CODES) מאשר אותו ומזרים לאונבורדינג הרגיל. חריג מכוון
+# ומתועד מהקול החופשי: ההודעות כאן מ-_vary בלבד, בלי _say — אפס קריאות Gemini
+# למי שלא בפנים (הגנת עלות). הודעות זרים לא נוגעות ב-_turns/פרופיל — שום זכר.
+
+GATE_REPLY_GAP_S = 6 * 60 * 60  # תשובת-שער אחת לכל היותר כל ~6 שעות לאותו זר
+_gate_last_reply: dict = {}  # phone -> ts התשובה; בזיכרון בלבד (restart = תשובה נוספת, זניח)
+
+# עוגן _vary: "קוד" (מה מבקשים). סטטי בכוונה — אין כאן מודל.
+GATE_MSGS = (
+    "אהלן, אני גבר 🤙 כרגע אני עובד עם קבוצה סגורה — יש לך קוד הזמנה? שלח אותו ונצא לדרך",
+    "היי, כאן גבר — בינתיים אני סוגר דברים רק לקבוצה סגורה\nיש לך קוד הזמנה? זרוק לי אותו ומשם הכל עליי 🦾",
+    "אהלן 🤝 גבר פה, אני עובד כרגע עם קבוצה סגורה בלבד — אם יש לך קוד הזמנה שלח אותו ונצא לדרך",
+)
+
+# עוגן _vary: "קוד" (אישור שהתקבל). קצר — האונבורדינג המלא מגיע מיד אחריו.
+GATE_WELCOME_MSGS = (
+    "הקוד עובד — ברוך הבא 🤝",
+    "קוד תקין, מעכשיו אני זמין לך 🤙",
+    "יפה, הקוד נכון — אתה בפנים 🔥",
+)
+
+
+async def _gate(phone: str, text: str) -> bool:
+    """True = ההודעה נחסמה (נענתה פעם אחת או הושתקה); False = עוברים לזרימה הרגילה.
+    קוד תקף: approve + ברוך-הבא *לא מוקלט* (send_text ולא _send_and_record — כדי
+    ש-_is_first_contact יישאר אמת והאונבורדינג יידלק על אותה הודעה) → ממשיכים."""
+    if not settings.access_gate or await memory.is_approved(phone):
+        return False
+    if text.strip() in settings.invite_code_list:
+        await memory.approve(phone)
+        await send_text(phone, _vary(*GATE_WELCOME_MSGS))
+        return False
+    if time.time() - _gate_last_reply.get(phone, 0) > GATE_REPLY_GAP_S:
+        _gate_last_reply[phone] = time.time()
+        await send_text(phone, _vary(*GATE_MSGS))
+    return True
+
+
 async def _is_first_contact(phone: str) -> bool:
     """שיחה ראשונה אי-פעם: אין תורות בזיכרון-בתהליך, אין פרופיל מזהה (שם/מייל)
     ואין היסטוריית שיחה מותמדת. הבדיקות הזולות (בתהליך) קודם — קריאת DB רק
@@ -3309,6 +3349,9 @@ async def _is_first_contact(phone: str) -> bool:
 
 async def handle_inbound(phone: str, text: str, message_id: str | None = None) -> None:
     """נקודת הכניסה מה-webhook: שיחה, תשובה, וכשמוכן — הזמנה/סגירה ברקע."""
+    # שער הגישה — לפני הכל: זר לא מקבל typing, לא מודל ולא זיכרון (הגנת עלות)
+    if await _gate(phone, text):
+        return
     _cancel_nudge(phone)  # הלקוח ענה — תזכורת ממתינה כבר מיותרת
     await send_typing(message_id)  # 'מקליד…' בזמן שגבר חושב; התשובה תנקה אותו
     # resume דטרמיניסטי (המלצת התחקיר): עומדת שאלת MISSING עם אופציות ששלחנו,

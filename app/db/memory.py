@@ -8,6 +8,7 @@
 """
 
 import logging
+import time
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
@@ -151,6 +152,34 @@ async def upsert_profile(
         params={"on_conflict": "phone"},
         json=payload,
     )
+
+
+# ─── שער הגישה (ACCESS_GATE): דגל approved ב-prefs — בלי טבלה ובלי מיגרציה ───
+# cache קצר בזיכרון: לא מכים DB על כל הודעה נכנסת. TTL קצר מספיק שאישור ידני
+# ישירות ב-DB ייתפס תוך דקות; approve() מעדכן את ה-cache מיד (אישור חדש נתפס).
+_APPROVED_TTL_S = 5 * 60
+_approved_cache: dict[str, tuple[bool, float]] = {}
+
+
+async def is_approved(phone: str) -> bool:
+    """האם המשתמש מאושר לשירות (prefs.approved). False כשהזיכרון כבוי/כשל —
+    עם ACCESS_GATE דלוק בלי Supabase איש לא עובר (fail-closed בכוונה)."""
+    hit = _approved_cache.get(phone)
+    if hit and time.time() - hit[1] < _APPROVED_TTL_S:
+        return hit[0]
+    prof = await get_profile(phone)
+    ok = bool((((prof or {}).get("prefs")) or {}).get("approved"))
+    _approved_cache[phone] = (ok, time.time())
+    return ok
+
+
+async def approve(phone: str) -> None:
+    """מסמן משתמש כמאושר (prefs.approved=true, read-merge) ומעדכן cache מיד."""
+    prof = await get_profile(phone)
+    prefs = (prof or {}).get("prefs") or {}
+    prefs["approved"] = True
+    await upsert_profile(phone, prefs=prefs)
+    _approved_cache[phone] = (True, time.time())
 
 
 async def set_inflight(phone: str, restaurant: str) -> None:

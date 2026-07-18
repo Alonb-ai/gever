@@ -57,6 +57,18 @@ class Settings(BaseSettings):
     supabase_service_key: str = ""
     encryption_key: str = ""  # Fernet — הצפנת name/email at-rest
 
+    # שער גישה (המעבר למספר האמיתי): גבר עונה רק למשתמשים מאושרים (prefs.approved
+    # ב-DB). False (ברירת מחדל) = התנהגות היום בדיוק — הבטא על מספר הטסט עם
+    # ה-allow-list של Meta לא צריכה אותו. מדליקים ב-Coolify אחרי scripts/approve_all.py.
+    # שים לב: דלוק בלי Supabase = איש לא עובר (fail-closed) חוץ מקודי הזמנה בזיכרון.
+    access_gate: bool = False
+    # קודי הזמנה לצירוף עצמי, מופרדים בפסיקים ("GEVER1,GEVER2"). ריק = אין צירוף עצמי.
+    invite_codes: str = ""
+
+    @property
+    def invite_code_list(self) -> tuple[str, ...]:
+        return tuple(c.strip() for c in self.invite_codes.split(",") if c.strip())
+
     # שגיאות: True (dev/MVP) → הודעת כשל ב-WhatsApp כוללת פירוט השגיאה + session.
     # False (פרודקשן) → הודעה בדמות בלבד, בלי לדלוף טכני ללקוח אמיתי.
     debug_errors: bool = True
