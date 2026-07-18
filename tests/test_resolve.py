@@ -1225,8 +1225,9 @@ def test_ontopo_internal_finds_branch_via_brand_query(monkeypatch):
 
     _fake_internal_http(monkeypatch, handlers)
     cands = asyncio.run(resolve._ontopo_internal("רוסטיקו בזל תל אביב"))
-    assert [c["title"] for c in cands] == ["רוסטיקו רוטשילד תל אביב-יפו", "רוסטיקו בזל תל אביב-יפו"]
-    assert cands[1]["url"] == "https://ontopo.com/he/il/page/37905695"
+    # תיקון 19.7: המועמדים מדורגים לפי התאמה לבקשה (טוקן הסניף "בזל") לפני החיתוך
+    assert [c["title"] for c in cands] == ["רוסטיקו בזל תל אביב-יפו", "רוסטיקו רוטשילד תל אביב-יפו"]
+    assert cands[0]["url"] == "https://ontopo.com/he/il/page/37905695"
     assert all(c["platform"] == "ontopo" for c in cands)
 
 
@@ -1658,3 +1659,121 @@ def test_search_events_venue_enters_query(monkeypatch):
     asyncio.run(resolve.search_events("אייל גולן"))
     assert queries[0] == "אייל גולן היכל מנורה כרטיסים הופעה"
     assert queries[1] == "אייל גולן כרטיסים הופעה"
+
+
+# --- באג סלון-יווני 19.7: המלצה בהרצליה → ההזמנה נפתחה על סניף צומת סביון ---
+# ההמלצות (Maps) החזירו "סלון יווני הרצליה פיתוח" והשם המלא זרם ל-resolve, אבל:
+# (1) שאילתת המותג "סלון" החזירה 12 מקומות והחיתוך [:5] הפיל את סניף הרצליה (מקום 6);
+# (2) _match_restaurant בלע את החטאות "הרצליה"+"פיתוח" כי "יווני" (חלק מהמותג) כבר
+# "פגע" (hit_any) — ובחר בשקט את הסניף היחיד ששרד: צומת סביון (אור יהודה).
+
+_SALON_TITLES = [
+    "סלון יווני צומת סביון אור יהודה",
+    "בייקר סלון - Baker Saloon פתח תקווה",
+    "כריסטוף סלון יין תל אביב-יפו",
+    "סלון ברלין תל אביב-יפו",
+    "סופיה סלון יין רמת השרון",
+]
+
+
+def test_match_city_mismatch_never_picks_silently():
+    """טוקן עיר מהבקשה שאינו באף מועמד + הכותרת השורדת מכריזה על סניף אחר
+    (צומת סביון) → many (אישור לקוח), לעולם לא one שקט על עיר אחרת."""
+    for req in ("סלון יווני הרצליה פיתוח", "סלון יווני הרצליה"):
+        status, chosen, good = _match_restaurant(req, _SALON_TITLES)
+        assert status == "many", req
+        assert chosen is None
+        assert good == ["סלון יווני צומת סביון אור יהודה"]
+
+
+def test_match_missed_city_with_clean_branch_title_still_one():
+    """רגרסיה על הנחת בזל'ה: עיר שהוחטאה אחרי שטוקן הסניף פגע והכותרת "נקייה"
+    (כל מילותיה מכוסות ע"י הבקשה) — עדיין one, לא שאלת סרק."""
+    status, chosen, _ = _match_restaurant("רוסטיקו בזל תל אביב", ["רוסטיקו בזל'ה: הזמנת מקום"])
+    assert status == "one"
+    assert chosen == "רוסטיקו בזל'ה: הזמנת מקום"
+
+
+def test_match_multiword_brand_correct_branch_wins():
+    """כשהסניף הנכון כן במועמדים — טוקן העיר מכריע אליו גם עם מותג דו-מילי,
+    ו"פיתוח" החסר (אונטופו קוראת לו "סלון יווני הרצליה") לא מפריע."""
+    status, chosen, _ = _match_restaurant(
+        "סלון יווני הרצליה פיתוח", ["סלון יווני הרצליה הרצליה", *_SALON_TITLES]
+    )
+    assert status == "one"
+    assert chosen == "סלון יווני הרצליה הרצליה"
+
+
+def test_ontopo_internal_ranks_requested_branch_before_cap(monkeypatch):
+    """הבאג החי: שאילתת המותג מחזירה 6+ מקומות בסדר של אונטופו והסניף המבוקש
+    (הרצליה) במקום 6 — הדירוג לפי הבקשה מעלה אותו לראש לפני החיתוך [:5]."""
+    venues = [
+        ("סלון יווני צומת סביון", "אור יהודה", "1"),
+        ("בייקר סלון - Baker Saloon", "פתח תקווה", "2"),
+        ("כריסטוף סלון יין", "תל אביב-יפו", "3"),
+        ("סלון ברלין", "תל אביב-יפו", "4"),
+        ("סופיה סלון יין", "רמת השרון", "5"),
+        ("סלון יווני הרצליה", "הרצליה", "6"),
+    ]
+
+    def handlers(url, params):
+        if url.endswith("/unified_search"):
+            if params["terms"] == "סלון":
+                return {
+                    "found": True,
+                    "suggestions": [
+                        {"type": "venue", "label": lb, "secondary": sec, "slug": sl}
+                        for lb, sec, sl in venues
+                    ],
+                }
+            return {"found": False, "suggestions": []}
+        return {"pages": [{"slug": "9" + params["slug"], "content_type": "reservation"}]}
+
+    _fake_internal_http(monkeypatch, handlers)
+    cands = asyncio.run(resolve._ontopo_internal("סלון יווני הרצליה פיתוח"))
+    assert cands[0]["title"] == "סלון יווני הרצליה הרצליה"
+    assert cands[0]["url"] == "https://ontopo.com/he/il/page/96"
+
+
+def test_resolve_recommend_city_end_to_end(monkeypatch):
+    """התרחיש המלא מההמלצות: השם כולל את העיר ("סלון יווני הרצליה פיתוח") —
+    כשסניף הרצליה קיים resolve מחזיר אותו (one); כשאינו — many לאישור לקוח.
+    לעולם לא URL של סניף עיר-אחרת בשקט."""
+
+    async def internal_with_branch(name):
+        return [
+            {
+                "title": "סלון יווני הרצליה הרצליה",
+                "url": "https://ontopo.com/he/il/page/50809918",
+                "platform": "ontopo",
+            },
+            {
+                "title": "סלון יווני צומת סביון אור יהודה",
+                "url": "https://ontopo.com/he/il/page/71700703",
+                "platform": "ontopo",
+            },
+        ]
+
+    async def not_dead(url):
+        return False
+
+    monkeypatch.setattr(resolve, "_ontopo_dead", not_dead)
+    monkeypatch.setattr(resolve, "_INTERNAL_SOURCES", (internal_with_branch,))
+    found = asyncio.run(resolve_reservation_url("סלון יווני הרצליה פיתוח"))
+    assert found["status"] == "one"
+    assert found["url"] == "https://ontopo.com/he/il/page/50809918"
+
+    async def internal_wrong_city_only(name):
+        return [
+            {
+                "title": "סלון יווני צומת סביון אור יהודה",
+                "url": "https://ontopo.com/he/il/page/71700703",
+                "platform": "ontopo",
+            }
+        ]
+
+    monkeypatch.setattr(resolve, "_INTERNAL_SOURCES", (internal_wrong_city_only,))
+    found = asyncio.run(resolve_reservation_url("סלון יווני הרצליה פיתוח"))
+    assert found["status"] == "many"
+    assert found["url"] is None
+    assert [c["title"] for c in found["candidates"]] == ["סלון יווני צומת סביון אור יהודה"]
