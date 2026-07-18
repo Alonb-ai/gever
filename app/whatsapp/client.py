@@ -6,6 +6,8 @@ WhatsApp via Meta Cloud API.
 """
 
 import logging
+import time
+from pathlib import Path
 
 import httpx
 
@@ -107,6 +109,71 @@ async def send_list(to: str, body: str, options: list[str], button: str = "בח�
         resp = await http.post(_messages_url(), json=payload, headers=_headers())
         resp.raise_for_status()
         return resp.json()
+
+
+async def download_media(media_id: str) -> tuple[bytes, str]:
+    """הורדת מדיה נכנסת (הודעה קולית וכו'): GET /{media-id} מחזיר url זמני
+    (פג תוך 5 דקות) + mime_type, וההורדה עצמה דורשת את אותו Bearer.
+    מחזיר (bytes, mime_type)."""
+    meta_url = f"https://graph.facebook.com/{settings.whatsapp_api_version}/{media_id}"
+    headers = _headers()
+    async with httpx.AsyncClient(timeout=30) as http:
+        resp = await http.get(meta_url, headers=headers)
+        resp.raise_for_status()
+        info = resp.json()
+        resp = await http.get(info["url"], headers=headers)
+        resp.raise_for_status()
+        return resp.content, info.get("mime_type") or ""
+
+
+# מדיה שהעלינו (סטיקרים) נשמרת אצל Meta ל-30 יום — cache של media_id עם רענון
+# עצלן לפני התפוגה, שלא נעלה את אותו webp בכל שליחה.
+MEDIA_TTL_S = 25 * 24 * 60 * 60
+_media_cache: dict = {}  # path -> (media_id, ts)
+
+
+async def upload_media(path: str, mime_type: str = "image/webp") -> str:
+    """העלאת קובץ מדיה ל-Meta (POST /{phone-number-id}/media) — מחזיר media_id."""
+    url = (
+        f"https://graph.facebook.com/{settings.whatsapp_api_version}"
+        f"/{settings.whatsapp_phone_number_id}/media"
+    )
+    p = Path(path)
+    async with httpx.AsyncClient(timeout=30) as http:
+        resp = await http.post(
+            url,
+            headers=_headers(),
+            data={"messaging_product": "whatsapp", "type": mime_type},
+            files={"file": (p.name, p.read_bytes(), mime_type)},
+        )
+        resp.raise_for_status()
+        return resp.json()["id"]
+
+
+async def send_sticker(to: str, media_id: str) -> dict:
+    """שליחת סטיקר לפי media_id שהועלה (webp סטטי ≤100KB / מונפש ≤500KB)."""
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "sticker",
+        "sticker": {"id": media_id},
+    }
+    async with httpx.AsyncClient(timeout=20) as http:
+        resp = await http.post(_messages_url(), json=payload, headers=_headers())
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def send_sticker_file(to: str, path: str) -> dict:
+    """סטיקר מקובץ מקומי: העלאה חד-פעמית עם cache של media_id (רענון עצלן לפני
+    תפוגת ה-30 יום של Meta)."""
+    cached = _media_cache.get(path)
+    if cached and time.time() - cached[1] < MEDIA_TTL_S:
+        media_id = cached[0]
+    else:
+        media_id = await upload_media(path)
+        _media_cache[path] = (media_id, time.time())
+    return await send_sticker(to, media_id)
 
 
 async def send_text(to: str, body: str) -> dict:
