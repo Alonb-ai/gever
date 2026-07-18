@@ -45,7 +45,8 @@ from app.llm.intent import (
     gender_line,
 )
 from app.llm.recommend import REC_TIMEOUT_S, recommend_movies, recommend_places
-from app.whatsapp.client import send_list, send_text, send_typing
+from app.llm.transcribe import MAX_VOICE_BYTES, transcribe_voice
+from app.whatsapp.client import download_media, send_list, send_text, send_typing
 
 # ponytail: המנגנון הוא חוזה API, לא התנהגות — רק כאן מותר להיות ספציפי-מכני.
 # ההתנהגות עצמה חיה בפרסונה כעקרונות. כל שינוי כאן: לשמור על ההפרדה הזאת.
@@ -533,6 +534,22 @@ REC_FAILED_MSGS = (
     "לא הצלחתי לבדוק את זה עכשיו 🫠 ננסה שוב עוד כמה דקות? או שתזרוק שם ואני סוגר",
     "הבדיקה נתקעה לי ואני לא זורק שמות מהראש — מנסים שוב עוד מעט?",
     "לא הסתדר לי לבדוק כרגע 😮‍💨 עוד ניסיון בעוד כמה דקות? ואם יש לך שם בראש אני סוגר",
+)
+
+# הודעה קולית שלא הצלחנו לשמוע (הורדה/תמלול נפלו או שאין דיבור ברור) — כנות
+# בדמות, בלי מונחים טכניים. עוגני _vary: "?" + הצעה לכתוב/לשלוח שוב.
+VOICE_FAILED_MSGS = (
+    "לא הצלחתי לשמוע את ההקלטה 🫠 תכתוב לי או תשלח שוב?",
+    "ההקלטה לא עברה לי טוב — שווה לכתוב לי או לנסות עוד פעם?",
+    "משהו בהקלטה לא הסתדר לי 😮‍💨 תזרוק לי את זה בכתב?",
+)
+
+# הודעה קולית ארוכה מדי (הגנת עלות — MAX_VOICE_BYTES) — בעדינות ובחיוך,
+# בלי מספרים טכניים. עוגני _vary: "קצר/לקצר" + "?".
+VOICE_TOO_LONG_MSGS = (
+    "וואו יצא לך נאום 🫠 תקצר לי אותה קצת או תכתוב בכמה מילים?",
+    "ההקלטה ארוכה עליי — אפשר גרסה קצרה או בכתב?",
+    "זה היה ארוך 😮‍💨 זרוק לי משהו קצר יותר או פשוט תכתוב?",
 )
 
 # אונבורדינג מרוכז (בקשת אלון #6): ההודעה הראשונה אי-פעם — גבר מציג את עצמו קצר
@@ -1120,6 +1137,33 @@ INTENTS: dict[str, dict] = {
         "fallback": ONBOARDING_INTRO_MSGS,
         "site": "_handle_inbound_inner (מגע ראשון) → ONBOARDING_INTRO_MSGS",
         "test": "tests/test_onboarding_flow.py",
+    },
+    # ── הודעות קוליות ──
+    "voice_failed": {
+        "goal": (
+            "הלקוח שלח הודעה קולית ולא הצלחת לשמוע אותה — כנות קצרה בלי מונחים "
+            "טכניים (בלי תמלול/קובץ/מערכת): לא קלטת, בקש שיכתוב או ישלח שוב"
+        ),
+        "ctx": (),
+        "forbid": _NOT_DONE + _NO_REASON,
+        "must": (r"\?",),
+        "max_chars": 120,
+        "fallback": VOICE_FAILED_MSGS,
+        "site": "handle_voice (הורדה/תמלול נכשל) → VOICE_FAILED_MSGS",
+        "test": "tests/test_voice.py",
+    },
+    "voice_too_long": {
+        "goal": (
+            "הלקוח שלח הודעה קולית ארוכה מדי בשבילך — בקש בעדינות ובחיוך "
+            "שיקצר או יכתוב, בלי מספרים ובלי להישמע מוקד"
+        ),
+        "ctx": (),
+        "forbid": _NOT_DONE,
+        "must": (r"קצר|לקצר", r"\?"),
+        "max_chars": 120,
+        "fallback": VOICE_TOO_LONG_MSGS,
+        "site": "handle_voice (אודיו מעל MAX_VOICE_BYTES) → VOICE_TOO_LONG_MSGS",
+        "test": "tests/test_voice.py",
     },
     # ── רשתות ביטחון של השיחה ──
     "busy_error": {
@@ -3373,6 +3417,31 @@ async def handle_inbound(phone: str, text: str, message_id: str | None = None) -
                 ),
             ),
         )
+
+
+async def handle_voice(phone: str, media_id: str, message_id: str | None = None) -> None:
+    """הודעה קולית נכנסת: הורדה מ-Meta → תמלול Gemini → אותו מסלול בדיוק כמו
+    טקסט (התמלול נכנס ל-handle_inbound כאילו הוקלד). כשל בהורדה/תמלול או
+    הקלטה ארוכה מדי → כנות בדמות, בלי לחשוף טכני."""
+    # שער הגישה לפני הכל: זר לא שורף לנו הורדה ותמלול (הגנת עלות). קוד הזמנה
+    # ממילא לא מגיע בהקלטה — ההודעה נבחנת כטקסט ריק.
+    if await _gate(phone, ""):
+        return
+    await send_typing(message_id)  # התמלול לוקח כמה שניות — שיראו שגבר שם
+    try:
+        audio, mime = await download_media(media_id)
+        if len(audio) > MAX_VOICE_BYTES:
+            await _send_and_record(phone, await _say("voice_too_long"))
+            return
+        text = await transcribe_voice(audio, mime)
+    except Exception:  # noqa: BLE001 — כל כשל הורדה/תמלול → אותה כנות בדמות
+        log.exception("voice message handling failed for %s", phone)
+        await _send_and_record(phone, await _say("voice_failed"))
+        return
+    if not text:
+        await _send_and_record(phone, await _say("voice_failed"))
+        return
+    await handle_inbound(phone, text, message_id)
 
 
 async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = None) -> None:

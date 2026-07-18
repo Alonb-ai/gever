@@ -22,7 +22,7 @@ from app import live_link
 from app.automation.browser_book import sweep_orphan_sessions
 from app.config import settings
 from app.db import memory
-from app.pipeline import _spawn, _vary, handle_inbound
+from app.pipeline import _spawn, _vary, handle_inbound, handle_voice
 from app.whatsapp.client import send_text
 
 log = logging.getLogger("gever")
@@ -170,6 +170,12 @@ async def _process_webhook(data: dict) -> None:
                         continue
                     if msg.get("type") == "text":
                         await handle_inbound(msg["from"], msg["text"]["body"], msg.get("id"))
+                    elif msg.get("type") == "audio":
+                        # הודעה קולית (voice=true) או קובץ אודיו — תמלול ואז אותו
+                        # מסלול כמו טקסט. audio.id = media_id להורדה מה-Media API.
+                        media_id = (msg.get("audio") or {}).get("id")
+                        if media_id:
+                            await handle_voice(msg["from"], media_id, msg.get("id"))
                     elif msg.get("type") == "interactive":
                         # בחירה מרשימה/כפתור → נכנסת לשיחה כטקסט רגיל (השם המלא
                         # ב-description כשהכותרת נחתכה ל-24 תווים).
