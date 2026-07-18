@@ -441,6 +441,15 @@ def test_concert_task_keeps_contract_and_event_rules():
     assert "מסך התשלום הוא מסך הסיכום" in recon and "מסך התשלום הוא מסך הסיכום" in commit
 
 
+def test_concert_task_sold_out_date_offers_alt_dates():
+    """QA חי הופעות #5 (זמינות-תחילה): המועד המבוקש אזל אבל יש מועדים אחרים בדף →
+    MISSING:date + OPTIONS (הצעה ללקוח), לא כישלון יבש."""
+    recon = _build_task({**_EJOB, "dry_run": True})
+    flat = " ".join(recon.split())
+    assert "המועד המבוקש אזל אבל הדף מציג מועדים אחרים שעדיין זמינים" in flat
+    assert "MISSING:date עם שורת OPTIONS: של המועדים שכן זמינים" in flat
+
+
 def test_concert_task_no_upcoming_dates_not_false_sold_out():
     """QA חי הופעות #3: דף רפאים בלי מועדים דווח sold_out כוזב — עכשיו יש
     FAILED:no_upcoming_dates לדף בלי אף מועד לרכישה, ו-sold_out רק כשמוצג חזותית."""
@@ -640,7 +649,8 @@ def test_step_diet_in_both_verticals_keeps_guardrails():
     חוזר על מה שאושר — והכוונת היעילות לא מבטלת את חוקי הברזל והעצירות."""
     rest = _build_task({**_JOB, "dry_run": True})
     cine = _build_task({**_CJOB, "dry_run": True})
-    for t in (rest, cine):
+    conc = _build_task({**_EJOB, "dry_run": True})  # QA חי הופעות #6: הדיאטה חלה גם שם
+    for t in (rest, cine, conc):
         assert "באותו צעד" in t  # שרשור פעולות
         assert "שכבר נראה על המסך" in t  # בלי scroll-חיפוש
         assert "וידוא חוזרים" in t  # בלי צעדי-וידוא כפולים
