@@ -210,6 +210,92 @@ def test_run_recommend_timeout_honest(monkeypatch, _io):
     assert "r4" not in pipeline._recs
 
 
+# ── הדרת המקום שנכשל (נצפה חי: גרקו נכשל בהזמנה וחזר כהמלצה) ────────────────
+def test_failed_place_from_conversation_state():
+    """failed → השם מ-_resolved (ה-info הוא סיבת הכשל); none → ה-info הוא השם;
+    done/אין state → אין הדרה."""
+    pipeline._booking["fx"] = {"state": "failed", "info": "המקום לא מקבל הזמנות אונליין"}
+    pipeline._resolved["fx"] = {"name": "גרקו הרצליה", "url": "u", "platform": "ontopo"}
+    assert pipeline._failed_place("fx") == "גרקו הרצליה"
+    pipeline._booking["fx"] = {"state": "none", "info": "מסעדת הפנינה"}
+    assert pipeline._failed_place("fx") == "מסעדת הפנינה"
+    pipeline._booking["fx"] = {"state": "done", "info": "אישור 123"}
+    assert pipeline._failed_place("fx") == ""
+    pipeline._booking.pop("fx")
+    pipeline._resolved.pop("fx")
+    assert pipeline._failed_place("fx") == ""
+
+
+def test_rec_excluded_bridges_hebrew_latin():
+    """גישור תעתיק דו-כיווני (Greco↔גרקו) דרך שלד-העיצורים של ה-resolver."""
+    assert pipeline._rec_excluded("Greco", "גרקו הרצליה")
+    assert pipeline._rec_excluded("Greco Herzliya", "גרקו הרצליה")
+    assert pipeline._rec_excluded("גרקו", "Greco Herzliya")
+    assert pipeline._rec_excluded("גרקו רמת החייל", "גרקו הרצליה")  # אותו מותג, סניף אחר
+    assert not pipeline._rec_excluded("Hudson Brasserie", "גרקו הרצליה")
+    assert not pipeline._rec_excluded("POMO", "גרקו הרצליה")
+
+
+def test_run_recommend_excludes_failed_place(monkeypatch, _io):
+    """הזמנה שנכשלה על גרקו → ההמלצות שחוזרות בלי Greco, וההודעה בלעדיו."""
+    pipeline._booking["r7"] = {"state": "failed", "info": "המקום לא מקבל הזמנות אונליין"}
+    pipeline._resolved["r7"] = {"name": "גרקו הרצליה", "url": "u", "platform": "ontopo"}
+
+    async def fake_places(category, area="", constraints=""):
+        return [_place("Greco", 4.6, 2000), _place("Hudson Brasserie", 4.5, 9287)]
+
+    monkeypatch.setattr(pipeline, "recommend_places", fake_places)
+    asyncio.run(
+        pipeline.run_recommend(
+            "r7", {"task_type": "recommend", "category": "restaurant", "city": "Herzliya"}
+        )
+    )
+    msg = _io[0]
+    assert "Greco" not in msg and "Hudson Brasserie" in msg
+    # רשימה של אחד אחרי סינון — עדיין מציגים; הזיכרון לזרימה בלי המקום שנכשל
+    assert pipeline._recs["r7"] == ["Hudson Brasserie"]
+    pipeline._booking.pop("r7")
+    pipeline._resolved.pop("r7")
+
+
+def test_run_recommend_no_failure_no_filter(monkeypatch, _io):
+    """בלי כשל בשיחה (ואפילו עם _resolved ישן) — שום דבר לא מסונן."""
+    pipeline._booking["r8"] = {"state": "done", "info": "אישור 123"}
+    pipeline._resolved["r8"] = {"name": "גרקו הרצליה", "url": "u", "platform": "ontopo"}
+
+    async def fake_places(category, area="", constraints=""):
+        return [_place("Greco", 4.6, 2000), _place("Hudson Brasserie", 4.5, 9287)]
+
+    monkeypatch.setattr(pipeline, "recommend_places", fake_places)
+    asyncio.run(pipeline.run_recommend("r8", {"task_type": "recommend", "category": "restaurant"}))
+    assert "Greco" in _io[0]
+    assert pipeline._recs["r8"] == ["Greco", "Hudson Brasserie"]
+    pipeline._booking.pop("r8")
+    pipeline._resolved.pop("r8")
+
+
+def test_run_recommend_all_filtered_falls_to_honesty(monkeypatch, _io):
+    """הסינון רוקן את הרשימה → הודעת הכנות הקיימת (recommend_failed), בלי המלצות."""
+    pipeline._booking["r9"] = {"state": "failed", "info": "המקום לא מקבל הזמנות אונליין"}
+    pipeline._resolved["r9"] = {"name": "גרקו הרצליה", "url": "u", "platform": "ontopo"}
+
+    async def fake_places(category, area="", constraints=""):
+        return [_place("Greco", 4.6, 2000), _place("Greco Herzliya", 4.4, 500)]
+
+    monkeypatch.setattr(pipeline, "recommend_places", fake_places)
+    asyncio.run(pipeline.run_recommend("r9", {"task_type": "recommend", "category": "restaurant"}))
+    assert "Greco" not in _io[0] and "?" in _io[0]
+    assert "r9" not in pipeline._recs
+    pipeline._booking.pop("r9")
+    pipeline._resolved.pop("r9")
+
+
+def test_recommend_results_goal_forbids_failed_place():
+    """כרטיס הכוונה מנחה את המנסח: avoid = מקום שלא הסתדר — אסור להציע אותו."""
+    card = pipeline.INTENTS["recommend_results"]
+    assert "avoid" in card["goal"] and "avoid" in card["ctx"]
+
+
 # ── ניתוב ב-handle_inbound ──────────────────────────────────────────────────
 def test_ready_recommend_routes_without_booking_state(monkeypatch, _io):
     fired = {}

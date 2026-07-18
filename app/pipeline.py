@@ -29,9 +29,10 @@ from app.automation.browser_book import (
 )
 from app import live_link
 from app.automation.resolve import (
+    _brand_token,
+    _has_token,
+    _norm,
     _phone_hint as _resolve_phone_hint,
-)
-from app.automation.resolve import (
     resolve_cinema_url,
     resolve_event_url,
     resolve_insurance_url,
@@ -907,9 +908,10 @@ INTENTS: dict[str, dict] = {
             "מקומות או חוויות ('אכלתי שם') שלא בהקשר. הדירוגים והביקורות שבהקשר "
             "הם רקע פנימי בלבד: מותר תחושה חופשית ('מדורג חזק', 'כולם מדברים "
             "עליו'), אסור מספרים או ציונים, ואסור להזכיר גוגל, מפות, לינקים או "
-            "מאיפה המידע. סיים בהצעה לסגור אחת מהן"
+            "מאיפה המידע. אם יש בהקשר avoid — זה מקום שהלקוח הרגע ניסה ולא "
+            "הסתדר: אסור להציע או להזכיר אותו. סיים בהצעה לסגור אחת מהן"
         ),
-        "ctx": ("place1", "place2", "place3", "info1", "info2", "info3", "category"),
+        "ctx": ("place1", "place2", "place3", "info1", "info2", "info3", "category", "avoid"),
         "forbid": _NOT_DONE
         + (
             r"(?<!לא )הזמנתי",
@@ -1495,6 +1497,26 @@ def _same_place(a: str, b: str) -> bool:
         return True
     fa, fb = a.split()[0], b.split()[0]
     return len(fa) >= 3 and len(fb) >= 3 and (fa in fb or fb in fa)
+
+
+def _failed_place(phone: str) -> str:
+    """שם המקום שהניסיון האחרון עליו בשיחה נכשל/לא נמצא — מודר מההמלצות ("" אם אין).
+    ב-failed ה-info הוא סיבת הכשל, לכן השם נמשך מ-_resolved; ב-none ה-info הוא השם."""
+    b = _booking.get(phone) or {}
+    if b.get("state") == "none":
+        return b.get("info") or ""
+    if b.get("state") == "failed":
+        return (_resolved.get(phone) or {}).get("name") or ""
+    return ""
+
+
+def _rec_excluded(name: str, avoid: str) -> bool:
+    """האם המלצה היא המקום שנכשל: _same_place (עברית↔עברית) + גישור תעתיק של
+    ה-resolver (Greco↔גרקו) — מילת המותג של הכשל מול טוקני שם ההמלצה."""
+    if _same_place(name, avoid):
+        return True
+    tok = _brand_token(_norm(avoid))
+    return bool(tok and _has_token(tok, _norm(name)))
 
 
 def _human_field(key: str, from_page: dict) -> str:
@@ -2103,6 +2125,11 @@ async def run_recommend(phone: str, fields: dict) -> None:
         log.exception("recommend failed for %s", phone)
         items = []
     log.info("run_recommend: %s -> %d items in %.1fs", phone, len(items), time.monotonic() - t0)
+    # נצפה חי (גרקו הרצליה): ההזמנה נכשלה, גבר הציע חלופות — ואחת מהן הייתה גרקו
+    # עצמו. מקום שהרגע לא הסתדר לא חוזר כהמלצה; רשימה שהתרוקנה → הכנות הקיימת.
+    avoid = _failed_place(phone)
+    if avoid:
+        items = [p for p in items if not _rec_excluded(p["name"], avoid)]
     if not items:
         await _send_and_record(phone, await _say("recommend_failed", {"category": category}))
         return
@@ -2111,6 +2138,8 @@ async def run_recommend(phone: str, fields: dict) -> None:
     # עוגני must_ctx = שמות בלבד — "תסגור את הראשון" זורם להזמנה על השם המדויק.
     # הדירוגים/ביקורות נכנסים כ-info רקע לניסוח (המודל מתרגם לתחושה, לא למספר).
     ctx = {"category": category}
+    if avoid:
+        ctx["avoid"] = avoid
     for i, p in enumerate(items, 1):
         ctx[f"place{i}"] = p["name"]
         facts = []
