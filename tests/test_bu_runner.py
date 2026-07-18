@@ -441,6 +441,27 @@ def test_concert_task_keeps_contract_and_event_rules():
     assert "מסך התשלום הוא מסך הסיכום" in recon and "מסך התשלום הוא מסך הסיכום" in commit
 
 
+def test_concert_task_foreign_iframe_rule():
+    """QA חי הופעות #1 (לאן, seatmap.vivenu.com): מפת המושבים חיה ב-iframe דומיין-זר
+    (OOPIF) — evaluate/JS רץ על הדף החיצוני ומחזיר ריק תמיד; הריצה החיה שרפה 19 צעדי
+    evaluate ריקים. החוק: בלי JS על המפה, קליקים בקואורדינטות בלבד, ושני evaluate
+    ריקים = עצירה כנה."""
+    recon = _build_task({**_EJOB, "dry_run": True})
+    flat = " ".join(recon.split())
+    assert "iframe של דומיין אחר" in flat
+    assert "יחזיר ריק" in flat
+    assert "שני ניסיונות evaluate שחזרו ריקים = עצור בכנות מיד" in flat
+    assert "MISSING:price_category עם שורת OPTIONS:" in flat
+    assert "FAILED:broken_page אם המפה לא מציגה כלום" in flat
+
+
+def test_profile_pins_cross_origin_iframes():
+    """OOPIF (מפות מושבים של הופעות) תלוי ב-cross_origin_iframes — ב-0.13.1 זו ברירת
+    המחדל, אבל מקובע מפורשות כדי ששדרוג browser-use לא יכבה אותו בשקט."""
+    assert _profile_kwargs({"headless": True})["cross_origin_iframes"] is True
+    assert _profile_kwargs({"cdp_url": "wss://x"})["cross_origin_iframes"] is True
+
+
 def test_concert_task_sms_code_wall_is_missing_not_failed():
     """קיר קוד-SMS של קופת (סבב 4) = עצירת לקוח-בלולאה: MISSING:sms_code והסשן
     ממתין — לא FAILED:login_required, גם כשהקיר הוא חלק ממסך התחברות; קוד שנדחה →

@@ -377,6 +377,13 @@ def _build_concert_task(job: dict) -> str:
   המקרא הוא רק תצוגה — לחיצות עליו לא בוחרות כלום. לחץ ישירות על האזור הצבוע
   במפה עצמה (קואורדינטות בתוך שטח האזור, רצף עכבר מלא). אם אחרי שתי לחיצות
   באזורים שונים שום בורר כמות לא נפתח — עצור ודווח FAILED:broken_page בכנות.
+- מפת מושבים בתוך iframe של דומיין אחר (הכתובת בתוך המפה שונה מהאתר עצמו):
+  evaluate/JS רץ על הדף החיצוני ויחזיר ריק *תמיד* — אל תנסה לקרוא את המפה
+  ב-JS ואל תחזור על evaluate שוב ושוב. עבוד רק בקליקים אמיתיים לפי מה שנראה
+  חזותית על המסך (קואורדינטות בתוך המפה, רצף עכבר מלא). שני ניסיונות evaluate
+  שחזרו ריקים = עצור בכנות מיד: MISSING:price_category עם שורת OPTIONS: של
+  הקטגוריות/המחירים שנראים חזותית במפה או במקרא, או FAILED:broken_page אם
+  המפה לא מציגה כלום.
 - המעבר משלב לשלב (ובמיוחד לתשלום) עשוי לכלול אימות אבטחה אוטומטי — כפתור שלא
   מגיב מיד אינו בהכרח תקוע: ודא שסימון אישור התנאים אכן נקלט, המתן ~15 שניות
   לאימות, ונסה שוב פעם אחת לפני שאתה משנה גישה.
@@ -726,7 +733,10 @@ def _shorten_page_readiness() -> None:
 
 
 def _profile_kwargs(job: dict) -> dict:
-    kwargs: dict = {"headless": job.get("headless", True)}
+    # cross_origin_iframes: מפות מושבים של הופעות חיות ב-OOPIF (seatmap.vivenu.com
+    # בתוך לאן — QA חי 18-19.7). ב-0.13.1 זו כבר ברירת המחדל (True) — מקובע מפורשות
+    # כדי ששדרוג עתידי של browser-use לא יכבה אותו בשקט ויפיל את הוורטיקל.
+    kwargs: dict = {"headless": job.get("headless", True), "cross_origin_iframes": True}
     if job.get("cdp_url"):  # browserbase / remote — stealth+captcha חיים שם
         kwargs["cdp_url"] = job["cdp_url"]
         # ה-keepAlive של Browserbase מגן רק מפני *ניתוק*; בלעדי keep_alive כאן
