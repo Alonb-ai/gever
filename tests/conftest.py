@@ -16,6 +16,8 @@ def _no_real_backends(monkeypatch):
     monkeypatch.setattr(settings, "supabase_url", "")
     monkeypatch.setattr(settings, "supabase_service_key", "")
     monkeypatch.setattr(settings, "browserbase_api_key", "")
+    # בלי Brave אמיתי: חיפוש-הטלפון של הודעת הכשל (phone_hint) לא יוצא לרשת בטסטים
+    monkeypatch.setattr(settings, "brave_api_key", "")
 
 
 @pytest.fixture(autouse=True)
