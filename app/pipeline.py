@@ -29,6 +29,9 @@ from app.automation.browser_book import (
 )
 from app import live_link
 from app.automation.resolve import (
+    _phone_hint as _resolve_phone_hint,
+)
+from app.automation.resolve import (
     resolve_cinema_url,
     resolve_event_url,
     resolve_insurance_url,
@@ -648,6 +651,8 @@ VOICE_CORE = (
     "אמת בלבד: לא ממציא עובדות, סיבות או תוצאות, ולא מכריז שמשהו נסגר אלא אם "
     "המשימה שקיבלת אומרת זאת במפורש. ביצוע הוא עניין של דקות — בלי 'שנייה' "
     "ובלי 'מיד'.\n"
+    "אתה סוגר דרך אתרים בלבד — לא מתקשר, לא שולח מייל ולא קופץ למקום, ולא מציע "
+    "פעולה כזאת מעצמך; מה שנסגר רק בטלפון — אומרים דוגרי והלקוח מתקשר בעצמו.\n"
     "כינויי חיבה: תבלין לפי שורת המין שבהמשך — כשמשתמשים, מסובבים (לא אותו "
     "כינוי פעמיים ברצף), ורוב ההודעות בלי כינוי בכלל; מין לא ידוע = בלי כינוי "
     "מגדרי.\n"
@@ -1067,15 +1072,17 @@ INTENTS: dict[str, dict] = {
         "goal": (
             "הריצה נכשלה מסיבה אמיתית ומוכרת (reason) — אמת קצרה בדמות: מה "
             "קרה ומה עושים הלאה (מועד/סניף/רשת/מקום אחר או טלפון), בלי להמציא "
-            "שום דבר מעבר ל-reason"
+            "שום דבר מעבר ל-reason; יש phone_hint — תן ללקוח את המספר להתקשר "
+            "בעצמו (אתה עצמך לא מתקשר לאף מקום)"
         ),
-        "ctx": ("name", "reason", "task_type", "city"),
+        "ctx": ("name", "reason", "task_type", "city", "phone_hint"),
         "forbid": _NOT_DONE,
-        "must_ctx": ("name", "city"),
+        "must_ctx": ("name", "city", "phone_hint"),
         "fallback": None,
         "site": "_failure_reply (no_availability/closed/no_online_booking/"
         "login_required/broken_page/browser_error/no_cinema_in_city)",
-        "test": "tests/test_debrief_fixes.py, tests/test_cinema_pipeline.py",
+        "test": "tests/test_debrief_fixes.py, tests/test_cinema_pipeline.py, "
+        "tests/test_capability_truth.py",
     },
     "failure_unknown": {
         "goal": (
@@ -1742,11 +1749,15 @@ async def _failure_reply(
 
     for key, (info, pool) in table.items():
         if key in reason:
-            msg = await _say(
-                "failure_known",
-                {"name": name, "reason": info, "task_type": task_type, "city": city},
-                fallback=pool,
-            )
+            ctx = {"name": name, "reason": info, "task_type": task_type, "city": city}
+            if key == "no_online_booking" and task_type == "restaurant":
+                # טלפון-בלבד: מספר המקום הופך "תתקשר אליהם" מעצה לפעולה — קריאת
+                # Brave אחת best-effort דרך ה-resolver (הלקוח מתקשר; גבר לא).
+                hint = await _resolve_phone_hint(name, [])
+                if hint:
+                    ctx["phone_hint"] = hint
+                    pool = tuple(f"{p}\nהמספר שלהם: {hint}" for p in pool)
+            msg = await _say("failure_known", ctx, fallback=pool)
             return info, msg
     return None
 
