@@ -193,6 +193,79 @@ if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
 
 
+def test_browser_crash_reports_and_releases_session(monkeypatch, tmp_path):
+    """QA ביטוח 18.7 (#1): מות-דפדפן (browser_error) השאיר סשן Browserbase ‏RUNNING
+    ומחויב, ו-details.session_id חזר null — אף שכבה לא יכלה לשחרר. עכשיו: browser_book
+    משחרר בנתיב הכשל *וגם* מדווח את ה-session_id — ה-pipeline משחרר שוב כ-backstop."""
+    monkeypatch.setattr(settings, "bu_record_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "bu_browser", "browserbase")
+    released: list[str] = []
+
+    async def fake_create():
+        return "sid-crash", "wss://cdp"
+
+    async def fake_release(sid):
+        released.append(sid)
+
+    async def fake_run(job):
+        # מחקה runner שהדפדפן שלו מת באמצע: דיווח ריק → _parse_result נותן browser_error
+        with open(job["result_path"], "w", encoding="utf-8") as f:
+            json.dump({"success": False, "failed": "browser_error", "message": ""}, f)
+
+    monkeypatch.setattr(browser_book, "_bb_create_session", fake_create)
+    monkeypatch.setattr(browser_book, "release_session", fake_release)
+    monkeypatch.setattr(browser_book, "_run_subprocess", fake_run)
+    res = asyncio.run(
+        browser_book.book_table_bu(
+            restaurant="ביטוח נסיעות", page_url="http://x", date="26", time="", party_size=2
+        )
+    )
+    assert res.success is False
+    assert res.details["failed"] == "browser_error"
+    assert released == ["sid-crash"]  # השחרור המקומי בנתיב הכשל
+    assert res.details["session_id"] == "sid-crash"  # מדווח — לא null
+
+
+def test_timeout_and_error_paths_report_session_id(monkeypatch, tmp_path):
+    """גם timeout וגם חריגה (subprocess מת בלי קובץ תוצאה) מדווחים session_id
+    ומשחררים — אף נתיב כשל לא מחזיר null על סשן שנוצר."""
+    monkeypatch.setattr(settings, "bu_record_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "bu_browser", "browserbase")
+    released: list[str] = []
+
+    async def fake_create():
+        return "sid-t", "wss://cdp"
+
+    async def fake_release(sid):
+        released.append(sid)
+
+    monkeypatch.setattr(browser_book, "_bb_create_session", fake_create)
+    monkeypatch.setattr(browser_book, "release_session", fake_release)
+
+    async def fake_timeout(job):
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(browser_book, "_run_subprocess", fake_timeout)
+    res = asyncio.run(
+        browser_book.book_table_bu(
+            restaurant="הדסון", page_url="http://x", date="26", time="20:00", party_size=2
+        )
+    )
+    assert res.details["stage"] == "timeout" and res.details["session_id"] == "sid-t"
+
+    async def fake_boom(job):
+        raise RuntimeError("subprocess died")
+
+    monkeypatch.setattr(browser_book, "_run_subprocess", fake_boom)
+    res = asyncio.run(
+        browser_book.book_table_bu(
+            restaurant="הדסון", page_url="http://x", date="26", time="20:00", party_size=2
+        )
+    )
+    assert res.details["stage"] == "error" and res.details["session_id"] == "sid-t"
+    assert released == ["sid-t", "sid-t"]
+
+
 def test_timeout_ceiling_events_gets_the_long_one():
     """הופעות = מפת אולם + טפסים — אותה תקרה ארוכה כמו קולנוע (900s)."""
     assert browser_book._timeout_s({"task_type": "events"}) == 900

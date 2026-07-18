@@ -285,7 +285,13 @@ async def book_table_bu(
         return ActionResult(
             success=False,
             summary="אחי זה נתקע לי, לקח יותר מדי. ננסה שוב?",
-            details={"stage": "timeout", "steps_tail": _steps_tail(steps_path, 1500)},
+            # session_id מדווח גם בכשל (QA ביטוח 18.7): בלעדיו לשכבה שמעל אין דרך
+            # לשחרר סשן שהשחרור המקומי פספס — והוא מחויב באידל עד ה-timeout.
+            details={
+                "stage": "timeout",
+                "session_id": session_id,
+                "steps_tail": _steps_tail(steps_path, 1500),
+            },
         )
     except Exception as e:  # noqa: BLE001 — כשל הופך להודעה כנה, לא ל-traceback
         await release_session(session_id)
@@ -293,7 +299,7 @@ async def book_table_bu(
         return ActionResult(
             success=False,
             summary="נתקעתי באמצע, לא הצלחתי לסגור. ננסה שוב?",
-            details={"stage": "error", "error": str(e)},
+            details={"stage": "error", "error": str(e), "session_id": session_id},
         )
 
     # הסשן נשאר חי בעצירות שמחכות ללקוח: שדה חסר (pause-resume), קיר-כרטיס
@@ -336,7 +342,10 @@ async def book_table_bu(
             "agreed": r.get("agreed") or [],
             "restaurant": restaurant,
             "record_dir": record_dir,
-            "session_id": session_id if waiting else None,
+            # waiting → הסשן חי בכוונה (resume/כרטיס). כשל (browser_error וכו') →
+            # מדווחים את ה-id למרות שכבר שוחרר כאן: ה-pipeline משחרר שוב (backstop,
+            # QA ביטוח 18.7 — סשן נשאר RUNNING עם session_id:null ואף אחד לא שחרר).
+            "session_id": session_id if (waiting or r.get("failed")) else None,
             # זנב יומן-הצעדים חוזר עם התוצאה — נשמר ב-_flow ושורד redeploy
             # (נלמד 15.7: הזנב שנכתב רק ללוג הקונטיינר מת יחד איתו בכל deploy).
             "steps_tail": _steps_tail(steps_path, 1500),
