@@ -441,6 +441,16 @@ def test_concert_task_keeps_contract_and_event_rules():
     assert "מסך התשלום הוא מסך הסיכום" in recon and "מסך התשלום הוא מסך הסיכום" in commit
 
 
+def test_concert_task_no_upcoming_dates_not_false_sold_out():
+    """QA חי הופעות #3: דף רפאים בלי מועדים דווח sold_out כוזב — עכשיו יש
+    FAILED:no_upcoming_dates לדף בלי אף מועד לרכישה, ו-sold_out רק כשמוצג חזותית."""
+    recon = _build_task({**_EJOB, "dry_run": True})
+    flat = " ".join(recon.split())
+    assert "FAILED:no_upcoming_dates" in flat
+    assert 'טופס "הרשמו לעדכונים" בלבד' in flat
+    assert "FAILED:sold_out רק כשמוצג חזותית" in flat
+
+
 def test_concert_task_foreign_iframe_rule():
     """QA חי הופעות #1 (לאן, seatmap.vivenu.com): מפת המושבים חיה ב-iframe דומיין-זר
     (OOPIF) — evaluate/JS רץ על הדף החיצוני ומחזיר ריק תמיד; הריצה החיה שרפה 19 צעדי

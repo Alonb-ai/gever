@@ -1495,8 +1495,13 @@ def test_resolve_event_two_dates_same_artist_is_many(monkeypatch):
     assert "היכל מנורה" in titles[0] and "היכל הפיס" in titles[1]
 
 
+async def _all_alive(url):
+    return False
+
+
 def test_resolve_event_leaan_primary_kupat_fallback(monkeypatch):
     """match חזק בלאן וגם בקופת → one על לאן (ראשית) עם fallback מקופת."""
+    monkeypatch.setattr(resolve, "_event_dead", _all_alive)
     monkeypatch.setattr(
         resolve,
         "search_events",
@@ -1527,6 +1532,75 @@ def test_resolve_event_none_has_no_restaurant_fallbacks(monkeypatch):
     res = asyncio.run(resolve.resolve_event_url("להקה לא קיימת"))
     assert res["status"] == "none"
     assert "phone_hint" not in res
+
+
+def test_dead_event_page_falls_to_next_platform(monkeypatch):
+    """מלכודת עומר אדם (QA חי הופעות #2): דף show בקופת עם כותרת מושלמת אבל בלי אף
+    מועד לרכישה — נפסל בבדיקת החיות, והמועמד החי מהפלטפורמה הבאה זוכה."""
+    checked = []
+
+    async def fake_dead(url):
+        checked.append(url)
+        return "leaan" in url  # הראשי (לאן) מת → קופת החי זוכה
+
+    monkeypatch.setattr(resolve, "_event_dead", fake_dead)
+    monkeypatch.setattr(
+        resolve,
+        "search_events",
+        _fake_search_list(
+            [
+                {
+                    "title": "עומר אדם - הופעה חיה | 20/09/26 פארק הירקון",
+                    "url": "https://www.leaan.co.il/events/omer/9",
+                    "platform": "leaan",
+                },
+                {
+                    "title": "עומר אדם הופעות 2026",
+                    "url": "https://www.kupat.co.il/show/omer-adam",
+                    "platform": "kupat",
+                },
+            ]
+        ),
+    )
+    res = asyncio.run(resolve.resolve_event_url("עומר אדם"))
+    assert res["status"] == "one" and res["platform"] == "kupat"
+    assert res["url"] == "https://www.kupat.co.il/show/omer-adam"
+    assert "https://www.leaan.co.il/events/omer/9" in checked
+
+
+def test_all_event_pages_dead_is_none(monkeypatch):
+    """כל המועמדים רפאים → none כן (בלי לשלוח את הריצה לדף מת)."""
+
+    async def all_dead(url):
+        return True
+
+    monkeypatch.setattr(resolve, "_event_dead", all_dead)
+    monkeypatch.setattr(
+        resolve,
+        "search_events",
+        _fake_search_list(
+            [
+                {
+                    "title": "עומר אדם הופעות 2026",
+                    "url": "https://www.kupat.co.il/show/omer-adam",
+                    "platform": "kupat",
+                }
+            ]
+        ),
+    )
+    res = asyncio.run(resolve.resolve_event_url("עומר אדם"))
+    assert res["status"] == "none"
+
+
+def test_event_looks_dead_markers():
+    """המרקרים אומתו חי (19.7): דף חי מציג כפתור רכישה; דף הרפאים של עומר אדם —
+    'הרשמו לעדכונים' בלבד, אפס סימני רכישה."""
+    from app.automation.resolve import _event_looks_dead
+
+    assert _event_looks_dead("<div>המופע הסתיים · הרשמו לעדכונים</div>") is True
+    assert _event_looks_dead('<a class="btn">לרכישת כרטיסים</a>') is False  # קופת חי
+    assert _event_looks_dead("<button>רכישת כרטיסים</button>") is False  # לאן חי
+    assert _event_looks_dead("<button>הזמנת כרטיסים</button>") is False
 
 
 def test_search_events_venue_enters_query(monkeypatch):

@@ -829,14 +829,46 @@ async def resolve_cinema_url(movie: str, chain: str | None = None) -> dict:
     return {**_pick_cinema(movie, candidates, platforms, drop_listings=False), "via": "brave"}
 
 
+# דף אירוע "רפאים" (QA חי הופעות #2 — עומר אדם בקופת): הדף קיים, הכותרת מושלמת,
+# אבל אין בו אף מועד לרכישה — מידע על מופע שעבר + "הרשמו לעדכונים" בלבד. בלי בדיקת
+# חיות הריצה נשלחה לדף מת והלקוח קיבל sold_out כוזב. המרקרים אומתו חי (19.7):
+# דפי show/event חיים בקופת ("לרכישת כרטיסים") ובלאן ("רכישת כרטיסים"/"הזמנת
+# כרטיסים") מציגים כפתור רכישה; דף הרפאים של עומר אדם — אפס מופעים לכולם.
+_EVENT_ALIVE_MARKS = ("רכישת כרטיסים", "הזמנת כרטיסים", "בחירת מושבים")
+
+
+def _event_looks_dead(body: str) -> bool:
+    return not any(m in body for m in _EVENT_ALIVE_MARKS)
+
+
+async def _event_dead(url: str) -> bool:
+    """דף אירוע (לאן/קופת) בלי שום סימן רכישה — רפאים. כשל רשת → False
+    (ספק-חי עדיף על פסילת שווא, כמו _ontopo_dead)."""
+    try:
+        async with httpx.AsyncClient(
+            timeout=8, headers={"User-Agent": UA}, follow_redirects=True
+        ) as http:
+            return _event_looks_dead((await http.get(url)).text)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 async def resolve_event_url(artist: str, venue: str = "") -> dict:
     """כמו resolve_cinema_url, להופעות: אותו חוזה החזרה בדיוק, על _EVENT_PLATFORMS.
     many הוא פיצ'ר — שני מועדים לאותו אמן בלאן = שתי רשומות עם תאריך+היכל בכותרת,
     והרשימה שהלקוח מקבל היא המועדים האמיתיים. drop_listings=False — ה-regex כבר
-    משאיר רק דפי אירוע. אין fallbackים של Phase 4-lite (מסעדות בלבד)."""
+    משאיר רק דפי אירוע. אין fallbackים של Phase 4-lite (מסעדות בלבד).
+    מנצח 'one' עובר בדיקת חיות (_event_dead) — דף רפאים נפסל ובוחרים מחדש מהשאר,
+    באותו דפוס של לולאת דף-הרפאים של המסעדות (_pick)."""
     candidates = await search_events(artist, venue)
     await _real_titles(candidates)
-    return _pick_cinema(artist, candidates, _EVENT_PLATFORMS, drop_listings=False)
+    pool = list(candidates)
+    while True:
+        picked = _pick_cinema(artist, pool, _EVENT_PLATFORMS, drop_listings=False)
+        if picked["status"] != "one" or not await _event_dead(picked["url"]):
+            return picked
+        log.info("resolve: dead event page dropped for '%s': %s", artist, picked["url"])
+        pool = [c for c in pool if c["url"] != picked["url"]]
 
 
 def _pick_cinema(name: str, candidates: list[dict], platforms, *, drop_listings: bool) -> dict:

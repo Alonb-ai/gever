@@ -255,6 +255,18 @@ def test_failure_reply_events_wordings_and_restaurant_unchanged():
     assert "אין מקום פנוי" in info
 
 
+def test_failure_reply_no_upcoming_dates_is_honest_not_sold_out():
+    """QA חי הופעות #3: דף בלי מועדים → 'אין כרגע מועדים מוכרזים' (לא 'אזלו');
+    הסיבה קיימת רק בהופעות."""
+    info, msg = asyncio.run(
+        pipeline._failure_reply("no_upcoming_dates", "עומר אדם", task_type="events")
+    )
+    assert "מועדים מוכרזים" in info
+    assert "עומר אדם" in msg
+    assert "אזלו" not in info  # לא sold_out כוזב
+    assert asyncio.run(pipeline._failure_reply("no_upcoming_dates", "גרקו")) is None
+
+
 def test_events_failed_sold_out_message_uses_venue_as_location(monkeypatch):
     """FAILED:no_event_in_city בהופעה → ההודעה נוקבת ב-venue (לא ב-city של קולנוע)."""
     _reset()
