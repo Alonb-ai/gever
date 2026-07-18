@@ -66,9 +66,11 @@ def _wire(monkeypatch, converse_result=None, *, profile=None, gate=False, codes=
 
 
 def test_gate_off_is_zero_change(monkeypatch):
-    """הדגל כבוי (ברירת המחדל) = הזרימה של היום בדיוק: converse רץ ותשובה נשלחת."""
+    """הדגל כבוי (ברירת המחדל) = הזרימה של היום בדיוק: converse רץ ותשובה נשלחת.
+    המשתמש מסומן מוכר — מגע ראשון מדלג על converse בכוונה (fix/onboarding-double)."""
     _reset()
     sent, calls, _, _ = _wire(monkeypatch, gate=False)
+    pipeline._last_seen["g_off"] = 10**12
     asyncio.run(pipeline.handle_inbound("g_off", "היי"))
     assert calls == ["היי"]
     assert "אהלן" in sent  # תשובת השיחה יצאה; אין הודעת שער
@@ -123,7 +125,9 @@ def test_valid_code_approves_and_onboards(monkeypatch):
     assert upserts and upserts[0]["prefs"] == {"approved": True}
     assert "קוד" in sent[0]  # ברוך-הבא על הקוד
     assert any("גבר" in m and "מייל" in m for m in sent)  # האונבורדינג נדלק
-    assert calls == [" GVR1 ", "תזמין לי שולחן"]  # מאושר — שתי ההודעות עברו
+    # הודעת הקוד היא מגע ראשון — ההיכרות היא התשובה היחידה (בלי converse,
+    # fix/onboarding-double); ההודעה הבאה של המאושר עוברת רגיל.
+    assert calls == ["תזמין לי שולחן"]
 
 
 def test_wrong_code_falls_to_silence(monkeypatch):
