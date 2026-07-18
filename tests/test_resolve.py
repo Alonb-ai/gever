@@ -1594,13 +1594,19 @@ def test_all_event_pages_dead_is_none(monkeypatch):
 
 def test_event_looks_dead_markers():
     """המרקרים אומתו חי (19.7): דף חי מציג כפתור רכישה; דף הרפאים של עומר אדם —
-    'הרשמו לעדכונים' בלבד, אפס סימני רכישה."""
+    'הרשמו לעדכונים' בלבד, אפס סימני רכישה. הרגרסיה מהאימות החי: 'הזמנת כרטיסים'
+    יושב ב-<title>/og:title של דף הרפאים עצמו — אסור שיחיה אותו."""
     from app.automation.resolve import _event_looks_dead
 
     assert _event_looks_dead("<div>המופע הסתיים · הרשמו לעדכונים</div>") is True
     assert _event_looks_dead('<a class="btn">לרכישת כרטיסים</a>') is False  # קופת חי
     assert _event_looks_dead("<button>רכישת כרטיסים</button>") is False  # לאן חי
-    assert _event_looks_dead("<button>הזמנת כרטיסים</button>") is False
+    # דף הרפאים האמיתי: הכותרת מכילה "הזמנת כרטיסים" אבל אין שום כפתור רכישה
+    ghost = (
+        "<title>עומר אדם הופעות 2026 - הזמנת כרטיסים ישירה להופעה של עומר אדם</title>"
+        "<div>הרשמו לעדכונים</div>"
+    )
+    assert _event_looks_dead(ghost) is True
 
 
 def test_stale_year_candidate_sinks_to_bottom_of_many(monkeypatch):
