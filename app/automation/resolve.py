@@ -253,7 +253,12 @@ def _match_restaurant(requested: str, candidates: list[str]) -> tuple[str, str |
     מספיקות (אסה↛גייג'ין). (ב) בין כמה מועמדים מאותו מותג מכריע טוקן סניף מהבקשה
     (בזל→רוסטיקו בזל); טוקן סניף שאינו מופיע באף מועמד חוסם בחירה שקטה בסניף אחר
     (רוסטיקו בזל ↛ רוטשילד) — הנחת סדר-מילים: <מותג> <סניף> <עיר>, כך שטוקן עיר
-    חסר אחרי שסניף כבר פגע (בזל'ה בלי עיר בכותרת) לא חוסם."""
+    חסר אחרי שסניף כבר פגע (בזל'ה בלי עיר בכותרת) לא חוסם.
+    (ג) תיקון 19.7 (סלון יווני הרצליה → צומת סביון): כשההנחה ההיא נשברת — מותג
+    דו-מילי שבו המילה השנייה ("יווני") נספרה כ"סניף שפגע" — טוקני העיר שהוחטאו
+    נבלעו והסניף השגוי נבחר בשקט. לכן: מועמד יחיד שנשאר עם טוקן-בקשה שהוחטא
+    וכותרתו מוסיפה מילות-סניף זרות לבקשה (צומת סביון) → many, לא בחירה שקטה;
+    בזל'ה (כותרת "נקייה" — כל מילותיה מכוסות ע"י הבקשה) נשארת one."""
     req = _norm(requested)
     req_words = [w for w in req.split() if len(w) >= 2]
     brand = _brand_token(req)
@@ -267,7 +272,7 @@ def _match_restaurant(requested: str, candidates: list[str]) -> tuple[str, str |
     if not good:
         return "none", None, good
     qualifiers = [w for w in req_words if w != brand and w not in _GENERIC_WORDS]
-    pool, hit_any, blocked = good, False, False
+    pool, hit_any, blocked, missed = good, False, False, False
     for q in qualifiers:
         hit = [c for c in pool if _has_token(q, _norm(c))]
         if hit:
@@ -277,9 +282,15 @@ def _match_restaurant(requested: str, candidates: list[str]) -> tuple[str, str |
         elif not hit_any:
             blocked = True
             break
+        else:
+            missed = True
     if blocked:
         return "many", None, pool
     if len(pool) == 1:
+        # כלל (ג): טוקן שהוחטא + כותרת שמוסיפה מילות-סניף שהבקשה לא הזכירה →
+        # אישור לקוח במקום סניף עיר-אחרת בשקט.
+        if missed and not _is_clean_name(req, _norm(pool[0])):
+            return "many", None, pool
         return "one", pool[0], pool
     # מעדיפים את דף ההזמנה הראשי: כותרת "נקייה" (השם + רעש בלבד). כפילויות של
     # אותה כותרת (אותו דף בשני מזהים) אינן עמימות אמיתית.
@@ -430,10 +441,25 @@ async def _ontopo_internal(name: str) -> list[dict]:
             if venues:
                 break
             await asyncio.sleep(_INTERNAL_GAP_S)
+        # באג סלון-יווני 19.7: שאילתת המותג ("סלון") מחזירה עשרות מקומות בסדר של
+        # אונטופו, והחיתוך [:5] הפיל את הסניף המבוקש (הרצליה — מקום 6 מתוך 12).
+        # ממיינים לפי התאמה לבקשה המלאה (_brand_first: טוקני סניף/עיר מהבקשה)
+        # לפני החיתוך — הסניף הנכון עולה לראש.
+        ranked = _brand_first(
+            name,
+            [
+                {
+                    "title": " ".join(x for x in (v.get("label"), v.get("secondary")) if x),
+                    "venue": v,
+                }
+                for v in venues
+            ],
+        )
         # venue slug ≠ page slug (אומת: page/<venue_slug> הוא 404) — דף ההזמנה יושב
         # ב-venue_profile.pages עם content_type=reservation. venue בלי דף כזה אינו
         # בר-הזמנה ב-Ontopo ונשמט (אולי Tabit/האתר העצמי יחזיקו אותו).
-        for v in venues[:5]:
+        for r in ranked[:5]:
+            v = r["venue"]
             await asyncio.sleep(_INTERNAL_GAP_S)
             try:
                 prof = (
