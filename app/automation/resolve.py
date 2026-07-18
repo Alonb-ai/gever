@@ -17,6 +17,7 @@ endpoints לא רשמיים → כל כשל נופל בשקט לשלב 2. שלב
 """
 
 import asyncio
+import datetime
 import html
 import json
 import logging
@@ -836,6 +837,22 @@ async def resolve_cinema_url(movie: str, chain: str | None = None) -> dict:
 # כרטיסים") מציגים כפתור רכישה; דף הרפאים של עומר אדם — אפס מופעים לכולם.
 _EVENT_ALIVE_MARKS = ("רכישת כרטיסים", "הזמנת כרטיסים", "בחירת מושבים")
 
+_TITLE_YEAR = re.compile(r"\b(20\d{2})\b")
+
+
+def _demote_stale_years(candidates: list[dict]) -> list[dict]:
+    """מועמד שכל השנים בכותרתו כבר עברו ("עדן חסון 2024" — QA חי הופעות #4) הוא
+    כמעט תמיד דף אירוע ישן; לא נזרק (ליתר ביטחון) אלא יורד לתחתית — מועמד עדכני
+    גובר עליו, וברשימת many הלקוח רואה קודם את העדכני. מיון יציב — סדר Brave
+    נשמר בתוך כל קבוצה."""
+    this_year = datetime.date.today().year
+
+    def _stale(c: dict) -> bool:
+        years = [int(y) for y in _TITLE_YEAR.findall(c["title"])]
+        return bool(years) and max(years) < this_year
+
+    return sorted(candidates, key=_stale)
+
 
 def _event_looks_dead(body: str) -> bool:
     return not any(m in body for m in _EVENT_ALIVE_MARKS)
@@ -862,7 +879,7 @@ async def resolve_event_url(artist: str, venue: str = "") -> dict:
     באותו דפוס של לולאת דף-הרפאים של המסעדות (_pick)."""
     candidates = await search_events(artist, venue)
     await _real_titles(candidates)
-    pool = list(candidates)
+    pool = _demote_stale_years(candidates)
     while True:
         picked = _pick_cinema(artist, pool, _EVENT_PLATFORMS, drop_listings=False)
         if picked["status"] != "one" or not await _event_dead(picked["url"]):

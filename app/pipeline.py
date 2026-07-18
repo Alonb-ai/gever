@@ -991,6 +991,21 @@ INTENTS: dict[str, dict] = {
         "site": "run_booking (MISSING, inline ×2: רשימה/שאלה ישירה)",
         "test": "tests/test_realbooking.py, tests/test_pause_resume.py",
     },
+    "multi_ask": {
+        "goal": (
+            "הטופס עצר על כמה שדות חובה חסרים בבת אחת (ורטיקל הביטוח) — הודעה "
+            "אחת שמבקשת את כולם: פתיח קצר בדמות, אחריו רשימת הפריטים בדיוק כפי "
+            "שנמסרה (items — כלול אותה כלשונה, שורה-שורה, בלי לשנות בה תו), "
+            "וסיום קצר שמזמין לענות על הכל בהודעה אחת"
+        ),
+        "ctx": ("items",),
+        "forbid": _NOT_DONE,
+        "must_ctx": ("items",),
+        "max_chars": 900,
+        "fallback": None,
+        "site": "run_booking (MISSING מרובה) → _multi_ask",
+        "test": "tests/test_multi_missing.py",
+    },
     "alt_time_offer": {
         "goal": (
             "השעה שביקש תפוסה אבל יש שעות פנויות אמיתיות מהדף — הצע לסגור "
@@ -1438,21 +1453,25 @@ def _human_field(key: str, from_page: dict) -> str:
     return known.get(key) or _safe_option(from_page.get(key, "")) or key
 
 
-def _multi_ask(labels: dict, opts: dict) -> str:
+async def _multi_ask(labels: dict, opts: dict) -> str:
     """הודעת האיסוף המרוכז: כל השדות החסרים בהודעה אחת, עם האופציות האמיתיות מהדף.
-    ניטרלי-מגדר; העוגנים = רשימת הפריטים עצמה."""
-    head = _vary(
-        "כדי להמשיך, הטופס צריך עוד כמה פרטים:",
-        "עצרתי רגע — חסרים לי כמה פרטים בטופס:",
-        "צריך ממך עוד כמה פרטים ואני ממשיך:",
-    )
+    קול חופשי (QA ביטוח 18.7): הפתיח/סיום מחוללים בדמות, והרשימה עצמה עוגן must_ctx
+    מילה-במילה — המודל לא נוגע בפריטים; כל כשל נופל לנוסח הדטרמיניסטי הקיים."""
     lines = []
     for k, lbl in labels.items():
         ops = [_safe_option(o) for o in opts.get(k, [])]
         ops = [o for o in ops if o][:6]
         lines.append(f"· {lbl}" + (f" — {' / '.join(ops)}" if ops else ""))
-    tail = _vary("אפשר הכל בהודעה אחת 🤝", "הכל בהודעה אחת יעבוד מצוין", "אפשר לענות על הכל ביחד")
-    return head + "\n" + "\n".join(lines) + "\n" + tail
+    items = "\n".join(lines)
+    return await _say(
+        "multi_ask",
+        {"items": items},
+        fallback=(
+            f"כדי להמשיך, הטופס צריך עוד כמה פרטים:\n{items}\nאפשר הכל בהודעה אחת 🤝",
+            f"עצרתי רגע — חסרים לי כמה פרטים בטופס:\n{items}\nהכל בהודעה אחת יעבוד מצוין",
+            f"צריך ממך עוד כמה פרטים ואני ממשיך:\n{items}\nאפשר לענות על הכל ביחד",
+        ),
+    )
 
 
 def _ages(birth_dates: list) -> list[int]:
@@ -2786,7 +2805,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                     "labels": labels,
                     "options": [],
                 }
-                await _send_and_record(phone, _multi_ask(labels, opts))
+                await _send_and_record(phone, await _multi_ask(labels, opts))
                 return
             _human = {
                 "email": "מייל",

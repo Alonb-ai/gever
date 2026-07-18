@@ -1603,6 +1603,42 @@ def test_event_looks_dead_markers():
     assert _event_looks_dead("<button>הזמנת כרטיסים</button>") is False
 
 
+def test_stale_year_candidate_sinks_to_bottom_of_many(monkeypatch):
+    """QA חי הופעות #4 (עדן חסון 2024): מועמד שכותרתו נושאת רק שנה שעברה יורד
+    לתחתית רשימת ה-many — הלקוח רואה קודם את המועדים העדכניים."""
+    monkeypatch.setattr(resolve, "_event_dead", _all_alive)
+    monkeypatch.setattr(
+        resolve,
+        "search_events",
+        _fake_search_list(
+            [
+                {
+                    "title": "עדן חסון הופעות 2024",
+                    "url": "https://www.kupat.co.il/show/edenhason-old",
+                    "platform": "kupat",
+                },
+                {
+                    "title": "עדן חסון הופעות 2026",
+                    "url": "https://www.kupat.co.il/show/edenhason",
+                    "platform": "kupat",
+                },
+            ]
+        ),
+    )
+    res = asyncio.run(resolve.resolve_event_url("עדן חסון"))
+    assert res["status"] == "many"
+    titles = [c["title"] for c in res["candidates"]]
+    assert titles == ["עדן חסון הופעות 2026", "עדן חסון הופעות 2024"]
+    # כותרת בלי שנה בכלל אינה "ישנה" — לא זזה
+    fresh = resolve._demote_stale_years(
+        [
+            {"title": "עדן חסון 2024", "url": "u1", "platform": "kupat"},
+            {"title": "עדן חסון בקיסריה", "url": "u2", "platform": "kupat"},
+        ]
+    )
+    assert [c["url"] for c in fresh] == ["u2", "u1"]
+
+
 def test_search_events_venue_enters_query(monkeypatch):
     """venue מחדד את השאילתה לאמן רב-ערים; בלי venue — בלי רווח כפול."""
     queries = []

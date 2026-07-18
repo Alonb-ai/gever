@@ -84,6 +84,40 @@ def test_insurance_task_carries_trip_iron_rules_and_markers():
     assert "BOOKED" in _build_task({**_JOB, "dry_run": False})
 
 
+def test_insurance_task_dates_carry_full_year_and_cross_year():
+    """QA ביטוח 18.7 (#6): הצינור מעביר "03.08" בלי שנה — ה-task מקבל תאריך מלא
+    DD.MM.YYYY שהושלם מההקשר, ונסיעה חוצת-שנה מקבלת שנת חזרה נכונה."""
+    import datetime
+    import re
+
+    from app.automation.bu_runner import _full_date
+
+    task = _build_task({**_JOB, "dry_run": True})
+    assert re.search(r"יציאה 03\.08\.20\d\d\b", task)
+    assert re.search(r"חזרה 17\.08\.20\d\d\b", task)
+    # דטרמיניסטי עם floor מפורש: תאריך עתידי השנה נשאר; תאריך שעבר → שנה הבאה
+    floor = datetime.date(2026, 7, 19)
+    assert _full_date("01.09", floor) == "01.09.2026"
+    assert _full_date("01.03", floor) == "01.03.2027"
+    # חוצת-שנה: חזרה 03.01 אחרי יציאה 28.12 גולשת לשנה הבאה
+    dep = _full_date("28.12", floor)
+    ret = _full_date("03.01", datetime.datetime.strptime(dep, "%d.%m.%Y").date())
+    assert int(ret[-4:]) == int(dep[-4:]) + 1
+    # עם שנה מפורשת / לא-פריק / ריק — לא נוגעים
+    assert _full_date("17.08.2027") == "17.08.2027"
+    assert _full_date("31.02", floor) == "31.02"
+    assert _full_date("") == ""
+
+
+def test_insurance_task_requires_traveler_tag_in_field_labels():
+    """QA ביטוח 18.7 (#3): FIELD של שדה פר-נוסע חייב תיוג "(נוסע N)" בתווית —
+    בלעדיו הלקוח לא יודע על מי מהנוסעים השאלה."""
+    task = _build_task({**_JOB, "dry_run": True})
+    flat = " ".join(task.split())
+    assert 'תיוג "(נוסע N)"' in flat
+    assert "FIELD p2_gender: מגדר (נוסע 2)" in flat
+
+
 def test_insurance_resume_lists_form_answers_explicitly():
     job = {
         **_JOB,

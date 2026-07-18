@@ -15,6 +15,7 @@
 """
 
 import asyncio
+import datetime
 import json
 import os
 import re
@@ -428,6 +429,37 @@ SUMMARY_REACHED 21:00 | פרטר שורה 12 מושבים 7,8 — סה"כ 640 ש
     return steps + tail + "\nמסך התשלום הוא מסך הסיכום שלך — עצור לפניו."
 
 
+# תאריך יום.חודש בלי שנה — הצינור מעביר "01.09" וטופס הביטוח דורש תאריך מלא
+# (QA ביטוח 18.7 #6: נסיעה חוצת-שנה בסיכון). ההשלמה בצד ה-builder, מההקשר.
+_DM_ONLY = re.compile(r"^(\d{1,2})\.(\d{1,2})$")
+
+
+def _full_date(s: str, floor: "datetime.date | None" = None) -> str:
+    """DD.MM בלי שנה → DD.MM.YYYY: התאריך העתידי הקרוב ביחס ל-floor (ברירת מחדל:
+    היום) — ביטוח נקנה קדימה, אז תאריך שכבר עבר מקבל את השנה הבאה; תאריך חזרה
+    שקטן מתאריך היציאה (floor=יציאה) גולש לשנה הבאה. עם שנה / לא-פריק → כמו שהוא."""
+    s = (s or "").strip()
+    m = _DM_ONLY.match(s)
+    if not m:
+        return s
+    day, month = int(m.group(1)), int(m.group(2))
+    floor = floor or datetime.date.today()
+    for year in (floor.year, floor.year + 1):
+        try:
+            if datetime.date(year, month, day) >= floor:
+                return f"{day:02d}.{month:02d}.{year}"
+        except ValueError:  # 31.02 וכדומה — הטופס יכריע בעצמו
+            return s
+    return s
+
+
+def _parse_full(s: str) -> "datetime.date | None":
+    try:
+        return datetime.datetime.strptime(s, "%d.%m.%Y").date()
+    except ValueError:
+        return None
+
+
 def _build_insurance_task(job: dict) -> str:
     # ורטיקל ביטוח (פספורטכארד, ביטוח נסיעות) — אותם עקרונות: מטרה + חוקי ברזל, בלי
     # selectors. אותם markers; ההרחבות המותרות: payload אחרי SUMMARY_REACHED | (הפרמיה),
@@ -445,10 +477,14 @@ def _build_insurance_task(job: dict) -> str:
 עצרת כי חסרו פרטים מהלקוח — הוא השלים אותם. אלה הערכים לשדות שדיווחת כחסרים
 (המפתח = השם שנתת בדיווח; הזן כל ערך בשדה המתאים לו):{answers or " (אין)"}"""
     else:
+        # תאריכים מלאים ל-task (DD.MM.YYYY): שנה חסרה מושלמת מההקשר — יציאה ביחס
+        # להיום, חזרה ביחס ליציאה (נסיעה חוצת-שנה מקבלת את השנה הנכונה).
+        depart = _full_date(job.get("date") or "")
+        ret = _full_date(ins.get("return_date") or "", _parse_full(depart))
         intro = f"""
 המשימה: להגיע להצעת מחיר לביטוח נסיעות לחו"ל באתר פספורטכארד ({len(travelers)} נוסעים).
 התחל מהכתובת: {job["url"]} (פאנל הרכישה, בעברית). זהו טופס רב-שלבי.
-פרטי הנסיעה: יעד {ins.get("destination") or ""}, יציאה {job["date"]}, חזרה {ins.get("return_date") or ""}.
+פרטי הנסיעה: יעד {ins.get("destination") or ""}, יציאה {depart}, חזרה {ret}.
 הנוסעים:
 {trav or "  (לא נמסרו)"}"""
     steps = f"""{intro}
@@ -486,7 +522,9 @@ FIELD שמסבירה שהערך נדחה ומה הטופס דורש.
 עבור על *כל* הדף, אסוף את כל שדות החובה הריקים שאין לך ערך עבורם, ורק אז עצור ודווח
 את כולם יחד:
 - לכל שדה שורת FIELD <מפתח>: <תווית השדה בעברית כפי שמופיעה בדף>. המפתח באנגלית,
-  אותיות קטנות ו-_, ייחודי (למשל id_number, passenger2_birth_date).
+  אותיות קטנות ו-_, ייחודי (למשל id_number, passenger2_birth_date). שדה ששייך
+  לנוסע מסוים — חובה שהתווית תכלול תיוג "(נוסע N)" לפי המספור שלמעלה, למשל:
+  FIELD p2_gender: מגדר (נוסע 2) — בלעדיו הלקוח לא יודע על מי מהנוסעים השאלה.
 - שדה שהוא בחירה מרשימה — הוסף גם שורת OPTIONS <מפתח>: עם האפשרויות בדיוק כפי
   שמופיעות בדף, מופרדות ב-|.
 - שורת הסיום: MISSING:<מפתח1>|<מפתח2> — כל המפתחות בשורה אחת, מופרדים ב-| בלי

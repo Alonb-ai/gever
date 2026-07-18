@@ -98,12 +98,35 @@ def test_multi_ask_carries_all_labels_and_options_in_character():
         "pickup_point": "נקודת איסוף הכרטיס",
     }
     opts = {"pickup_point": ['נתב"ג טרמינל 3', "צומת ספרים"]}
-    msg = pipeline._multi_ask(labels, opts)
+    msg = asyncio.run(pipeline._multi_ask(labels, opts))
     assert "מספר תעודת זהות" in msg
     assert "נקודת איסוף הכרטיס" in msg
     assert 'נתב"ג טרמינל 3' in msg and "צומת ספרים" in msg
     assert not character_leaks(msg)
     assert "שנייה" not in msg
+
+
+def test_multi_ask_free_voice_keeps_items_verbatim(monkeypatch):
+    """QA ביטוח 18.7 (#5): _multi_ask עבר לקול החופשי — פלט מודל תקין עם הרשימה
+    מילה-במילה מתקבל; פלט שמשכתב את הרשימה נפסל (must_ctx) ונופל לנוסח הקיים."""
+    labels = {"id_number": "מספר תעודת זהות", "pickup_point": "נקודת איסוף הכרטיס"}
+    opts = {"pickup_point": ["צומת ספרים"]}
+    items = "· מספר תעודת זהות\n· נקודת איסוף הכרטיס — צומת ספרים"
+
+    async def good_model(intent, ctx):
+        assert intent == "multi_ask" and ctx["items"] == items
+        return f"עצרתי רגע על הטופס — צריך ממך:\n{items}\nהכל בהודעה אחת ואני ממשיך"
+
+    monkeypatch.setattr(pipeline, "_say_model", good_model)
+    msg = asyncio.run(pipeline._multi_ask(labels, opts))
+    assert items in msg and msg.startswith("עצרתי רגע על הטופס")
+
+    async def bad_model(intent, ctx):
+        return 'חסרים לי ת"ז ונקודת איסוף, שלח בבקשה'  # שכתב את הרשימה — נפסל
+
+    monkeypatch.setattr(pipeline, "_say_model", bad_model)
+    msg = asyncio.run(pipeline._multi_ask(labels, opts))
+    assert items in msg  # ה-fallback הדטרמיניסטי מחזיק את הרשימה כלשונה
 
 
 def test_human_field_prefers_known_then_page_label_then_key():
