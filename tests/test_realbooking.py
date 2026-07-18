@@ -955,6 +955,41 @@ def test_list_rows_titles_show_distinguishing_location():
     assert rows[0]["title"] == "AKA" and rows[1]["title"] == "הרצליה"
 
 
+def test_list_rows_greco_screenshot_clean():
+    """שחזור צילום רשימת גרקו (17.7): אחרי תיקון השורש ב-resolve האופציות מגיעות
+    בלי עיר כפולה, והרשימה יוצאת בדיוק כמו שבעל המוצר ציפה — כותרת = המיקום
+    המבדיל, description = השם המלא בלי "כפר סבא כפר סבא"."""
+    from app.whatsapp.client import _list_rows
+
+    options = [
+        "גרקו קיטשן כפר סבא",
+        "גרקו הוד השרון",
+        "גרקו תל אביב-יפו",
+        "גרקו אילת",
+        "גרקו הרצליה",
+    ]
+    rows = _list_rows(options)
+    assert [r["title"] for r in rows] == [
+        "קיטשן כפר סבא",
+        "הוד השרון",
+        "תל אביב-יפו",
+        "אילת",
+        "הרצליה",
+    ]
+    assert [r["description"] for r in rows] == options  # השם המלא, פעם אחת בלבד
+    assert all(len(r["title"]) <= 24 for r in rows)  # מגבלת Meta נשמרת
+
+
+def test_safe_option_collapses_repeated_word_sequences():
+    """הרחבת ההגנה מ-15.7: לא רק מילה בודדת כפולה ("הרצליה הרצליה") — גם רצף
+    רב-מילי ("כפר סבא כפר סבא") שמגיע כפול כבר בכותרת מהפלטפורמה/Brave."""
+    assert pipeline._safe_option("גרקו קיטשן כפר סבא כפר סבא") == "גרקו קיטשן כפר סבא"
+    assert pipeline._safe_option("גרקו הוד השרון הוד השרון") == "גרקו הוד השרון"
+    assert pipeline._safe_option("גרקו הרצליה הרצליה") == "גרקו הרצליה"  # ההתנהגות הישנה נשמרת
+    # לא רצף זהה (מקף) — לא נוגעים כאן; המקרה מטופל בשורש (resolve._with_city)
+    assert pipeline._safe_option("גרקו תל אביב תל אביב-יפו") == "גרקו תל אביב תל אביב-יפו"
+
+
 def test_webhook_routes_list_reply_as_text():
     """בחירה מהרשימה חוזרת ב-webhook כ-interactive → נכנסת לשיחה כטקסט (השם המלא)."""
     import app.main as main_mod

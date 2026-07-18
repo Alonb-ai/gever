@@ -1307,6 +1307,101 @@ def test_tabit_internal_matches_hebrew_via_aliases(monkeypatch):
     assert all(c["platform"] == "tabit" for c in cands)
 
 
+def test_with_city_no_double_paste():
+    """דה-דופ שם+עיר: עיר שכבר בשם לא מודבקת, חפיפת רישא (עם/בלי מקף) נבלעת
+    בעיר המלאה, ושם שלא מכיל את העיר — העיר כן מודבקת."""
+    f = resolve._with_city
+    assert f("גרקו קיטשן כפר סבא", "כפר סבא") == "גרקו קיטשן כפר סבא"  # עיר כבר בשם
+    assert f("גרקו הוד השרון", "הוד השרון") == "גרקו הוד השרון"
+    assert f("גרקו תל אביב", "תל אביב-יפו") == "גרקו תל אביב-יפו"  # חפיפה מול מקף
+    assert f("גרקו תל-אביב", "תל אביב-יפו") == "גרקו תל אביב-יפו"  # מקף גם בשם
+    assert f("גרקו", "אילת") == "גרקו אילת"  # השם לא מכיל עיר — מודבקת כרגיל
+    assert f("גרקו", "") == "גרקו" and f("", "אילת") == "אילת"
+
+
+def test_tabit_internal_city_not_glued_twice(monkeypatch):
+    """שחזור צילום רשימת גרקו (17.7): שם הארגון בטאביט כבר מכיל את העיר —
+    "קיטשן כפר סבא כפר סבא" / "הוד השרון הוד השרון" / "תל אביב תל אביב-יפו".
+    אחרי התיקון: התוויות נקיות, והתקינים ("גרקו"+אילת/הרצליה) לא נפגעים."""
+
+    def org(i, name, city):
+        return {
+            "_id": str(i),
+            "name": name,
+            "city": city,
+            "aliases": [],
+            "services": {"book": True},
+        }
+
+    def handlers(url, params):
+        return {
+            "organizations": [
+                org(1, "גרקו קיטשן כפר סבא", "כפר סבא"),
+                org(2, "גרקו הוד השרון", "הוד השרון"),
+                org(3, "גרקו תל אביב", "תל אביב-יפו"),
+                org(4, "גרקו", "אילת"),
+                org(5, "גרקו הרצליה", "הרצליה"),
+            ]
+        }
+
+    _fake_internal_http(monkeypatch, handlers)
+    cands = asyncio.run(resolve._tabit_internal("גרקו"))
+    assert [c["title"] for c in cands] == [
+        "גרקו קיטשן כפר סבא",
+        "גרקו הוד השרון",
+        "גרקו תל אביב-יפו",
+        "גרקו אילת",
+        "גרקו הרצליה",
+    ]
+
+
+def test_tabit_internal_colliding_titles_stay_distinct(monkeypatch):
+    """שני סניפים שהדה-דופ היה הופך לאותה תווית — חוזרים לצירוף הגולמי כדי
+    שהשורות ברשימה יישארו מבחינות זו מזו."""
+
+    def handlers(url, params):
+        return {
+            "organizations": [
+                {
+                    "_id": "1",
+                    "name": "גרקו תל אביב",
+                    "city": "תל אביב-יפו",
+                    "aliases": [],
+                    "services": {"book": True},
+                },
+                {
+                    "_id": "2",
+                    "name": "גרקו",
+                    "city": "תל אביב-יפו",
+                    "aliases": [],
+                    "services": {"book": True},
+                },
+            ]
+        }
+
+    _fake_internal_http(monkeypatch, handlers)
+    titles = [c["title"] for c in asyncio.run(resolve._tabit_internal("גרקו"))]
+    assert len(set(titles)) == 2  # לא קרסו לאותה מחרוזת
+
+
+def test_ontopo_internal_secondary_not_glued_twice(monkeypatch):
+    """אותו דה-דופ גם במסלול Ontopo: label שכבר מכיל את ה-secondary (העיר)."""
+
+    def handlers(url, params):
+        if url.endswith("/unified_search"):
+            return {
+                "found": True,
+                "suggestions": [
+                    {"type": "venue", "label": "גרקו הרצליה", "secondary": "הרצליה", "slug": "9"}
+                ],
+            }
+        return {"pages": [{"slug": "77", "content_type": "reservation"}]}
+
+    _fake_internal_http(monkeypatch, handlers)
+    cands = asyncio.run(resolve._ontopo_internal("גרקו הרצליה"))
+    assert [c["title"] for c in cands] == ["גרקו הרצליה"]
+
+
 def test_resolve_internal_wins_without_brave(monkeypatch):
     """שלב 1 מכריע → Brave לא נקרא בכלל, via=internal, ודף הרפאים עדיין נבדק."""
 

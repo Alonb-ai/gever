@@ -376,12 +376,41 @@ def _queries(name: str) -> list[str]:
     return out
 
 
+def _with_city(name: str, city: str) -> str:
+    """שם מועמד + עיר לתווית אחת, בלי להדביק את העיר פעמיים (נצפה חי בצילום
+    רשימת גרקו: "גרקו קיטשן כפר סבא כפר סבא"). ההשוואה עמידה למקפים (מקף==רווח):
+    עיר שכבר מופיעה בשם — לא מודבקת; סוף-שם שחופף את תחילת העיר ("גרקו תל אביב"
+    + "תל אביב-יפו") נבלע בעיר המלאה."""
+    name, city = " ".join(name.split()), " ".join(city.split())
+    if not name or not city:
+        return name or city
+    n, c = name.replace("-", " "), city.replace("-", " ")
+    if f" {c} " in f" {n} ":
+        return name
+    words = c.split()
+    for k in range(len(words) - 1, 0, -1):
+        head = " ".join(words[:k])
+        if n == head or n.endswith(f" {head}"):
+            return f"{name[: len(n) - len(head)].strip()} {city}".strip()
+    return f"{name} {city}"
+
+
+def _distinct_titles(cands: list[dict], raws: list[str]) -> None:
+    """אם הדה-דופ של _with_city השאיר שתי תוויות זהות — המתנגשות חוזרות לצירוף
+    הגולמי (שם+עיר כפי שהגיעו), כדי שהלקוח יוכל להבחין בין השורות."""
+    titles = [c["title"] for c in cands]
+    for cand, raw in zip(cands, raws):
+        if titles.count(cand["title"]) > 1:
+            cand["title"] = raw
+
+
 async def _ontopo_internal(name: str) -> list[dict]:
     """מועמדי {title, url, platform} מהחיפוש הפנימי של Ontopo; [] → אין (ממשיכים הלאה)."""
     brand = _brand_token(_norm(name))
     if not brand:
         return []
     out: list[dict] = []
+    raws: list[str] = []
     async with httpx.AsyncClient(timeout=10, headers={"User-Agent": UA}) as http:
         venues: list[dict] = []
         for q in _queries(name):
@@ -419,14 +448,16 @@ async def _ontopo_internal(name: str) -> list[dict]:
             page = next((p for p in pages if p.get("content_type") == "reservation"), None)
             if not page or not page.get("slug"):
                 continue
-            title = " ".join(x for x in (v.get("label"), v.get("secondary")) if x)
+            label, secondary = v.get("label") or "", v.get("secondary") or ""
+            raws.append(" ".join(x for x in (label, secondary) if x))
             out.append(
                 {
-                    "title": title,
+                    "title": _with_city(label, secondary),
                     "url": f"https://ontopo.com/he/il/page/{page['slug']}",
                     "platform": "ontopo",
                 }
             )
+    _distinct_titles(out, raws)
     return out
 
 
@@ -441,18 +472,24 @@ async def _tabit_internal(name: str) -> list[dict]:
             resp = await http.get(_TABIT_BRIDGE, params={"q": q})
             resp.raise_for_status()
             orgs = resp.json().get("organizations") or []
-            good = []
+            good, raws = [], []
             for o in orgs:
                 if not o.get("_id") or not (o.get("services") or {}).get("book"):
                     continue
                 names = [o.get("name") or ""] + list(o.get("aliases") or [])
                 if not any(_has_token(brand, _norm(n)) for n in names if n):
                     continue
-                title = " ".join(x for x in (o.get("name"), o.get("city")) if x)
+                org_name, org_city = o.get("name") or "", o.get("city") or ""
+                raws.append(" ".join(x for x in (org_name, org_city) if x))
                 good.append(
-                    {"title": title, "url": _TABIT_ORG_URL.format(o["_id"]), "platform": "tabit"}
+                    {
+                        "title": _with_city(org_name, org_city),
+                        "url": _TABIT_ORG_URL.format(o["_id"]),
+                        "platform": "tabit",
+                    }
                 )
             if good:
+                _distinct_titles(good, raws)
                 return good
             await asyncio.sleep(_INTERNAL_GAP_S)
     return []
