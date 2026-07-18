@@ -1935,10 +1935,29 @@ def _recs_note(phone: str) -> str:
 async def converse(phone: str, text: str) -> dict:
     """תור שיחה אחד. הקריאה ל-Gemini חוסמת — מריצים ב-thread כדי לא לחסום.
     שומר את התור (טקסט המשתמש + ה-reply בדמות, בלי ה-truth_note) ל-_turns ול-Supabase,
-    כדי שהשיחה תשרוד restart/redeploy ולא "תשכח" על מה דיברנו."""
-    chat, turns, prefs = await _chat_for(phone)
-    resp = await asyncio.to_thread(chat.send_message, text)
-    result = json.loads(resp.text)
+    כדי שהשיחה תשרוד restart/redeploy ולא "תשכח" על מה דיברנו.
+
+    כשל חד-פעמי של קריאת המודל — 5xx רגעי, תשובה בלי חלקי טקסט (resp.text=None)
+    או JSON קטוע — מקבל ניסיון שני עם chat טרי לפני שהחריגה מטפסת לרשת הביטחון
+    של handle_inbound: בלי זה blip של שנייה הפך ל"עמוס אצלי" והודעת הלקוח אבדה
+    מזיכרון השיחה (נצפה חי 18.7, בלי שום פריצת מכסה). כשל עקבי (מכסה/רשת למטה)
+    עדיין מטפס לרשת — זה תפקידה."""
+    was_reset = phone in _reset_next  # _chat_for צורך את הדגל — ה-retry צריך אותו שוב
+    for attempt in (0, 1):
+        chat, turns, prefs = await _chat_for(phone)
+        try:
+            resp = await asyncio.to_thread(chat.send_message, text)
+            if resp.text is None:  # אין חלקי טקסט (חסימה/קיצוץ) — json.loads היה קורס על None
+                raise ValueError("model response has no text parts")
+            result = json.loads(resp.text)  # JSONDecodeError הוא ValueError — נתפס למטה
+            break
+        except (genai.errors.APIError, ValueError) as exc:
+            if attempt:
+                raise
+            log.warning("converse model call failed for %s — retrying once: %r", phone, exc)
+            if was_reset:
+                _reset_next.add(phone)
+            await asyncio.sleep(0.5)
     # ts פר-תור: בלעדיו כל תחקיר עתידי נשען רק על זמני Browserbase (לקח 15.7)
     turns = [
         *turns,
