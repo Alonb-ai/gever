@@ -1826,7 +1826,8 @@ def test_ontopo_internal_ranks_requested_branch_before_cap(monkeypatch):
 
     _fake_internal_http(monkeypatch, handlers)
     cands = asyncio.run(resolve._ontopo_internal("סלון יווני הרצליה פיתוח"))
-    assert cands[0]["title"] == "סלון יווני הרצליה הרצליה"
+    # _with_city (fix/branch-labels) מנקה את כפילות העיר — הדירוג נשמר והכותרת נקייה
+    assert cands[0]["title"] == "סלון יווני הרצליה"
     assert cands[0]["url"] == "https://ontopo.com/he/il/page/96"
 
 
