@@ -112,6 +112,15 @@ def test_empty_owner_env_falls_back_to_prod(monkeypatch):
     assert Settings(_env_file=None).bb_session_owner == "prod"
 
 
+def test_owner_tag_prod_exact_dev_per_pid(monkeypatch):
+    """ "prod" נשאר בדיוק "prod" (ה-sweep ב-deploy מנקה את הקונטיינר הקודם); בדב התג
+    ייחודי לתהליך (owner-pid) — שני תהליכי QA מקבילים לא הורגים זה לזה סשנים (18.7)."""
+    monkeypatch.setattr(browser_book.settings, "bb_session_owner", "prod")
+    assert browser_book._owner_tag() == "prod"
+    monkeypatch.setattr(browser_book.settings, "bb_session_owner", "dev")
+    assert browser_book._owner_tag() == f"dev-{os.getpid()}"
+
+
 def test_create_session_tags_owner(monkeypatch):
     """כל סשן חדש נושא userMetadata.owner — התג שמבדיל אותו מריצות dev/בנצ' ב-sweep."""
     bodies = []

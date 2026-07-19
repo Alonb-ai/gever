@@ -112,6 +112,15 @@ async def _bb(method: str, path: str, body: dict | None = None) -> dict:
         return resp.json()
 
 
+def _owner_tag() -> str:
+    """תג הבעלות של התהליך. בפרוד — "prod" בדיוק: ה-sweep בעליית הקונטיינר חייב לנקות
+    סשנים דלופים של הקונטיינר הקודם. בדב — ייחודי לתהליך (owner-pid): ב-18.7 שני תהליכי
+    QA מקבילים עם תג "dev" זהה — ה-sweep של אחד שחרר סשן RUNNING חי של השני. סשן דב
+    דלוף נסגר ממילא ב-timeout של Browserbase (1800 שנ'), אז אין צורך בניקוי חוצה-תהליכים."""
+    owner = settings.bb_session_owner
+    return owner if owner == "prod" else f"{owner}-{os.getpid()}"
+
+
 async def _bb_create_session() -> tuple[str, str]:
     """סשן Browserbase חדש → (session_id, connectUrl). keepAlive: הסשן שורד ניתוק
     CDP כדי לאפשר pause-resume (עצירה על שאלה ללקוח → המשך מאותו מסך). timeout=1800
@@ -125,7 +134,7 @@ async def _bb_create_session() -> tuple[str, str]:
             "keepAlive": True,
             "timeout": 1800,
             # תג בעלות — sweep_orphan_sessions משחרר רק סשנים עם ה-owner שלו.
-            "userMetadata": {"owner": settings.bb_session_owner},
+            "userMetadata": {"owner": _owner_tag()},
         },
     )
     return data["id"], data["connectUrl"]
@@ -149,11 +158,8 @@ async def sweep_orphan_sessions() -> int:
     (ישן/זר) לא נוגעים בו — פוקע לבד ב-timeout. מחזיר כמה שוחררו."""
     data = await _bb("GET", f"/sessions?projectId={settings.browserbase_project_id}&status=RUNNING")
     sessions = data if isinstance(data, list) else []
-    mine = [
-        s
-        for s in sessions
-        if (s.get("userMetadata") or {}).get("owner") == settings.bb_session_owner
-    ]
+    tag = _owner_tag()
+    mine = [s for s in sessions if (s.get("userMetadata") or {}).get("owner") == tag]
     for s in mine:
         await release_session(s.get("id"))
     return len(mine)
