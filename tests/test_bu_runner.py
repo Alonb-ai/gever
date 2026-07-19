@@ -293,6 +293,8 @@ def test_cinema_task_keeps_contract_and_is_principled_not_recipe():
     # לקח סבב סינמה סיטי (ריצה חיה 15.07.26): קליק תכנותי על SVG לא נקלט —
     # צריך רצף אירועי עכבר על אלמנט ה-hit-area (8 צעדי ניסוי-וטעייה בלי הרמז)
     assert "hit-area" in recon and "mousedown/mouseup/click" in recon
+    # QA 19.7 (הוט): evaluate סינתטי נדחה — אחרי שני כשלונות עוברים לקליק קואורדינטות אמיתי
+    assert "coordinate_x" in recon
     # שני חוקי הברזל הרוחביים (189241a במסעדות) חלים גם על הקולנוע (⚠ מה-ledger)
     assert "מנוע חיפוש" in recon and "FAILED:broken_page מיד" in recon
     # לקח ההופעות (e60f9d0): תבניות "אזלו" נסתרות לא קובעות זמינות — רק מה שמוצג
@@ -435,6 +437,8 @@ def test_concert_task_keeps_contract_and_event_rules():
     assert 'SUMMARY_REACHED 21:00 | פרטר שורה 12 מושבים 7,8 — סה"כ 640 ש"ח' in recon
     # לקחי הקולנוע מועתקים מילה-במילה: SVG hit-area + אימות אבטחה + מפה היררכית
     assert "hit-area" in recon and "mousedown/mouseup/click" in recon
+    # QA 19.7 (הוט): evaluate סינתטי נדחה — אחרי שני כשלונות עוברים לקליק קואורדינטות אמיתי
+    assert "coordinate_x" in recon
     assert "אימות אבטחה" in recon
     assert "גוש" in recon  # אולמות גדולים — בחירת גוש/מפלס לפני מפת המושבים
     # קיר התשלום הוא הסוף הטבעי (כרטיס דיגיטלי) — כמו קולנוע
@@ -691,3 +695,16 @@ def test_shorten_page_readiness_patches_default_only(monkeypatch):
     assert calls[0] == ("http://x", PAGE_READY_TIMEOUT_S, "load", None)
     assert calls[1][1] == 5.0
     assert PAGE_READY_TIMEOUT_S == 3.0
+
+
+def test_runner_enables_coordinate_clicking_after_agent_build():
+    """QA 19.7 (הוט): browser-use מדליק קליק-קואורדינטות רק ל-allowlist מודלים —
+    flash לא שם, ולכן פעולת click הייתה index-only ומפות SVG נפלו ל-evaluate סינתטי.
+    בדיקה טקסטואלית (browser_use לא מותקן ב-.venv): ההדלקה קיימת אחרי בניית ה-Agent."""
+    import pathlib
+
+    runner = pathlib.Path(__file__).parent.parent / "app" / "automation" / "bu_runner.py"
+    src = runner.read_text(encoding="utf-8")
+    build = src.index("agent = Agent(**agent_kwargs)")
+    enable = src.index("agent.tools.set_coordinate_clicking(True)")
+    assert build < enable < src.index("await agent.run(")
