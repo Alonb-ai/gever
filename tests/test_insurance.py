@@ -132,6 +132,34 @@ def test_insurance_resume_lists_form_answers_explicitly():
     assert "אל תנווט לכתובת אחרת" in task
 
 
+def test_insurance_task_traveler_rules_from_aig_recon():
+    """Recon AIG 18.7: הריצה עצרה עם MISSING על תאריך לידה שנמסר, וההמשך הגיש
+    SUMMARY_REACHED על נוסע אחד מתוך שניים — שני חוקי-הנוסעים חייבים להיות ב-task."""
+    task = _build_task({**_JOB, "dry_run": True})
+    assert 'לעולם אינו שדה "חסר"' in task
+    assert "לכסות את כל 2 הנוסעים" in task
+    assert "אל תדווח עליו SUMMARY_REACHED" in task
+    # בלי רשימת נוסעים אין את החוקים — "כל 0 הנוסעים" היה הנחיה הפוכה
+    bare = _build_task({**_JOB, "dry_run": True, "insurance": {**_INS, "travelers": []}})
+    assert "כל 0 הנוסעים" not in bare
+    assert 'לעולם אינו שדה "חסר"' not in bare
+
+
+def test_insurance_resume_carries_travelers_birth_dates():
+    """Recon AIG 18.7: ה-resume נשא רק recap+תשובות, וה-agent שלא ראה את תאריכי
+    הלידה עצר עם MISSING:p1_birth_date על ערך שהלקוח כבר מסר — סבב שאלה מיותר.
+    ה-resume חייב לשאת את רשימת הנוסעים מהבקשה המקורית."""
+    job = {
+        **_JOB,
+        "dry_run": True,
+        "resume": {"recap": 'עצרתי על ת"ז'},
+        "form_answers": {"id_number": "389784208"},
+    }
+    task = _build_task(job)
+    assert "הנוסעים מהבקשה המקורית" in task
+    assert "15.05.1990" in task and "20.11.1992" in task
+
+
 def test_insurance_timeout_and_max_steps():
     assert _timeout_s({"task_type": "insurance"}) == BU_INSURANCE_TIMEOUT_S == 1200
     assert _timeout_s({}) == BU_TIMEOUT_S  # מסעדות — ללא שינוי
