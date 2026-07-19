@@ -29,6 +29,7 @@ from app.automation.browser_book import (
 )
 from app import live_link
 from app.automation.resolve import (
+    INSURANCE_COMPANIES,
     _brand_token,
     _has_token,
     _norm,
@@ -115,6 +116,9 @@ _EXTRACT = (
     "מהשאלה המרוכזת) — תשובה שלילית לכולן ⇒ 'אין'; אחרת תמצית קצרה של מה "
     "שנאמר. addons — הרחבות שהלקוח ביקש במפורש (ביטול נסיעה, כבודה, סקי, ספורט "
     "אתגרי, הריון, מכשיר נייד); שאל פעם אחת אם רוצים הרחבה, לא ביקשו ⇒ ריק. "
+    "company — רק כשהלקוח נקב בחברת ביטוח במפורש: 'פספורטכארד'→passportcard, "
+    "'הראל'→harel, 'הפניקס'→phoenix, 'AIG'→aig, 'מגדל'→migdal; לא נקב → השמט את "
+    "השדה, מבטח הוא לא ניחוש שלך (יש למערכת ברירת מחדל). "
     "תאריך לידה, תעודת זהות ותשובות בריאות לעולם אינם מנוחשים — רק מהלקוח.\n"
     "· answers: כשאמת-למערכת מפרטת שדות חסרים מהטופס (מפתח באנגלית + תווית בעברית) — "
     'כל פרט שהלקוח מסר נכנס כפריט "<מפתח>: <ערך>" עם המפתח המדויק מהרשימה, גם אם ענה '
@@ -172,6 +176,9 @@ _SCHEMA = {
         "artist": {"type": "string"},
         "venue": {"type": "string"},
         "destination": {"type": "string"},
+        # לא ב-required בכוונה: שדה לא-קריטי (יש ברירת מחדל) — הגארד ב-run_booking
+        # מאפס ערך זר/חסר לפספורטכארד, כמו chain בקולנוע.
+        "company": {"type": "string", "enum": list(INSURANCE_COMPANIES)},
         "return_date": {"type": "string"},
         "travelers_birth_dates": {"type": "array", "items": {"type": "string"}},
         "health_issues": {"type": "string"},
@@ -1589,6 +1596,7 @@ def _ages(birth_dates: list) -> list[int]:
 # שדות חבילת-המראש של הביטוח שנצברים בטיוטה (בלי name/email — נפתרים מהפרופיל).
 _INS_KEYS = (
     "destination",
+    "company",
     "date",
     "return_date",
     "travelers_birth_dates",
@@ -1620,7 +1628,12 @@ def _merge_insurance(phone: str, result: dict) -> dict:
 
 
 async def _failure_reply(
-    reason: str | None, name: str, *, task_type: str = "restaurant", city: str = ""
+    reason: str | None,
+    name: str,
+    *,
+    task_type: str = "restaurant",
+    city: str = "",
+    company_he: str = "",
 ) -> tuple[str, str] | None:
     """FAILED:<סיבה> מה-agent → (info ל-truth_note, הודעה ללקוח עם המלצת המשך).
     רק סיבות מוכרות — לא טקסט חופשי של ה-agent לבלוק האמת. משותף ל-booking ול-commit.
@@ -1755,31 +1768,33 @@ async def _failure_reply(
             ),
         }
     if task_type == "insurance":
+        # comp = המבטח שהריצה רצה עליו; מוקד טלפוני ידוע רק לפספורטכארד (*9912) —
+        # לשאר המבטחים נוסח כללי ("המוקד שלהם"), לא ממציאים מספרים.
+        comp = company_he or "פספורטכארד"
+        via = "ב-*9912" if comp == "פספורטכארד" else "מול המוקד שלהם"
         table = {
             **table,
             "manual_underwriting": (
                 "נדרש חיתום טלפוני (הצהרת בריאות/גיל)",
                 (
-                    "פספורטכארד עצרו את זה לאישור נציג — ככה הם עובדים כשיש הצהרת בריאות או "
-                    "גיל שדורש בדיקה 🫠\nהמוקד שלהם: *9912",
-                    "האתר דורש חיתום טלפוני להצעה הזאת — אונליין זה לא ממשיך\n"
-                    "אפשר להשלים מולם ב-*9912",
+                    f"{comp} עצרו את זה לאישור נציג — ככה הם עובדים כשיש הצהרת בריאות או "
+                    f"גיל שדורש בדיקה 🫠\nאפשר להשלים {via}",
+                    f"האתר דורש חיתום טלפוני להצעה הזאת — אונליין זה לא ממשיך\nאפשר להשלים {via}",
                 ),
             ),
             "phone_only": (
                 "האתר מפנה לנציג במקום הצעה אונליין",
                 (
-                    "האתר לא נותן הצעה אונליין למקרה הזה — רק דרך נציג\nהמספר שלהם: *9912",
-                    "בשלב הזה פספורטכארד רוצים אותך בטלפון, לא בטופס — *9912 ואתם סגורים",
+                    f"האתר לא נותן הצעה אונליין למקרה הזה — רק דרך נציג\nאפשר להשלים {via}",
+                    f"בשלב הזה {comp} רוצים אותך בטלפון, לא בטופס — סוגרים {via}",
                 ),
             ),
             "blocked": (
                 "האתר חוסם גישה אוטומטית",
                 (
-                    "האתר של פספורטכארד חוסם אותי כרגע 🥷 אנסה שוב מאוחר יותר, "
-                    "או שאפשר ישירות מולם: *9912",
-                    "פספורטכארד שמו מחסום בדרך ולא נתנו לי לעבור — ננסה שוב עוד קצת, "
-                    "או טלפונית: *9912",
+                    f"האתר של {comp} חוסם אותי כרגע 🥷 אנסה שוב מאוחר יותר, "
+                    f"או שאפשר ישירות מולם {via}",
+                    f"{comp} שמו מחסום בדרך ולא נתנו לי לעבור — ננסה שוב עוד קצת, או טלפונית {via}",
                 ),
             ),
         }
@@ -2262,6 +2277,12 @@ async def run_booking(phone: str, fields: dict) -> None:
     chain = (fields.get("chain") or "").strip() if cinema else ""
     if chain not in _CINEMA_CHAINS:
         chain = ""
+    # מבטח שהלקוח נקב בו ("תעשה בהראל") — מכוון את resolve_insurance_url. אותה הגנה
+    # כמו chain: ערך זר מהמודל מתאפס → ברירת המחדל (פספורטכארד), לא none מבלבל.
+    company = (fields.get("company") or "").strip() if insurance else ""
+    if company not in INSURANCE_COMPANIES:
+        company = ""
+    comp_he = INSURANCE_COMPANIES[company or "passportcard"][0] if insurance else ""
     if task_type == "unsure":
         # ממצא בטא #5 ("האודיסאה"): השם לבדו לא מכריע בין מסעדה לסרט — ה-extract
         # מונחה לא לנחש, וזו רשת הביטחון אם בכל זאת ירה ready: לא יוצאים לריצה,
@@ -2343,22 +2364,30 @@ async def run_booking(phone: str, fields: dict) -> None:
     birth_dates = fields.get("travelers_birth_dates") or []
     if insurance:
         # גארדים לפני ריצה — עדיף לדעת עכשיו מאשר לשרוף ריצת דפדפן של דקות:
-        # הצהרת בריאות חיובית ⇒ פספורטכארד ממילא יעצרו לחיתום טלפוני.
+        # הצהרת בריאות חיובית ⇒ המבטחים עוצרים לחיתום טלפוני (סטנדרט ענפי).
+        # מספר מוקד יש לנו רק לפספורטכארד (*9912) — לאחרים נוסח כללי.
+        hotline = (
+            "\nהמוקד שלהם: *9912, ואני כאן להמשך"
+            if comp_he == "פספורטכארד"
+            else ("\nשווה להשלים מול המוקד שלהם, ואני כאן להמשך")
+        )
         health = (fields.get("health_issues") or "").strip()
         if health and _norm_place(health) not in ("אין", "לא", "שלילי"):
             _booking[phone] = {"state": "failed", "info": "הצהרת בריאות מחייבת חיתום טלפוני"}
             await _send_and_record(
                 phone,
                 _vary(
-                    "עברתי על מה שסיפרת על הבריאות — במצב כזה פספורטכארד מחייבים אישור נציג "
-                    "בטלפון, ואונליין זה ייעצר 🫠\nהמוקד שלהם: *9912, ואחרי האישור אני כאן להמשך",
-                    "בגלל הצהרת הבריאות ההצעה אונליין תיעצר אצל פספורטכארד — הם דורשים חיתום "
-                    "בטלפון\nשווה להרים אליהם: *9912. לכל השאר אני כאן",
+                    f"עברתי על מה שסיפרת על הבריאות — במצב כזה {comp_he} מחייבים אישור נציג "
+                    f"בטלפון, ואונליין זה ייעצר 🫠{hotline}",
+                    f"בגלל הצהרת הבריאות ההצעה אונליין תיעצר אצל {comp_he} — הם דורשים חיתום "
+                    f"בטלפון{hotline}",
                 ),
             )
             return
-        if any(a >= 85 for a in _ages(birth_dates)):
-            # מעל גיל 85 אין אצל פספורטכארד רכישה אונליין — רק דרך נציג.
+        if company in ("", "passportcard") and any(a >= 85 for a in _ages(birth_dates)):
+            # מעל גיל 85 אין אצל פספורטכארד רכישה אונליין — רק דרך נציג. עובדה
+            # פספורטכארד-ספציפית: אצל מבטח אחר לא עוצרים מראש — האתר יכריע
+            # (עצירה כנה עם FAILED:manual_underwriting אם יש תקרת גיל).
             _booking[phone] = {"state": "failed", "info": "מעל גיל 85 — רכישה רק דרך נציג"}
             await _send_and_record(
                 phone,
@@ -2388,8 +2417,13 @@ async def run_booking(phone: str, fields: dict) -> None:
         # בלי resolve מחדש. הלקוח החליף מסעדה → משחררים את הסשן הישן וריצה טרייה.
         resume_arg = None
         waiting = _resume.pop(phone, None)
-        if waiting and not _same_place(waiting.get("restaurant") or "", name):
-            await release_session(waiting.get("session_id"))  # החליף מסעדה — לא מדליפים סשן
+        if waiting and (
+            not _same_place(waiting.get("restaurant") or "", name)
+            # ביטוח: הלקוח החליף מבטח באמצע קיר-שדות ("תעשה בהראל במקום") — הסשן
+            # הממתין יושב על הטופס של המבטח הקודם; resume שם ימלא אצל הלא-נכון.
+            or (insurance and company and waiting.get("platform") != company)
+        ):
+            await release_session(waiting.get("session_id"))  # החליף יעד — לא מדליפים סשן
             waiting = None
         cached = _resolved.get(phone)
         picks = _pending_pick.get(phone) or {}
@@ -2421,9 +2455,10 @@ async def run_booking(phone: str, fields: dict) -> None:
             resume_arg = waiting
             found = _one(waiting["url"], waiting["platform"])
         elif insurance:
-            # ספק יחיד, יעד קבוע — בלי Brave, בלי רשימות בחירה ובלי pre-resolve
+            # קבוצה סגורה של מבטחים — בלי Brave, בלי רשימות בחירה ובלי pre-resolve
             # (ה-guard הקיים בפרה-resolve ממילא מדלג על מה שאינו מסעדה).
-            found = await resolve_insurance_url()
+            # company ריק = פספורטכארד, בדיוק ההתנהגות שלפני ההרחבה.
+            found = await resolve_insurance_url(company or None)
         elif len(picked) == 1:
             # הלקוח בחר מהרשימה (טאפ או תשובה בטקסט) — ה-URL כבר בידינו, בלי resolve
             url, plat = picks[picked[0]]
@@ -3149,7 +3184,11 @@ async def run_booking(phone: str, fields: dict) -> None:
             if d.get("session_id"):
                 _spawn(release_session(d["session_id"]))
             hit = await _failure_reply(
-                d.get("failed"), name, task_type=task_type, city=venue if events else city
+                d.get("failed"),
+                name,
+                task_type=task_type,
+                city=venue if events else city,
+                company_he=comp_he,
             )
             if hit:
                 _booking[phone] = {"state": "failed", "info": hit[0]}
@@ -3412,6 +3451,8 @@ async def run_commit(phone: str) -> None:
                 job["restaurant"],
                 task_type=job.get("task_type") or "restaurant",
                 city=job.get("venue") or job.get("city") or "",
+                # שם המבטח נגזר מהפלטפורמה שהריצה רצה עליה (job נשמר מ-run_booking)
+                company_he=INSURANCE_COMPANIES.get(job.get("platform") or "", ("", ""))[0],
             )
             if hit:
                 _booking[phone] = {"state": "failed", "info": hit[0]}

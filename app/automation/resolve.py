@@ -996,16 +996,42 @@ def _pick_cinema(name: str, candidates: list[dict], platforms, *, drop_listings:
     }
 
 
-# ורטיקל ביטוח: ספק יחיד, יעד קבוע — resolve בלי חיפוש, באותו חוזה החזרה בדיוק.
-INSURANCE_URL = "https://purchase.passportcard.co.il/"
+# ורטיקל ביטוח — קבוצה סגורה של מבטחים (עקרון ה-resolver, החלטת אלון 17.7: שלב 1 =
+# קבוצה סגורה שמכסה שוק שלם, כמו רשתות הקולנוע). אין חיפוש — עמודי הרכישה קבועים,
+# אומתו ידנית 19.07.26. מפתח = platform (מגיע ל-task hint וללוגים); הערך =
+# (שם עברי לתצוגה, URL כניסה ישיר לזרימת הרכישה אונליין). פספורטכארד ראשונה —
+# ברירת המחדל ההיסטורית (תאימות לאחור מלאה כשלא נקבו במבטח).
+INSURANCE_COMPANIES: dict[str, tuple[str, str]] = {
+    "passportcard": ("פספורטכארד", "https://purchase.passportcard.co.il/"),
+    "harel": ("הראל", "https://digital.harel-group.co.il/travel-policy"),
+    "phoenix": ("הפניקס", "https://smart.fnx.co.il/travel/"),
+    "aig": ("AIG", "https://join.aig.co.il/insurance/travel"),
+    "migdal": ("מגדל", "https://travel.migdal.co.il/travel/index"),
+}
+INSURANCE_URL = INSURANCE_COMPANIES["passportcard"][1]  # תאימות לאחור (spike, טסטים)
 
 
-async def resolve_insurance_url() -> dict:
-    """ביטוח נסיעות (פספורטכארד): תמיד 'one'. async לשמירת חוזה resolve_reservation_url."""
+async def resolve_insurance_url(company: str | None = None) -> dict:
+    """ביטוח נסיעות — קבוצה סגורה. company (מפתח מ-INSURANCE_COMPANIES, כמו chain
+    בקולנוע): נקב הלקוח → 'one' על אותו מבטח; לא נקב → פספורטכארד (ההתנהגות הקיימת);
+    מפתח לא מוכר → 'many' עם כל הרשימה — לעולם לא בוחרים מבטח אחר בשקט.
+    async לשמירת חוזה resolve_reservation_url."""
+    key = (company or "").strip() or "passportcard"
+    if key in INSURANCE_COMPANIES:
+        title, url = INSURANCE_COMPANIES[key]
+        return {
+            "status": "one",
+            "url": url,
+            "platform": key,
+            "candidates": [{"title": title, "url": url, "platform": key}],
+            "fallback": None,
+        }
     return {
-        "status": "one",
-        "url": INSURANCE_URL,
-        "platform": "passportcard",
-        "candidates": [{"title": "פספורטכארד", "url": INSURANCE_URL, "platform": "passportcard"}],
+        "status": "many",
+        "url": None,
+        "platform": None,
+        "candidates": [
+            {"title": t, "url": u, "platform": k} for k, (t, u) in INSURANCE_COMPANIES.items()
+        ],
         "fallback": None,
     }
