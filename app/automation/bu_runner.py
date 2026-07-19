@@ -280,6 +280,9 @@ def _build_cinema_task(job: dict) -> str:
   בדוק קודם את מבנה האלמנטים בפועל (find_elements על ה-SVG) ורק אז בחר. לרוב יש
   אלמנט לחיץ ייעודי (hit-area) מעל ציור המושב, ו-click()‎ תכנותי לבדו לא נקלט —
   שלח רצף אירועי עכבר מלא (mousedown/mouseup/click) על האלמנט הלחיץ עצמו.
+  לחיצת JS דרך evaluate היא אירוע לא-אמיתי שאתרים מודרניים מתעלמים ממנו — אחרי
+  שני כשלונות בחירה, עבור לפעולת click עם coordinate_x/coordinate_y על מרכז
+  המושב כפי שנראה בצילום המסך (קליק אמיתי), ואל תמשיך לנסות evaluate.
 - מפה שהיא canvas (ציור אחד, אין טקסט אזורים ב-DOM, חיפוש שם האזור מחזיר 0):
   המקרא הוא רק תצוגה — לחיצות עליו לא בוחרות כלום. לחץ ישירות על האזור הצבוע
   במפה עצמה (קואורדינטות בתוך שטח האזור, רצף עכבר מלא). אם אחרי שתי לחיצות
@@ -379,6 +382,9 @@ def _build_concert_task(job: dict) -> str:
   בדוק קודם את מבנה האלמנטים בפועל (find_elements על ה-SVG) ורק אז בחר. לרוב יש
   אלמנט לחיץ ייעודי (hit-area) מעל ציור המושב, ו-click()‎ תכנותי לבדו לא נקלט —
   שלח רצף אירועי עכבר מלא (mousedown/mouseup/click) על האלמנט הלחיץ עצמו.
+  לחיצת JS דרך evaluate היא אירוע לא-אמיתי שאתרים מודרניים מתעלמים ממנו — אחרי
+  שני כשלונות בחירה, עבור לפעולת click עם coordinate_x/coordinate_y על מרכז
+  המושב כפי שנראה בצילום המסך (קליק אמיתי), ואל תמשיך לנסות evaluate.
 - מפה שהיא canvas (ציור אחד, אין טקסט אזורים ב-DOM, חיפוש שם האזור מחזיר 0):
   המקרא הוא רק תצוגה — לחיצות עליו לא בוחרות כלום. לחץ ישירות על האזור הצבוע
   במפה עצמה (קואורדינטות בתוך שטח האזור, רצף עכבר מלא). אם אחרי שתי לחיצות
@@ -850,6 +856,10 @@ async def _run(job: dict) -> dict:
         agent_kwargs["save_conversation_path"] = os.path.join(rec, "conversation")
 
     agent = Agent(**agent_kwargs)
+    # browser-use מדליק קליק-קואורדינטות רק ל-allowlist מודלים (claude/gemini-3-pro/bu-*) —
+    # הנווט שלנו flash נשאר בלעדיו, ובלי זה מפות SVG (הוט) נגישות רק דרך evaluate
+    # סינתטי שנדחה. QA 19.7.
+    agent.tools.set_coordinate_clicking(True)
     history = await agent.run(
         max_steps=job.get("max_steps", 40),
         on_step_start=_il_tz_hook(bool(job.get("resume"))),
