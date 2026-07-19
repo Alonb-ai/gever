@@ -13,8 +13,10 @@
   תשובת-בדיקה ⇒ עצירה כנה; על שאלות בריאות הספייק לעולם לא עונה (הצהרה משפטית).
 
 הרצה (מתוך שורש ה-worktree, בשביל ה-.env):
-    .venv/bin/python poc/spike_insurance.py ["יעד"] [DD.MM יציאה] [DD.MM חזרה]
-ברירות מחדל: "יוון", מחר, מחר+14. הנוסעים: שני בגירים עם תאריכי לידה דמה.
+    .venv/bin/python poc/spike_insurance.py ["יעד"] [DD.MM יציאה] [DD.MM חזרה] [מבטח]
+ברירות מחדל: "יוון", מחר, מחר+14, פספורטכארד. מבטח = מפתח מ-INSURANCE_COMPANIES
+(passportcard/harel/phoenix/aig/migdal) — recon לקבוצה הסגורה של ורטיקל הביטוח.
+הנוסעים: שני בגירים עם תאריכי לידה דמה.
 היעד = *מדינה* (לקח ריצה חיה 1: דף היעד הוא חיפוש מדינות, "אירופה" לא מחזיר כלום).
 """
 
@@ -29,7 +31,7 @@ from datetime import date, timedelta
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.automation.browser_book import book_table_bu, release_session  # noqa: E402
-from app.automation.resolve import resolve_insurance_url  # noqa: E402
+from app.automation.resolve import INSURANCE_COMPANIES, resolve_insurance_url  # noqa: E402
 from app.config import settings  # noqa: E402
 
 DRY_RUN = True  # חוק ברזל: הספייק מסרב לרוץ אחרת (assert למטה) — אין כאן פרמטר
@@ -98,11 +100,15 @@ async def main() -> None:
     destination = _arg(1, "יוון")
     depart = _arg(2, f"{_TOMORROW.day:02d}.{_TOMORROW.month:02d}")
     ret = _arg(3, f"{_RETURN.day:02d}.{_RETURN.month:02d}")
+    company = _arg(4, "")  # ריק = ברירת המחדל (פספורטכארד) — ההתנהגות הקיימת בדיוק
+    assert not company or company in INSURANCE_COMPANIES, (
+        f"מבטח לא מוכר: {company!r} — הקבוצה הסגורה: {sorted(INSURANCE_COMPANIES)}"
+    )
 
     if settings.bu_browser != "browserbase":
         print(f"אזהרה: BU_BROWSER={settings.bu_browser!r} (לא browserbase) — רץ לפי ה-.env")
 
-    found = await resolve_insurance_url()
+    found = await resolve_insurance_url(company or None)
     print("resolve:", json.dumps(found, ensure_ascii=False, indent=2), flush=True)
 
     print(

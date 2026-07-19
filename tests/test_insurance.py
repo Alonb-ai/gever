@@ -132,6 +132,34 @@ def test_insurance_resume_lists_form_answers_explicitly():
     assert "אל תנווט לכתובת אחרת" in task
 
 
+def test_insurance_task_traveler_rules_from_aig_recon():
+    """Recon AIG 18.7: הריצה עצרה עם MISSING על תאריך לידה שנמסר, וההמשך הגיש
+    SUMMARY_REACHED על נוסע אחד מתוך שניים — שני חוקי-הנוסעים חייבים להיות ב-task."""
+    task = _build_task({**_JOB, "dry_run": True})
+    assert 'לעולם אינו שדה "חסר"' in task
+    assert "לכסות את כל 2 הנוסעים" in task
+    assert "אל תדווח עליו SUMMARY_REACHED" in task
+    # בלי רשימת נוסעים אין את החוקים — "כל 0 הנוסעים" היה הנחיה הפוכה
+    bare = _build_task({**_JOB, "dry_run": True, "insurance": {**_INS, "travelers": []}})
+    assert "כל 0 הנוסעים" not in bare
+    assert 'לעולם אינו שדה "חסר"' not in bare
+
+
+def test_insurance_resume_carries_travelers_birth_dates():
+    """Recon AIG 18.7: ה-resume נשא רק recap+תשובות, וה-agent שלא ראה את תאריכי
+    הלידה עצר עם MISSING:p1_birth_date על ערך שהלקוח כבר מסר — סבב שאלה מיותר.
+    ה-resume חייב לשאת את רשימת הנוסעים מהבקשה המקורית."""
+    job = {
+        **_JOB,
+        "dry_run": True,
+        "resume": {"recap": 'עצרתי על ת"ז'},
+        "form_answers": {"id_number": "389784208"},
+    }
+    task = _build_task(job)
+    assert "הנוסעים מהבקשה המקורית" in task
+    assert "15.05.1990" in task and "20.11.1992" in task
+
+
 def test_insurance_timeout_and_max_steps():
     assert _timeout_s({"task_type": "insurance"}) == BU_INSURANCE_TIMEOUT_S == 1200
     assert _timeout_s({}) == BU_TIMEOUT_S  # מסעדות — ללא שינוי
@@ -535,6 +563,133 @@ def test_run_commit_passes_insurance_through(monkeypatch):
     assert call["form_answers"] == {"id_number": "123456782"}
     assert call["dry_run"] is False
     assert pipeline._booking["p1"]["state"] == "card"  # קיר-כרטיס → Live View/לינק
+
+
+# --- קבוצת המבטחים הסגורה (insurance-multi): 5 מבטחים, פספורטכארד = ברירת המחדל ---
+
+
+def test_insurance_companies_closed_group_contract():
+    """עקרון ה-resolver: קבוצה סגורה כמו רשתות הקולנוע. פספורטכארד ראשונה
+    (ברירת המחדל ההיסטורית); bu_runner מחזיק עותק שמות מקומי (איסור ייבוא
+    resolve משם) — חוזה: זהה אחד-לאחד למפה."""
+    from app.automation.bu_runner import _INSURER_HE
+    from app.automation.resolve import INSURANCE_COMPANIES
+
+    keys = list(INSURANCE_COMPANIES)
+    assert keys[0] == "passportcard" and len(keys) == 5
+    assert {"harel", "phoenix", "aig", "migdal"} <= set(keys)
+    urls = [u for _he, u in INSURANCE_COMPANIES.values()]
+    assert len(set(urls)) == 5 and all(u.startswith("https://") for u in urls)
+    assert _INSURER_HE == {k: he for k, (he, _u) in INSURANCE_COMPANIES.items()}
+
+
+def test_resolve_insurance_company_steering():
+    from app.automation.resolve import INSURANCE_COMPANIES
+
+    found = asyncio.run(resolve_insurance_url("harel"))
+    assert found["status"] == "one" and found["platform"] == "harel"
+    assert found["url"] == INSURANCE_COMPANIES["harel"][1]
+    # לא נקב (None/ריק) → פספורטכארד — בדיוק ההתנהגות שלפני ההרחבה
+    for c in (None, "", "  "):
+        f = asyncio.run(resolve_insurance_url(c))
+        assert f["platform"] == "passportcard" and f["url"] == INSURANCE_URL
+    # מפתח לא מוכר → many עם כל הקבוצה — לעולם לא בוחרים מבטח אחר בשקט
+    f = asyncio.run(resolve_insurance_url("clal"))
+    assert f["status"] == "many" and len(f["candidates"]) == 5 and f["url"] is None
+
+
+def test_insurance_task_carries_company_name_and_generic_dest_rule():
+    from app.automation.resolve import INSURANCE_COMPANIES
+
+    harel_url = INSURANCE_COMPANIES["harel"][1]
+    task = _build_task({**_JOB, "url": harel_url, "platform": "harel", "dry_run": True})
+    assert "הראל" in task and harel_url in task
+    assert "פספורטכארד" not in task
+    # חוק היעד הפספורטכארד-ספציפי (חיפוש מדינות) לא זולג; עצירת היעד נשארת
+    assert "שדה החיפוש" not in task
+    assert "MISSING:destination" in task and "OPTIONS destination:" in task
+    # ופספורטכארד (job בלי platform = ברירת מחדל) — הנוסח המוכח-חי בעינו
+    task_pc = _build_task({**_JOB, "dry_run": True})
+    assert "פספורטכארד" in task_pc and "שדה החיפוש" in task_pc
+
+
+def test_schema_company_enum_and_not_required():
+    from app.automation.resolve import INSURANCE_COMPANIES
+
+    props = pipeline._SCHEMA["properties"]
+    assert props["company"]["enum"] == list(INSURANCE_COMPANIES)
+    # לא-קריטי (יש ברירת מחדל) ⇒ לא ב-required; לקח ה-decoding של flash מחייב
+    # גארד — הוא יושב ב-run_booking (ערך זר/חסר → פספורטכארד)
+    assert "company" not in pipeline._SCHEMA["required"]
+    assert "company" in pipeline._EXTRACT and "harel" in pipeline._EXTRACT
+
+
+def test_insurance_draft_keeps_company_across_turns():
+    _reset()
+    pipeline._merge_insurance("p1", {"task_type": "insurance", "company": "harel"})
+    merged = pipeline._merge_insurance("p1", {"task_type": "insurance", "destination": "יוון"})
+    assert merged["company"] == "harel"
+
+
+def test_run_booking_routes_named_company(monkeypatch):
+    from app.automation.resolve import INSURANCE_COMPANIES
+
+    _reset()
+    res = ActionResult(success=False, summary="FAILED:blocked", details={"failed": "blocked"})
+    sent, book = _wire_booking(monkeypatch, book_result=res)
+    asyncio.run(pipeline.run_booking("p1", {**_FIELDS, "company": "harel"}))
+    assert book.calls[0]["page_url"] == INSURANCE_COMPANIES["harel"][1]
+    assert book.calls[0]["platform"] == "harel"
+    # הודעת הכשל נושאת את המבטח הנכון, בלי מספר מוקד שלא שלו
+    assert "הראל" in sent[-1] and "*9912" not in sent[-1]
+
+
+def test_run_booking_default_and_foreign_company_fall_back(monkeypatch):
+    _reset()
+    res = ActionResult(success=False, summary="FAILED:blocked", details={"failed": "blocked"})
+    _, book = _wire_booking(monkeypatch, book_result=res)
+    asyncio.run(pipeline.run_booking("p1", dict(_FIELDS)))
+    assert book.calls[0]["page_url"] == INSURANCE_URL
+    assert book.calls[0]["platform"] == "passportcard"
+    # ערך זר מהמודל מתאפס לברירת המחדל — אותה הגנה כמו chain בקולנוע
+    _reset()
+    _, book = _wire_booking(monkeypatch, book_result=res)
+    asyncio.run(pipeline.run_booking("p1", {**_FIELDS, "company": "כלל"}))
+    assert book.calls[0]["platform"] == "passportcard"
+
+
+def test_health_guard_generic_for_non_passportcard(monkeypatch):
+    _reset()
+    sent, _ = _wire_booking(monkeypatch, book_result=None)
+    fields = {**_FIELDS, "company": "harel", "health_issues": "נוטל תרופות קבועות"}
+    asyncio.run(pipeline.run_booking("p1", fields))
+    assert pipeline._booking["p1"]["state"] == "failed"
+    # שם המבטח הנכון; *9912 הוא מוקד פספורטכארד — לא ממציאים אותו להראל
+    assert "הראל" in sent[-1] and "*9912" not in sent[-1]
+    assert not character_leaks(sent[-1])
+
+
+def test_age_85_guard_only_for_passportcard(monkeypatch):
+    """תקרת גיל 85 היא עובדה פספורטכארד-ספציפית — מבטח אחר לא נעצר מראש;
+    האתר יכריע (עצירה כנה עם FAILED:manual_underwriting אם יש תקרה)."""
+    _reset()
+    res = ActionResult(success=False, summary="FAILED:blocked", details={"failed": "blocked"})
+    _, book = _wire_booking(monkeypatch, book_result=res)
+    fields = {**_FIELDS, "company": "aig", "travelers_birth_dates": ["15.05.1990", "01.01.1935"]}
+    asyncio.run(pipeline.run_booking("p1", fields))
+    assert book.calls  # הריצה יצאה לדרך — לא נעצרה בגארד
+
+
+def test_failure_reply_carries_named_company_without_9912():
+    for reason in ("manual_underwriting", "phone_only", "blocked"):
+        hit = asyncio.run(
+            pipeline._failure_reply(
+                reason, "ביטוח נסיעות ליוון", task_type="insurance", company_he="מגדל"
+            )
+        )
+        assert hit is not None, reason
+        assert "*9912" not in hit[1], reason
+        assert not character_leaks(hit[1])
 
 
 if __name__ == "__main__":
