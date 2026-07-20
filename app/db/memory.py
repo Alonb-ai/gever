@@ -224,6 +224,38 @@ async def list_inflight() -> list[dict]:
     return out
 
 
+async def set_pref(phone: str, key: str, value) -> None:
+    """כותב (או מוחק — value=None) מפתח בודד ב-prefs. read-merge כמו set_inflight:
+    upsert דורס את prefs כיחידה, לכן קוראים-ממזגים; race מול תור מקביל זניח לבטא."""
+    if not _enabled():
+        return
+    prof = await get_profile(phone)
+    prefs = (prof or {}).get("prefs") or {}
+    if value is None:
+        if prefs.pop(key, None) is None:
+            return  # אין מה למחוק — חוסכים כתיבה
+    else:
+        prefs[key] = value
+    await upsert_profile(phone, prefs=prefs)
+
+
+async def list_followups() -> list[dict]:
+    """[{phone, prefs}] של משתמשים עם פולו-אפים ממתינים (prefs._followups) —
+    נסרק בלולאת הרקע של הפולו-אפים. [] כשהזיכרון כבוי/כשל."""
+    if not _enabled():
+        return []
+    resp = await _request(
+        "GET",
+        "users",
+        op="list_followups",
+        phone="*",
+        params={"select": "phone,prefs", "prefs->_followups": "not.is.null"},
+    )
+    if resp is None:
+        return []
+    return [{"phone": r.get("phone"), "prefs": r.get("prefs") or {}} for r in resp.json()]
+
+
 async def log_booking(
     phone: str,
     restaurant: str,
