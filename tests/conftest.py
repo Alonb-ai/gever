@@ -8,6 +8,7 @@
 import pytest
 
 from app import pipeline
+from app.automation import shows_catalog
 from app.config import settings
 
 
@@ -18,6 +19,9 @@ def _no_real_backends(monkeypatch):
     monkeypatch.setattr(settings, "browserbase_api_key", "")
     # בלי Brave אמיתי: חיפוש-הטלפון של הודעת הכשל (phone_hint) לא יוצא לרשת בטסטים
     monkeypatch.setattr(settings, "brave_api_key", "")
+    # קטלוג ההופעות לא יוצא לרשת: אפס מקורות + cache נקי פר-טסט (fetch_upcoming → [])
+    monkeypatch.setattr(shows_catalog, "_SOURCES", ())
+    monkeypatch.setattr(shows_catalog, "_cache", {"ts": 0.0, "items": []})
 
 
 @pytest.fixture(autouse=True)
