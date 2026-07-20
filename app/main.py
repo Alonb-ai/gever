@@ -22,7 +22,7 @@ from app import live_link
 from app.automation.browser_book import sweep_orphan_sessions
 from app.config import settings
 from app.db import memory
-from app.pipeline import _spawn, _vary, handle_inbound, handle_voice
+from app.pipeline import _spawn, _vary, followup_loop, handle_inbound, handle_voice
 from app.whatsapp.client import send_text
 
 log = logging.getLogger("gever")
@@ -73,10 +73,14 @@ async def lifespan(_app: FastAPI):
         except Exception:  # noqa: BLE001
             log.warning("orphan recovery failed for %s", o.get("phone"), exc_info=True)
     keepalive = asyncio.create_task(_supabase_keepalive())
+    # פולו-אפ הזמנות (prefs._followups): לולאת רקע שמוציאה "הגעתם?"/"איך היה?"
+    # שהגיע זמנם — הטיימרים ב-DB, אז redeploy לא מאבד אותם.
+    followups = asyncio.create_task(followup_loop())
     yield
-    keepalive.cancel()
-    with suppress(asyncio.CancelledError):
-        await keepalive
+    for task in (keepalive, followups):
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 app = FastAPI(title="גבר / Gever", version="0.1.0", lifespan=lifespan)
