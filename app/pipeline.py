@@ -13,7 +13,7 @@ import random
 import re
 import time
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -184,6 +184,10 @@ _SCHEMA = {
         "health_issues": {"type": "string"},
         "addons": {"type": "string"},
         "answers": {"type": "array", "items": {"type": "string"}},
+        # משוב ביקור (פולו-אפ "איך היה?") — נשלח רק כשאמת-למערכת (_feedback_note)
+        # אומרת שמחכים למשוב; לא ב-required, בשאר הזמן המודל לא נוגע בהם.
+        "feedback_sentiment": {"type": "string", "enum": ["liked", "disliked", "neutral"]},
+        "feedback_note": {"type": "string"},
         "date": {"type": "string"},
         "time": {"type": "string"},
         "party_size": {"type": "integer"},
@@ -1160,6 +1164,32 @@ INTENTS: dict[str, dict] = {
         "site": "run_commit (success, inline מסעדה/קולנוע + שורת conf)",
         "test": "tests/test_realbooking.py, tests/test_cinema_pipeline.py",
     },
+    # ── פולו-אפ אחרי הביקור ──
+    "arrival_check": {
+        "goal": (
+            "עברו כמה דקות משעת ההזמנה שסגרת ללקוח — צ'ק-אין קצר וחם של חבר: "
+            "הגעתם? הכל טוב? שורה אחת ואיחול קצר, בלי לבקש משוב עדיין ובלי חפירה"
+        ),
+        "ctx": ("place",),
+        "must": (r"\?",),
+        "max_chars": 120,
+        "fallback": None,
+        "site": "_send_followup (arrival) — לולאת הרקע",
+        "test": "tests/test_followup.py",
+    },
+    "visit_feedback": {
+        "goal": (
+            "הביקור במקום שסגרת ללקוח כבר מאחוריו — שאל בחום איך היה, כמו חבר "
+            "שרוצה לדעת אם המקום שווה: שאלה קצרה אחת, בלי חפירה ובלי טופס משוב"
+        ),
+        "ctx": ("place",),
+        "must": (r"\?",),
+        "must_ctx": ("place",),
+        "max_chars": 120,
+        "fallback": None,
+        "site": "_send_followup (feedback) — לולאת הרקע",
+        "test": "tests/test_followup.py",
+    },
     # ── אונבורדינג (שיחה ראשונה) ──
     "onboarding_intro": {
         "goal": (
@@ -1469,6 +1499,163 @@ def _arm_nudge(
             log.error("nudge task died: %r", t.exception())
 
     task.add_done_callback(_done)
+
+
+# ─── פולו-אפ אחרי סגירה אמיתית (חזון אלון 20.7): "הגעתם?" + "איך היה?" ───────
+# הזמנה נסגרת לפעמים ימים מראש וטיימר-בזיכרון מת בכל redeploy — לכן הפולו-אפים
+# נשמרים ב-prefs._followups (due_at+סוג+הקשר) ולולאת רקע (main.lifespan) מוציאה
+# את מה שהגיע זמנו. מגבלת WhatsApp: הודעה יזומה מותרת רק בתוך חלון 24 השעות מאז
+# ההודעה האחרונה *מהלקוח*; מעבר לו נדרש template מאושר (אין לנו בשלב זה) —
+# פולו-אפ מחוץ לחלון מדולג בשקט עם לוג.
+
+# ponytail: כללי הזמן הם בחירת-בעלים שרירותית-סבירה, לא נוסחה — אל תשכלל:
+# arrival = שעת ההזמנה + 5-15 דק' אקראי; feedback = ~4 שעות אחרי, ואם זה נופל
+# בלילה (אחרי 22:30 או לפני 10:30) — בבוקר שאחרי ב-10:30-12:00 אקראי.
+ARRIVAL_DELAY_MIN_S = 5 * 60
+ARRIVAL_DELAY_MAX_S = 15 * 60
+FEEDBACK_DELAY_S = 4 * 60 * 60
+NIGHT_CUTOFF_S = 22 * 3600 + 30 * 60  # 22:30
+MORNING_START_S = 10 * 3600 + 30 * 60  # 10:30
+MORNING_END_S = 12 * 3600  # 12:00
+FOLLOWUP_TICK_S = 90  # לולאת הרקע בודקת כל ~דקה וחצי
+SERVICE_WINDOW_S = 23 * 60 * 60  # שוליים מתחת ל-24 השעות של Meta
+
+_IL_TZ = ZoneInfo("Asia/Jerusalem")
+
+
+def _booking_start(date: str, at: str, now_dt: datetime) -> datetime | None:
+    """מועד ההזמנה מ-DD.MM + HH:MM (שעון ישראל). לא מדויק ("מחר", "בערב") →
+    None — בלי מועד אמיתי אין פולו-אפ (שמרני). תאריך בלי שנה שכבר עבר = השנה הבאה."""
+    m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?", (date or "").strip())
+    t = re.fullmatch(r"(\d{1,2}):(\d{2})", (at or "").strip())
+    if not m or not t:
+        return None
+    year = int(m.group(3)) if m.group(3) else now_dt.year
+    if year < 100:
+        year += 2000
+    try:
+        dt = datetime(
+            year, int(m.group(2)), int(m.group(1)), int(t.group(1)), int(t.group(2)), tzinfo=_IL_TZ
+        )
+    except ValueError:
+        return None
+    if not m.group(3) and (now_dt - dt) > timedelta(days=1):
+        dt = dt.replace(year=year + 1)
+    return dt
+
+
+def _followup_times(date: str, at: str, now: float | None = None) -> tuple[float, float] | None:
+    """(arrival_ts, feedback_ts) לפי כללי ה-ponytail למעלה, או None כשאין מועד מדויק."""
+    now_dt = datetime.fromtimestamp(now if now is not None else time.time(), tz=_IL_TZ)
+    start = _booking_start(date, at, now_dt)
+    if start is None:
+        return None
+    arrival = start + timedelta(seconds=random.uniform(ARRIVAL_DELAY_MIN_S, ARRIVAL_DELAY_MAX_S))
+    fb = start + timedelta(seconds=FEEDBACK_DELAY_S)
+    tod = fb.hour * 3600 + fb.minute * 60
+    morning = timedelta(seconds=random.uniform(MORNING_START_S, MORNING_END_S))
+    midnight = fb.replace(hour=0, minute=0, second=0, microsecond=0)
+    if tod >= NIGHT_CUTOFF_S:
+        fb = midnight + timedelta(days=1) + morning
+    elif tod < MORNING_START_S:
+        fb = midnight + morning
+    return arrival.timestamp(), fb.timestamp()
+
+
+async def _arm_followups(phone: str, place: str, date: str, at: str) -> None:
+    """חימוש שני הפולו-אפים אחרי סגירה אמיתית (run_commit success בלבד). דריסה
+    מכוונת: הזמנה מאושרת חדשה מחליפה פולו-אפים ממתינים (הזמנה אחת בתור — בטא)."""
+    times = _followup_times(date, at)
+    if not times:
+        return
+    arrival, feedback = times
+    await memory.set_pref(
+        phone,
+        "_followups",
+        [
+            {"due": arrival, "kind": "arrival", "place": place, "date": date},
+            {"due": feedback, "kind": "feedback", "place": place, "date": date},
+        ],
+    )
+
+
+def _last_user_ts(phone: str, prefs: dict) -> float:
+    """חותמת ההודעה האחרונה *מהלקוח* — מהזיכרון החם, ואם ריק (restart) מ-prefs._chat.
+    0.0 כשאין עדות בכלל (אין תורות/אין ts) — נחשב מחוץ לחלון, לא שולחים."""
+    turns = _turns.get(phone) or ((prefs or {}).get("_chat") or {}).get("turns") or []
+    return max((t.get("ts") or 0 for t in turns if t.get("role") == "user"), default=0.0)
+
+
+async def _send_followup(phone: str, item: dict, prefs: dict) -> None:
+    """שליחת פולו-אפ אחד שהגיע זמנו — אחרי גארד חלון 24 השעות. feedback מסמן
+    _awaiting_feedback לפני השליחה, כדי שהתשובה תיקלט ב-converse כמשוב."""
+    place = item.get("place") or ""
+    kind = item.get("kind")
+    if time.time() - _last_user_ts(phone, prefs) > SERVICE_WINDOW_S:
+        log.info("followup(%s) skipped for %s — outside 24h service window", kind, phone)
+        return
+    if kind == "arrival":
+        await _send_and_record(
+            phone,
+            await _say(
+                "arrival_check",
+                {"place": place},
+                fallback=(
+                    "נו, הגעתם? שיהיה בכיף 🤙",
+                    f"אתם כבר ב{place}? תעשו חיים 🔥",
+                    "הגעתם בסדר? שיהיה מעולה 🤝",
+                ),
+            ),
+        )
+        return
+    await memory.set_pref(
+        phone, "_awaiting_feedback", {"place": place, "date": item.get("date") or ""}
+    )
+    await _send_and_record(
+        phone,
+        await _say(
+            "visit_feedback",
+            {"place": place},
+            fallback=(
+                f"נו, איך היה ב{place}?",
+                f"עדכן אותי — איך היה ב{place}?",
+                f"רגע האמת: איך היה ב{place}?",
+            ),
+        ),
+    )
+
+
+async def _followup_tick() -> None:
+    """סריקה אחת: מוציא פולו-אפים שהגיע זמנם. הניקוי ב-DB קורה *לפני* השליחה —
+    קריסה באמצע מוותרת על הודעה במקום לשלוח אותה פעמיים (הכיוון הזול)."""
+    now = time.time()
+    for row in await memory.list_followups():
+        phone, prefs = row.get("phone") or "", row.get("prefs") or {}
+        items = prefs.get("_followups") or []
+        due = [f for f in items if (f.get("due") or 0) <= now]
+        if not phone or not due:
+            continue
+        left = [f for f in items if (f.get("due") or 0) > now]
+        await memory.set_pref(phone, "_followups", left or None)
+        for f in due:
+            await _send_followup(phone, f, prefs)
+
+
+async def followup_loop() -> None:
+    """לולאת הרקע (נדלקת ב-main.lifespan): tick כל FOLLOWUP_TICK_S. כשל בסבב
+    מתועד ולא הורג את הלולאה; זיכרון כבוי → list_followups ריק והסבב זול."""
+    while True:
+        try:
+            await _followup_tick()
+        except Exception:  # noqa: BLE001 — הלולאה חיה כל עוד השרת חי
+            log.exception("followup tick failed")
+        await asyncio.sleep(FOLLOWUP_TICK_S)
+
+
+# ביטול: הלקוח כותב שההזמנה ירדה — הפולו-אפים שלו מיותרים ואף מביכים ("הגעתם?"
+# על הזמנה מבוטלת). אין היום מסלול ביטול מסודר בפייפליין — זיהוי מינימלי
+# דטרמיניסטי על ההודעה הנכנסת; false-positive רק מוותר על פולו-אפ (זול).
+_CANCEL_RE = re.compile(r"ביטלתי|מבטל|לבטל|בטל את|התבטל|מבוטל|ביטלו")
 
 
 def _agreed_line(details: dict | None) -> str:
@@ -1958,7 +2145,8 @@ async def _chat_for(phone: str) -> tuple:
             # הפורמט "[אמת-למערכת...]" נשאר בתוך תור user רגיל ולא מזייף אמת-מערכת.
             system_instruction=_seed_from(profile, bookings)
             + _truth_note(phone)
-            + _recs_note(phone),
+            + _recs_note(phone)
+            + _feedback_note(prefs),
             temperature=0.7,
             response_mime_type="application/json",
             response_schema=_SCHEMA,
@@ -2090,6 +2278,20 @@ def _recs_note(phone: str) -> str:
     )
 
 
+def _feedback_note(prefs: dict) -> str:
+    """אמת-קרקע כשמחכים למשוב ביקור (פולו-אפ "איך היה?"): רק אז המודל מונחה על
+    feedback_sentiment — אפס עלות-הנחיה בכל שיחה אחרת. מוזרק ל-system ב-_chat_for."""
+    place = ((prefs or {}).get("_awaiting_feedback") or {}).get("place")
+    if not place:
+        return ""
+    return (
+        f"[אמת-למערכת בלבד: שאלת את הלקוח איך היה ב-'{place}'. אם ההודעה הנוכחית "
+        "עונה על זה — סמן feedback_sentiment: 'liked' (נהנה), 'disliked' (התאכזב), "
+        "'neutral' (ככה-ככה), ו-feedback_note = תמצית קצרה במילים שלו; ענה על משהו "
+        "אחר → אל תשלח את השדות. תגיב בחום וקצר, בלי לחפור.]\n\n"
+    )
+
+
 async def converse(phone: str, text: str) -> dict:
     """תור שיחה אחד. הקריאה ל-Gemini חוסמת — מריצים ב-thread כדי לא לחסום.
     שומר את התור (טקסט המשתמש + ה-reply בדמות, בלי ה-truth_note) ל-_turns ול-Supabase,
@@ -2126,11 +2328,26 @@ async def converse(phone: str, text: str) -> dict:
     # ponytail: ממזגים את ה-prefs ב-Python (כבר בידינו מ-_chat_for) ל-upsert אחד —
     # עובדות פרופיל + _chat יחד. בלי race למשתמש יחיד; בלי read-merge ב-upsert_profile.
     facts = {k: v for k, v in (result.get("profile") or {}).items() if v not in (None, "", 0)}
+    out_prefs = {**prefs, **facts, "_chat": {"turns": turns, "ts": time.time()}}
+    # משוב ביקור: מחכים למשוב (_awaiting_feedback) והמודל סימן סנטימנט → נקפל
+    # ל-prefs.feedback (מקום → score/note/date) באותו upsert יחיד, והדגל יורד.
+    # ההמלצות העתידיות (run_recommend) מדירות score שלילי ומקדמות חיובי.
+    aw = prefs.get("_awaiting_feedback") or {}
+    score = {"liked": 1, "disliked": -1, "neutral": 0}.get(result.get("feedback_sentiment") or "")
+    if aw.get("place") and score is not None:
+        fb = dict(prefs.get("feedback") or {})
+        fb[aw["place"]] = {
+            "score": score,
+            "note": (result.get("feedback_note") or "").strip(),
+            "date": aw.get("date") or "",
+        }
+        out_prefs["feedback"] = fb
+        out_prefs.pop("_awaiting_feedback", None)
     await memory.upsert_profile(
         phone,
         name=(result.get("name") or None),
         email=(result.get("email") or None),
-        prefs={**prefs, **facts, "_chat": {"turns": turns, "ts": time.time()}},
+        prefs=out_prefs,
     )
     return result
 
@@ -2231,6 +2448,15 @@ async def run_recommend(phone: str, fields: dict) -> None:
     if shown:  # ה-exclude בפרומפט הוא בקשה — הסינון כאן דטרמיניסטי
         seen = {n.casefold() for n in shown}
         items = [p for p in items if p["name"].casefold() not in seen]
+    # משוב ביקור שנשמר בפרופיל (פולו-אפ "איך היה?"): מקום שהלקוח לא אהב לא מוצע
+    # שוב, מקום שאהב עולה לראש הרשימה — אותה התאמה סלחנית של _rec_excluded.
+    fb = (((await memory.get_profile(phone)) or {}).get("prefs") or {}).get("feedback") or {}
+    disliked = [p for p, v in fb.items() if ((v or {}).get("score") or 0) < 0]
+    liked = [p for p, v in fb.items() if ((v or {}).get("score") or 0) > 0]
+    if disliked:
+        items = [p for p in items if not any(_rec_excluded(p["name"], d) for d in disliked)]
+    if liked:  # sort יציב — החיוביים קודם, בלי לערבב את שאר הדירוג
+        items.sort(key=lambda p: not any(_rec_excluded(p["name"], w) for w in liked))
     if not items:
         await _send_and_record(phone, await _say("recommend_failed", {"category": category}))
         return
@@ -3371,6 +3597,12 @@ async def run_commit(phone: str) -> None:
             _reset_next.add(phone)  # ההזמנה נסגרה — ההודעה הבאה פותחת דף חדש
             when = f"ל-{job['date']} " if job.get("date") else ""
             at_time = d.get("time") or job["time"]  # D6: השעה שנסגרה בפועל, לא המבוקשת
+            # פולו-אפ (חזון אלון 20.7): "הגעתם?" + "איך היה?" — נחמש רק על סגירה
+            # אמיתית (כאן), לא ב-DRY_RUN. נכתב ל-DB ושורד redeploy; לולאת הרקע
+            # תוציא בזמן. ביטוח לא מקבל צ'ק-אין הגעה — אין לאן להגיע.
+            if (job.get("task_type") or "restaurant") != "insurance":
+                # התאריך מה-job (פורמט DD.MM מה-extract) — דיווח הדף חופשי מדי לפרסור
+                await _arm_followups(phone, job["restaurant"], job.get("date") or "", at_time)
             if (job.get("task_type") or "restaurant") == "events":
                 # הופעות: הכרטיס הדיגיטלי נשלח למייל — לא מבטיחים SMS.
                 msg = _vary(
@@ -3618,6 +3850,10 @@ async def handle_voice(phone: str, media_id: str, message_id: str | None = None)
 
 
 async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = None) -> None:
+    # הודעה עם הקשר ביטול → הפולו-אפים הממתינים נמחקים (ברקע — לא מעכב את התור;
+    # השיחה עצמה ממשיכה כרגיל, הפרסונה תענה על הביטול בעצמה).
+    if _CANCEL_RE.search(text):
+        _spawn(memory.set_pref(phone, "_followups", None))
     pend = _await_answer.get(phone)
     if (
         pend
