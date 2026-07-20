@@ -39,6 +39,7 @@ from app.automation.resolve import (
     resolve_insurance_url,
     resolve_reservation_url,
 )
+from app.automation.shows_catalog import recommend_shows
 from app.config import settings
 from app.db import memory
 from app.llm.intent import (
@@ -127,8 +128,9 @@ _EXTRACT = (
     "· בקשת המלצה ('תמליץ לי', 'איפה שווה לאכול', 'מה שווה לראות עכשיו') → "
     "task_type='recommend'. ready=true מפעיל בדיקת דירוגים אמיתית; התנאי: ברור מה "
     "מחפשים ואיפה. השדות — ב-recommend בלבד — באנגלית (הבדיקה עובדת רק באנגלית): "
-    "category ('restaurant'/'bar'/'cafe'/'movie'...), city = האזור או השכונה "
-    "('Ramat Hahayal, Tel Aviv'; לסרט לא חובה), notes = אילוצים ('kosher', 'romantic'). "
+    "category ('restaurant'/'bar'/'cafe'/'movie'/'concert'...), city = האזור או השכונה "
+    "('Ramat Hahayal, Tel Aviv'; לסרט או להופעה לא חובה), notes = אילוצים "
+    "('kosher', 'romantic'). "
     "מקום בלי אזור → ready=false ושאלה קצרה איפה. הבדיקה לוקחת רגע — reply קצר שאתה "
     "בודק, בלי להמליץ בעצמך, בלי להבטיח כמה מהר ובלי להזכיר גוגל, מפות או איך "
     "אתה בודק (אתה פשוט מכיר את הסצנה).\n"
@@ -2197,6 +2199,12 @@ async def run_recommend(phone: str, fields: dict) -> None:
     area = (fields.get("city") or "").strip()
     constraints = (fields.get("notes") or "").strip()
     movies = "movie" in category.lower() or "סרט" in category
+    # הופעות: מקור העובדות הוא הקטלוג הפנימי (לאן) — שמות/תאריכים/ערים אמיתיים
+    # בלבד, בלי grounding ובלי המצאות. movies נבדק קודם ("movie show" זה סרט).
+    shows = not movies and (
+        any(k in category.lower() for k in ("concert", "gig", "show", "standup", "stand-up"))
+        or any(k in category for k in ("הופע", "מופע", "סטנדאפ"))
+    )
     # נצפה חי (גרקו הרצליה): ההזמנה נכשלה, גבר הציע חלופות — ואחת מהן הייתה גרקו
     # עצמו. מקום שהרגע לא הסתדר לא חוזר כהמלצה; רשימה שהתרוקנה → הכנות הקיימת.
     avoid = _failed_place(phone)
@@ -2219,6 +2227,8 @@ async def run_recommend(phone: str, fields: dict) -> None:
         items = await asyncio.wait_for(
             recommend_movies(constraints, exclude=shown or None)
             if movies
+            else recommend_shows(area)  # קטלוג פנימי; הישנוֹת מסוננות דטרמיניסטית למטה
+            if shows
             else recommend_places(category, area, constraints, exclude=shown or None),
             timeout=REC_TIMEOUT_S,
         )

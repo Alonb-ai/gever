@@ -26,6 +26,7 @@ import urllib.parse
 
 import httpx
 
+from app.automation.shows_catalog import fetch_upcoming
 from app.config import settings
 
 log = logging.getLogger("gever")
@@ -935,20 +936,59 @@ async def _event_dead(url: str) -> bool:
         return False
 
 
+async def _events_internal(artist: str) -> list[dict]:
+    """מועמדי resolve מקטלוג ההופעות הפנימי (shows_catalog) — שלב-1 לפני Brave,
+    באותו עיקרון של הוט-סינמה/המסעדות. הכותרת = שם + תאריך + היכל+עיר: אותם
+    שדות דיסאמביגואציה שכותרות Brave נותנות (many = המועדים האמיתיים).
+
+    דיוק-גבוה בכוונה: *כל* מילות האמן חייבות לפגוע בכותרת — מול קטלוג של מאות
+    רשומות, מילת-מותג אחת מזייפת (smoke חי 20.7: "שלמה ארצי" נתקע על many של
+    "אצטדיון שלמה ביטוח"). מה שלא עובר — Brave (הסלחני) ממשיך כרגיל.
+    [] → כשל שקט (ממשיכים ל-Brave)."""
+    words = [w for w in _norm(artist).split() if len(w) >= 2 and w not in _GENERIC_WORDS]
+    if not words:
+        return []
+    try:
+        return [
+            {
+                "title": " ".join(
+                    x for x in (it["title"], it["date"], _with_city(it["venue"], it["city"])) if x
+                ),
+                "url": it["url"],
+                "platform": it["platform"],
+            }
+            for it in await fetch_upcoming()
+            if all(_has_token(w, _norm(it["title"])) for w in words)
+        ]
+    except Exception:  # noqa: BLE001 — קטלוג לא רשמי: כל כשל נופל בשקט ל-Brave
+        log.info("resolve: events catalog failed", exc_info=True)
+        return []
+
+
 async def resolve_event_url(artist: str, venue: str = "") -> dict:
     """כמו resolve_cinema_url, להופעות: אותו חוזה החזרה בדיוק, על _EVENT_PLATFORMS.
     many הוא פיצ'ר — שני מועדים לאותו אמן בלאן = שתי רשומות עם תאריך+היכל בכותרת,
     והרשימה שהלקוח מקבל היא המועדים האמיתיים. drop_listings=False — ה-regex כבר
     משאיר רק דפי אירוע. אין fallbackים של Phase 4-lite (מסעדות בלבד).
-    מנצח 'one' עובר בדיקת חיות (_event_dead) — דף רפאים נפסל ובוחרים מחדש מהשאר,
-    באותו דפוס של לולאת דף-הרפאים של המסעדות (_pick)."""
+    שלב 1 — הקטלוג הפנימי (לאן+קופת, ≤שעה): מכריע רק כשהמותג באמת זוהה (one,
+    או many של פלטפורמה — מועדים אמיתיים); 'via' מדווח internal/brave כמו
+    במסעדות. הקטלוג טרי — בלי בדיקת _event_dead בשלב הזה. כיסוי Brave להופעות
+    לא אמין (אומת חי 19.7: דף אייל גולן נעלם מסט התוצאות) — לכן השלב הזה.
+    שלב 2 — Brave: מנצח 'one' עובר בדיקת חיות (_event_dead) — דף רפאים נפסל
+    ובוחרים מחדש מהשאר, באותו דפוס של לולאת דף-הרפאים של המסעדות (_pick)."""
+    internal = await _events_internal(artist)
+    if internal:
+        name = " ".join(p for p in (artist, venue) if p)
+        picked = _pick_cinema(name, internal, _EVENT_PLATFORMS, drop_listings=False)
+        if picked["status"] == "one" or (picked["status"] == "many" and picked["platform"]):
+            return {**picked, "via": "internal"}
     candidates = await search_events(artist, venue)
     await _real_titles(candidates)
     pool = _demote_stale_years(candidates)
     while True:
         picked = _pick_cinema(artist, pool, _EVENT_PLATFORMS, drop_listings=False)
         if picked["status"] != "one" or not await _event_dead(picked["url"]):
-            return picked
+            return {**picked, "via": "brave"}
         log.info("resolve: dead event page dropped for '%s': %s", artist, picked["url"])
         pool = [c for c in pool if c["url"] != picked["url"]]
 
