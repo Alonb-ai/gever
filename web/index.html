@@ -38,7 +38,8 @@ details[open] .fq::before{content:'−'}
 :focus-visible{outline:3px solid #54c9c9;outline-offset:2px;border-radius:6px}
 /* responsive — invisible on desktop, only stacks narrow screens (inline styles untouched) */
 @media(max-width:900px){
-  .r-hero{grid-template-columns:1fr!important;gap:40px!important}
+  .r-hero{grid-template-columns:1fr!important;gap:32px!important}
+  .r-hero>div:first-child{order:2}
   .cta-br{display:none}
 }
 @media(max-width:760px){.lnk{display:none!important}}
