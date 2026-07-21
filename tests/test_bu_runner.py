@@ -318,8 +318,12 @@ def test_cinema_task_hot_cinema_addendum_is_conditional():
     ל-task רק כש-platform="hot-cinema" — רשתות אחרות לא רואות אותן."""
     hot = _build_task({**_CJOB, "dry_run": True, "platform": "hot-cinema"})
     assert "tickets.hotcinema.co.il" in hot and "9 דקות" in hot
+    # בורר-התאריך של דף הסרט הוא shadow DOM מקונן (QA חי 22.7): הקלדה/סקריפט לא נקלטים,
+    # רק לחיצה→לוח-שנה. השורה נכנסת רק להוט.
+    assert "shadow DOM" in hot and "לוח-שנה" in hot
     other = _build_task({**_CJOB, "dry_run": True, "platform": "planet"})
     assert "tickets.hotcinema.co.il" not in other and "9 דקות" not in other
+    assert "shadow DOM" not in other
     assert "hotcinema" not in _build_task({**_CJOB, "dry_run": True})
 
 
