@@ -102,6 +102,30 @@ def test_markerless_final_report_is_browser_error():
     assert _parse_result("BOOKED 42", commit=True)["failed"] == ""
 
 
+def test_markerless_with_options_is_missing_not_browser_error():
+    # QA הופעות 21.7 (עדן בן זקן, ערד): ה-agent הגיע לקטגוריות המחיר, מנה אותן
+    # ב-OPTIONS:, ועצר לשאלת הלקוח — אבל שורת ה-marker האחרונה נחתכה במגבלת אורך
+    # הפלט. שורת OPTIONS: = ראיה שהדפדפן חי בקיר-בחירה (דפדפן מת לעולם לא פולט
+    # OPTIONS), אז שחזור כ-MISSING:price_category, לא browser_error שקרי.
+    final = (
+        "נמצא מועד אחד להופעה בערד. המופע בעמידה.\n"
+        "ישנן מספר קטגוריות מחיר, אך לא צוינה העדפה.\n"
+        'OPTIONS: כרטיס כניסה 129 ש"ח | תושב ערד 85 ש"ח'
+    )
+    for commit in (False, True):
+        r = _parse_result(final, commit=commit)
+        assert r["failed"] == ""
+        assert r["missing"] == "price_category"
+        assert r["missing_fields"] == ["price_category"]
+        assert r["success"] is False
+        assert r["options"] == ['כרטיס כניסה 129 ש"ח', 'תושב ערד 85 ש"ח']
+    # markerless בלי OPTIONS = דפדפן שמת → נשאר browser_error (הרשת לא נחלשה).
+    assert _parse_result("Waited for 5 seconds", commit=False)["failed"] == "browser_error"
+    # OPTIONS *עם* marker אמיתי — לא נכנס למסלול השחזור, ה-marker קובע.
+    r = _parse_result("OPTIONS: א | ב\nMISSING:seats", commit=False)
+    assert r["failed"] == "" and r["missing"] == "seats"
+
+
 def test_failed_marker_reports_reason():
     r = _parse_result("אין שולחנות פנויים בטווח.\nFAILED:no_availability", commit=False)
     assert r["success"] is False
