@@ -4068,19 +4068,26 @@ async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = 
     reply = result.get("reply") or await _say(
         "empty_reply", fallback=("רגע 🔄", "רגע איתי 🔄", "עוד רגע אני פה 🔄")
     )
-    # שכבת מגן אחרונה לפני הלקוח: שבירת-דמות אמיתית (חשיפת AI/הוראות/אמוג'י זר)
-    # לא יוצאת לוואטסאפ — הודעת גישור בדמות במקומה, והדליפה נשמרת בלוג.
+    # שכבת מגן אחרונה לפני הלקוח: שבירת-דמות אמיתית (חשיפת AI/הוראות) לא יוצאת
+    # לוואטסאפ — הודעת גישור בדמות במקומה, והדליפה נשמרת בלוג. אבל אימוג'י בודד
+    # מחוץ לפלטה (🌴 על "תאילנד") הוא החלקה סגנונית, לא חשיפה — מנקים את התו
+    # ושומרים את התוכן, במקום לזרוק תשובת-הזמנה מהותית לטובת גשר ריק.
     leaks = character_leaks(reply)
     if leaks:
-        log.warning("character leak suppressed for %s: %s", phone, leaks)
-        reply = await _say(
-            "leak_bridge",
-            fallback=(
-                "רגע, אני על משהו — חוזר אליך עוד רגע 🔄",
-                "תפוס רגע על משהו, תכף חוזר אליך 🔄",
-                "אני באמצע משהו קטן, עוד רגע אצלך 🔄",
-            ),
-        )
+        real = [p for p in leaks if not p.startswith("emoji:")]
+        if not real:
+            log.info("stripped off-palette emoji for %s: %s", phone, leaks)
+            reply = "".join(c for c in reply if not _looks_like_emoji(c) or c in ALLOWED_EMOJI)
+        else:
+            log.warning("character leak suppressed for %s: %s", phone, real)
+            reply = await _say(
+                "leak_bridge",
+                fallback=(
+                    "רגע, אני על משהו — חוזר אליך עוד רגע 🔄",
+                    "תפוס רגע על משהו, תכף חוזר אליך 🔄",
+                    "אני באמצע משהו קטן, עוד רגע אצלך 🔄",
+                ),
+            )
     # וואטסאפ אמיתי = כמה הודעות קצרות, לא פסקה: כל שורה ב-reply נשלחת כהודעה
     # נפרדת (הפרסונה מונחית לכתוב ככה). מעל 4 שורות — השאר מתאחד לאחרונה.
     # בין הודעות: 'מקליד…' + השהיה לפי אורך ההודעה הבאה — פרץ הודעות באותה שנייה
