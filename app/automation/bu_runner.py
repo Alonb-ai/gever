@@ -666,7 +666,18 @@ def _parse_result(final: str, *, commit: bool) -> dict:
     if not any(
         m in last for m in ("SUMMARY_REACHED", "CARD_REQUIRED", "BOOKED", "MISSING:", "FAILED:")
     ):
-        failed = "browser_error"
+        # שחזור קיר-בחירה שנחתך (QA הופעות 21.7, עדן בן זקן/ערד): ה-agent הגיע
+        # לקטגוריות המחיר, מנה אותן ב-OPTIONS:, ועצר לשאלת הלקוח — אבל הדיווח העברי
+        # הארוך (פרוזה+PERK+OPTIONS+marker) נחתך במגבלת אורך הפלט בדיוק על שורת ה-marker
+        # האחרונה, והלקוח קיבל "תקלה טכנית" במקום את רשימת הקטגוריות. שורת OPTIONS: היא
+        # הראיה שהדפדפן היה חי בקיר-בחירה: דפדפן שמת מהדהד פעולה אחרונה/ריק — לעולם
+        # לא פולט OPTIONS. לכן markerless *עם* OPTIONS → MISSING:price_category (קיר
+        # הבחירה הנפוץ בהופעות/קולנוע; הלקוח רואה את ה-options בפועל) ולא browser_error.
+        if re.search(r"(?m)^\s*OPTIONS\b", final):
+            missing = missing or "price_category"
+            missing_fields = missing_fields or [missing]
+        else:
+            failed = "browser_error"
     # השעה שנבחרה בפועל (החוזה: אחרי SUMMARY_REACHED) — כדי שגבר יציע חלופה ללקוח
     # ("יש 21:00 במקום 20:30, מתאים?") לפני הסגירה, וה-commit יסגור את מה שאושר.
     m = re.search(r"\b(\d{1,2}:\d{2})\b", last)
