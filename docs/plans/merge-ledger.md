@@ -573,3 +573,57 @@ _ins_draft צובר, החלפת מבטח משחררת סשן ממתין. builder
 - שער: ruff נקי + **545 ירוקים ×2** (conftest מנטרל את רשת הקטלוג גלובלית).
   פתוח: ריצת E2E חיה של הזמנה דרך URL קטלוגי; קופת בלי תאריכים (סקירה = לאן
   בלבד); "artist" נפרד לא קיים במקורות (title הוא שם המופע/אמן).
+
+## סבב חיזוק QA — merge/qa-hardening (21.7, worktree qa-merge, מ-origin/main 9dfe3b2)
+
+חמישה תיקוני QA מ-6 ורטיקלים ריצות-חיות אל ענף אינטגרציה אחד. חמישה קומיטי מיזוג
+`--no-ff` (recommend→persona→cinema→events→insurance), **לא נדחף; main לא נגוע**:
+- **4bd96da** Merge qa/recommend-hardening (4ab7719) — **המלצות**: `_TITLE_JUNK`
+  ב-recommend.py `parse_maps_chunks`, `strip` תווי-כיווניות/רוחב-אפס/פיסוק-זנב
+  ("claro;", U+200E מוביל — נצפו חי) משני קצות כותרת ה-Maps grounding לפני
+  שהיא נבלעת לשם ההזמנה ולדדופ. מיזוג נקי.
+- **9c1a482** Merge qa/persona-hardening (21f865f) — **פרסונה**: pipeline.py
+  שכבת המגן. leak שכולו `emoji:` (אימוג'י בודד מחוץ לפלטה, 🌴 על "תאילנד") →
+  `strip` התו ושמירת התוכן במקום זריקת תשובת-הזמנה מהותית לגשר ריק; leak אמיתי
+  (חשיפת AI/הוראות) עדיין → `leak_bridge`. **אומת ידנית** (ראה למטה). מיזוג נקי.
+- **5c7c5f2** Merge qa/cinema-hardening (c661725) — **קולנוע/הוט**: בלוק ה-hot
+  ב-`_build_cinema_task` — בורר-התאריך בדף הסרט הוא shadow DOM מקונן; הכוונה
+  ללחיצה→לוח-שנה במקום הקלדה/`evaluate` שנבלעים. מיזוג נקי (אזור 1 ב-bu_runner).
+- **4b8a067** Merge qa/events-hardening (1dfbcdd) — **הופעות**: `_parse_result`,
+  markerless *עם* `OPTIONS` → `MISSING:price_category` (הדפדפן היה חי בקיר-הבחירה;
+  הדיווח נחתך על שורת ה-marker) במקום `browser_error` שקרי. אוטו-מיזוג נקי
+  (אזור 3 ב-bu_runner, נפרד מ-hot).
+- **3bf668b** Merge qa/insurance-hardening (446774e) — **ביטוח**:
+  `_build_insurance_task` — 3 תיקונים: מסך כרטיס = `SUMMARY_REACHED`+`CARD_REQUIRED`
+  לא MISSING; סירוב מכירה-צולבת/דיוור (בחירת דילוג, לא לעצור); כתובת-דמה ל-recon
+  בספייק. אוטו-מיזוג נקי (אזור 2 ב-bu_runner).
+
+**bu_runner — שלושה אזורים, אפס דריסה שקטה** (הלקח החוזר של push-17-7c/night2):
+cinema (hot ב-`_build_cinema_task`) · insurance (`_build_insurance_task`) · events
+(`_parse_result`) — שלוש פונקציות נפרדות. מעבר שורה-שורה מול כל הורה: diff
+insurance-branch..HEAD הראה רק את תוספות cinema+events מעל; שלושת הבלוקים חיים
+בו-זמנית (אומת ב-grep על שלוש חתימות). שני עוגני-הטסט של test_bu_runner.py
+(events `test_markerless_with_options_...` שורה 105, cinema
+`test_cinema_task_hot_cinema_addendum_...` שורה 340) שרדו שניהם. סריקת AST/grep:
+אפס פונקציות top-level כפולות, אפס מפתחות כפולים (ruff F811/F601 נקי).
+
+**אימות persona ידני (הקלאסיפייר היה למטה בסקירה):** דיף 21f865f ב-pipeline.py
+נסקר שורה-שורה — התיקון הוא בדיוק: `real = [p for p in leaks if not
+p.startswith("emoji:")]`; אם אין leak אמיתי → `strip` תווי אימוג'י שאינם ב-
+`ALLOWED_EMOJI` (שמירת התוכן, log.info); אחרת → `leak_bridge` (log.warning).
+`character_leaks` (intent.py:195) אכן פולט `"emoji:"+…` ל-off-palette. אין בדיף
+שום דבר חריג/לא-קשור — שינוי ממוקד בשכבת המגן בלבד. אומת שגם ההלפרים
+(`ALLOWED_EMOJI`, `_looks_like_emoji`) מיובאים ב-pipeline.py.
+
+**שער ×2, exit 0:** ruff check 0 · ruff format 0 (80 files) · **585 passed ×2**
+(13.9ש'/12.6ש'). צפי מדויק: בסיס origin/main 577 + 8 עוגנים חדשים (recommend 1 +
+persona 3 + cinema 0 [asserts לטסט קיים] + events 1 + insurance 3) = 585. אפס
+טסט בסיס אבד. בלי ריצות דפדפן/Gemini (מנוטרל ב-conftest).
+
+**ממצאים פתוחים (מהריצות החיות, לא נסגרו בסבב זה):**
+- **gemination רוחבי**: ערבוב כתב/הכפלת-תווים בשורות חיות של המודל ("וואibe",
+  "וואibe") — קוסמטי, לא נאכף דטרמיניסטית; לנטר.
+- **CC disambiguation**: זיהוי/הפרדת קטגוריית-מחיר מול מושב מול הרחבה בקירות
+  הבחירה עדיין תלוי-מודל.
+- **passportcard resume infra**: רגל ה-resume של פספורטכארד עד CARD מוכחת בספייק,
+  אך E2E דרך הצינור המלא (פייפליין, לא ספייק) לכל מבטח — עדיין פתוח.
