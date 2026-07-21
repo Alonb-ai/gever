@@ -145,6 +145,54 @@ def test_insurance_task_traveler_rules_from_aig_recon():
     assert 'לעולם אינו שדה "חסר"' not in bare
 
 
+def test_insurance_task_card_fields_are_payment_wall_not_missing():
+    """QA ביטוח 21.7 (recon AIG): מסך הסיכום של AIG הציג פרמיה $56.70 אך גבה שם/ת"ז
+    בעל-כרטיס — ה-agent דיווח MISSING על שדות הכרטיס במקום CARD_REQUIRED, איבד את
+    הפרמיה ועמד לבקש פרטי אשראי מהלקוח. הכלל: שדות כרטיס = קיר תשלום, לעולם לא MISSING."""
+    task = _build_task({**_JOB, "dry_run": True})
+    flat = " ".join(task.split())
+    assert 'מסך התשלום אינו "שדות חסרים"' in flat
+    assert "לעולם אל תדווח עליהם MISSING ולעולם אל תבקש אותם מהלקוח" in flat
+    assert "שם בעל הכרטיס" in flat and "CARD_REQUIRED" in flat
+
+
+def test_insurance_task_declines_cross_sell_offers():
+    """QA ביטוח 21.7 (recon הפניקס): הטופס הציג upsell ביטוח-רכב (שובר Buyme) —
+    ה-agent סימן אותו כשדה חובה ועצר על MISSING. מכירה-צולבת/שיווק אינה שדה חובה
+    של ההצעה: לבחור סירוב/דילוג ולהמשיך, לא לעצור ולא למסור פרטים."""
+    task = _build_task({**_JOB, "dry_run": True})
+    flat = " ".join(task.split())
+    assert "מכירה-צולבת" in flat and "אינן שדה חובה של ההצעה" in flat
+    assert "אל תעצור עליהן עם MISSING" in flat
+
+
+def test_spike_test_answer_address_and_card_guard():
+    """הקשחת recon 21.7: _test_answer מספק כתובת-דמה (רחוב/בית/עיר) כדי לחצות טפסי
+    מבטח שגובים כתובת לפני הפרמיה (הפניקס עצר על p1_street/p1_house_number), ולעולם
+    לא מזין פרטי כרטיס אשראי — גם לא דמה, גם card_owner_id שנגמר ב-_id."""
+    import importlib.util
+
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "poc", "spike_insurance.py"
+    )
+    spec = importlib.util.spec_from_file_location("spike_insurance", path)
+    spike = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(spike)
+    ta = spike._test_answer
+    # כתובת בעל-פוליסה — כדי שה-resume ימשיך מעבר לדף הכתובת
+    assert ta("p1_street", {}) == "הרצל"
+    assert ta("p1_house_number", {}) == "10"
+    assert ta("city", {}) == "תל אביב"
+    # פרטי כרטיס — לעולם None (קיר תשלום, לא שדה-חסר), גם card_owner_id שנגמר ב-_id
+    assert ta("card_owner_name", {}) is None
+    assert ta("card_owner_id", {}) is None
+    assert ta("cvv", {}) is None
+    # בריאות — נשאר None (הצהרה משפטית)
+    assert ta("health_declaration", {}) is None
+    # ת"ז נוסע רגילה עדיין נענית — הגארד לא בלע אותה
+    assert ta("p2_id", {}) == "376435996"
+
+
 def test_insurance_resume_carries_travelers_birth_dates():
     """Recon AIG 18.7: ה-resume נשא רק recap+תשובות, וה-agent שלא ראה את תאריכי
     הלידה עצר עם MISSING:p1_birth_date על ערך שהלקוח כבר מסר — סבב שאלה מיותר.
