@@ -54,6 +54,23 @@ def test_parse_maps_chunks_fields_dedupe_and_nonmaps():
     ]
 
 
+def test_parse_maps_chunks_cleans_title_junk():
+    """זבל-כותרת של Maps grounding (פסיק-נקודה זנב, תו-כיווניות מוביל — נצפו חי)
+    מנוקה מהשם: הוא עוגן ההזמנה ומפתח הדדופ. פיסוק פנימי/לגיטימי נשמר."""
+    places = recommend.parse_maps_chunks(
+        [
+            _chunk("claro;", "**Rating:** 4.5 (7,441 reviews)"),
+            _chunk("‎Whiskey Bar & Museum | וויסקי"),  # תו LTR מוביל
+            _chunk("Frug & Co."),  # נקודה לגיטימית — נשמרת
+        ]
+    )
+    assert [p["name"] for p in places] == [
+        "claro",
+        "Whiskey Bar & Museum | וויסקי",
+        "Frug & Co.",
+    ]
+
+
 def test_parse_maps_chunks_missing_rating():
     (p,) = recommend.parse_maps_chunks([_chunk("X", "**Title:** X")])
     assert p["rating"] is None and p["reviews"] == 0 and p["open_now"] is False
