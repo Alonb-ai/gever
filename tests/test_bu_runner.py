@@ -297,6 +297,8 @@ def test_cinema_task_keeps_contract_and_is_principled_not_recipe():
     assert "coordinate_x" in recon
     # פרוב 21.7: המתכון המוכח — שיגור רצף אירועים על elementFromPoint + אימות המונה
     assert "elementFromPoint" in recon
+    # אימות E2E 21.7: reCAPTCHA אחרי בחירת מושבים = קיר-כרטיס (מסירה ללקוח), לא כישלון
+    assert "reCAPTCHA" in recon
     # שני חוקי הברזל הרוחביים (189241a במסעדות) חלים גם על הקולנוע (⚠ מה-ledger)
     assert "מנוע חיפוש" in recon and "FAILED:broken_page מיד" in recon
     # לקח ההופעות (e60f9d0): תבניות "אזלו" נסתרות לא קובעות זמינות — רק מה שמוצג
@@ -443,6 +445,8 @@ def test_concert_task_keeps_contract_and_event_rules():
     assert "coordinate_x" in recon
     # פרוב 21.7: המתכון המוכח — שיגור רצף אירועים על elementFromPoint + אימות המונה
     assert "elementFromPoint" in recon
+    # אימות E2E 21.7: reCAPTCHA אחרי בחירת מושבים = קיר-כרטיס (מסירה ללקוח), לא כישלון
+    assert "reCAPTCHA" in recon
     assert "אימות אבטחה" in recon
     assert "גוש" in recon  # אולמות גדולים — בחירת גוש/מפלס לפני מפת המושבים
     # קיר התשלום הוא הסוף הטבעי (כרטיס דיגיטלי) — כמו קולנוע
