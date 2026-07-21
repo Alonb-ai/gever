@@ -57,11 +57,15 @@ _HEALTH = re.compile(
 )
 # בחירה כפויה שמותר לספייק להכריע בה (אופציה ראשונה מהדף) — רק מפתחות לוגיסטיים.
 _SAFE_CHOICE = re.compile(r"pickup|destination|region|delivery|terminal")
+# פרטי כרטיס אשראי/תשלום = קיר התשלום (CARD_REQUIRED) — לא שדה-חסר. הספייק לעולם לא
+# מזין פרטי כרטיס, גם לא נתוני-דמה (לקח recon AIG 19.7: הטופס גובה שם/ת"ז בעל-כרטיס
+# במסך הסיכום; ה-agent המתוקן מדווח CARD_REQUIRED, וגם אם דיווח MISSING — עוצרים בכנות).
+_CARD = re.compile(r"card|cvv|cvc|expiry|expiration|credit")
 
 
 def _test_answer(key: str, options_by_field: dict) -> str | None:
     """ערך-בדיקה מוגדר-ספייק למפתח ש-agent דיווח כ-MISSING. None = אין — עוצרים בכנות."""
-    if _HEALTH.search(key):
+    if _HEALTH.search(key) or _CARD.search(key):
         return None
     p2 = bool(_P2.search(key))
     if key == "id" or "id_number" in key or key.endswith("_id"):
@@ -78,6 +82,18 @@ def _test_answer(key: str, options_by_field: dict) -> str | None:
         return "alonlevi1990@gmail.com"
     if "phone" in key or "mobile" in key:
         return "0523894716"
+    # כתובת בעל-הפוליסה — טפסי מבטחים (הפניקס/מגדל) גובים כתובת מגורים לפני הפרמיה;
+    # בלי נתוני-דמה כאן ה-recon נעצר באמצע. ערכי דמה סבירים בלבד (חוקי הברזל).
+    if "street" in key:
+        return "הרצל"
+    if "house" in key:  # house_number / house_no — מספר בית
+        return "10"
+    if "apartment" in key or key.endswith("apt") or "_apt" in key:
+        return "5"
+    if "zip" in key or "postal" in key:
+        return "6100000"
+    if "city" in key or "settlement" in key:
+        return "תל אביב"
     opts = options_by_field.get(key) or []
     if opts and _SAFE_CHOICE.search(key):
         return opts[0]
