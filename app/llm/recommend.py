@@ -32,6 +32,11 @@ _REVIEWS_RE = re.compile(r"\(([\d,]+)\s*reviews?\)", re.IGNORECASE)
 # "שם הסרט | סיבה קצרה" — שורת הפלט שהפרומפט לסרטים כופה
 _MOVIE_LINE_RE = re.compile(r"^\s*(?:\d+[.)]\s*)?(.+?)\s*\|\s*(.+?)\s*$")
 
+# תווי-כיווניות/רוחב-אפס ופיסוק-זנב שגוגל לפעמים מצרף לכותרת ה-Maps ("claro;",
+# "‏Whiskey Bar…" עם U+200E מוביל — נצפו חי): הזבל נבלע לשם-ההזמנה ולדדופ ופוגם
+# בחיפוש ה-resolver. מנקים משני הקצוות בלבד — "Co."/"&"/"|" פנימי נשמרים.
+_TITLE_JUNK = " \t;,·*#|‎‏‪‫‬‭‮"
+
 _client: genai.Client | None = None
 
 
@@ -61,7 +66,7 @@ def parse_maps_chunks(chunks) -> list[dict]:
     seen: set[str] = set()
     for c in chunks or []:
         m = getattr(c, "maps", None)
-        title = ((getattr(m, "title", "") or "") if m else "").strip()
+        title = ((getattr(m, "title", "") or "") if m else "").strip(_TITLE_JUNK)
         if not title or title.lower() in seen:
             continue
         seen.add(title.lower())
