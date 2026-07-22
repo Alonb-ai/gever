@@ -29,6 +29,10 @@ Full spec: [`גבר_MVP_Spec.docx`](גבר_MVP_Spec.docx). Roadmap & status: [`R
    inline when a fan-out does it better.
 6. **Ponytail audit after code.** After every coding session, run a ponytail
    (over-engineering) pass on what was written — delete what shouldn't exist.
+   **Deletion threshold:** under ~100 lines whose impact is hard to pin down —
+   leave it. We do not clean for cleaning's sake; the churn (merge conflicts,
+   orphaned evidence-citations, rewording canonical docs) outweighs the gain.
+   Propose a small deletion only when its impact is provably zero, and batch it.
 7. **Tests are mandatory.** Every new function gets a matching test. Every
    change to existing code requires running — and if behavior changed,
    updating — its tests. No green gate, no done.
@@ -70,6 +74,25 @@ pytest
   autonomous browser-use agent; won our live Ontopo test vs gemini-3.5-flash.
   Claude scores higher on evals but is blocked for us; Anthropic is too expensive.
 - Set via `MODEL_NAME` / `GEMINI_MODEL` in `.env` and Coolify env; defaults in `app/config.py`.
+
+## Browser speed (decided 22.07.26 — measured, do not revert casually)
+
+Live A/B, 14 runs, valid completions only: **restaurants −29.5% · cinema −40.5% ·
+insurance −54.1%**. The heavier the vertical, the bigger the win. What earned it:
+
+- **`browserbase_region = "eu-central-1"`** — Browserbase defaults to `us-west-2`
+  (Oregon). Frankfurt is the closest of its 4 regions to Israel; measured ~6× faster
+  page loads on Israeli sites, and `us-west-2` failed to load HOT 3/3 times.
+- **`browserSettings.blockAds`** — chain pages (video + banners) build a huge DOM;
+  browser-use spent >15s per step just serializing it.
+- **`highlight_elements=False`** — skips drawing highlight overlays every step
+  (real early-exits at `session.py:2646/2813/2952`; not a no-op).
+- **Resume on CDP crash** — the auto-retry continues from the screen that died
+  (the `keepAlive` session usually survives) instead of restarting from zero.
+
+Time is dominated by **cost-per-step, not step count** — optimize the step, not the
+plan. Tried and removed: a prompt rule telling the agent not to insert manual
+`wait`s (measured: runs carrying it still emitted 1-2 waits).
 
 ## Stack & structure
 
