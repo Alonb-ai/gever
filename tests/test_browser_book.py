@@ -151,6 +151,23 @@ def test_timeout_ceiling_cinema_gets_the_long_one():
     assert browser_book.BU_INSURANCE_TIMEOUT_S > browser_book.BU_CINEMA_TIMEOUT_S
 
 
+def test_create_session_pins_region(monkeypatch):
+    # זירוז 22.7: הסשן נפתח באזור מ-settings (פרנקפורט הקרוב ל-IL) ולא בברירת
+    # המחדל us-west-2 של Browserbase שנכשל לטעון את הוט.
+    captured: dict = {}
+
+    async def cap_bb(method, path, body=None):
+        captured["body"] = body
+        return {"id": "sid", "connectUrl": "wss://x"}
+
+    monkeypatch.setattr(browser_book, "_bb", cap_bb)
+    asyncio.run(browser_book._bb_create_session())
+    assert captured["body"]["region"] == browser_book.settings.browserbase_region
+    assert captured["body"]["region"]  # לא ריק — נשלח בפועל
+    # זירוז 22.7: חסימת פרסומות ברמת-הסשן — מרזה את ה-DOM הכבד של דפי הרשתות.
+    assert captured["body"]["browserSettings"]["blockAds"] is True
+
+
 def test_release_session_retries_transient_failure(monkeypatch):
     # ריצת ביטוח חיה 1 (15.7): נפילת רשת רגעית הפילה גם את השחרור היחיד והסשן
     # נשאר RUNNING ומחויב. עכשיו: ניסיון שנכשל → retry שמצליח.

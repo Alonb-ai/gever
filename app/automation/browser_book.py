@@ -130,9 +130,14 @@ async def _bb_create_session() -> tuple[str, str]:
         "/sessions",
         {
             "projectId": settings.browserbase_project_id,
+            "region": settings.browserbase_region,
             "proxies": True,
             "keepAlive": True,
             "timeout": 1800,
+            # blockAds: זירוז 22.7 — דפי הרשתות (הוט: וידאו + באנרי פרסומת) בונים DOM
+            # ענק שבניית ה-state של browser-use עליו לוקחת >15 שנ'/צעד. חסימת פרסומות
+            # ברמת-הסשן מרזה את הדף → state מהיר יותר. לא נוגע בזרימת ההזמנה עצמה.
+            "browserSettings": {"blockAds": True},
             # תג בעלות — sweep_orphan_sessions משחרר רק סשנים עם ה-owner שלו.
             "userMetadata": {"owner": _owner_tag()},
         },

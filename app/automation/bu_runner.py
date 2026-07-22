@@ -76,6 +76,8 @@ _ALT_DATES_RULE = (
 _STEP_DIET = """- חסוך צעדים: כמה פעולות שאפשר לבצע ברצף על אותו מסך — בצע באותו צעד (למשל מילוי
   כל שדות הטופס בזה אחר זה), אל תגלול כדי לחפש אלמנט שכבר נראה על המסך, ואל תוסיף
   צעדי וידוא חוזרים על מה שכבר אישרת חזותית — וידוא אחד אחרי בחירה מהותית מספיק.
+  אל תוסיף פעולת wait ידנית רק כדי "לחכות שהדף ייטען" — הדף מוכן כשאתה רואה אותו;
+  wait מוצדק רק כשהרגע יזמת פעולת-שרת (אישור/שליחה/תשלום) ואתה רואה טעינה באמצע.
   חיסכון בצעדים אף פעם לא מבטל את חוקי הברזל או את חובת העצירה עליהם."""
 
 _PERK_BLOCK = """ראית בדף פרט ששווה ללקוח לדעת — הנחה, מבצע, הגבלת זמן שולחן, דרישת הגעה בזמן?
@@ -875,7 +877,14 @@ def _profile_kwargs(job: dict) -> dict:
     # cross_origin_iframes: מפות מושבים של הופעות חיות ב-OOPIF (seatmap.vivenu.com
     # בתוך לאן — QA חי 18-19.7). ב-0.13.1 זו כבר ברירת המחדל (True) — מקובע מפורשות
     # כדי ששדרוג עתידי של browser-use לא יכבה אותו בשקט ויפיל את הוורטיקל.
-    kwargs: dict = {"headless": job.get("headless", True), "cross_origin_iframes": True}
+    # highlight_elements=False: זירוז 22.7 — browser-use מצייר מסגרות-הדגשה כתומות על
+    # כל אלמנט לחיץ בכל צעד (ציור DOM + interaction_highlight_duration). בהֶדלֶס אין מי
+    # שרואה אותן; ביטול חוסך עבודת-DOM מיותרת בכל צעד. לא נוגע בזיהוי/קליק, רק בציור.
+    kwargs: dict = {
+        "headless": job.get("headless", True),
+        "cross_origin_iframes": True,
+        "highlight_elements": False,
+    }
     if job.get("cdp_url"):  # browserbase / remote — stealth+captcha חיים שם
         kwargs["cdp_url"] = job["cdp_url"]
         # ה-keepAlive של Browserbase מגן רק מפני *ניתוק*; בלעדי keep_alive כאן

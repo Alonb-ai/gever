@@ -90,6 +90,34 @@ def test_broken_page_retries_once_then_succeeds(monkeypatch):
     assert any("נסיון" in m or "ניסיון" in m or "מנסה שוב" in m for m in sent)
 
 
+def test_crash_retry_resumes_live_session_instead_of_restarting(monkeypatch):
+    """זירוז 22.7: CDP מת אבל סשן ה-keepAlive לרוב חי — ה-retry האוטומטי ממשיך
+    מאותו מסך במקום ריצה טרייה (דקות → שניות). סשן שכבר מת: _bb_live_connect_url
+    מחזיר None ו-book_table_bu נופל לריצה טרייה לבד, אז אין רגרסיה."""
+    _reset()
+    sent = []
+    crashed = ActionResult(
+        success=False, summary="", details={"failed": "browser_error", "session_id": "sid-9"}
+    )
+    good = ActionResult(
+        success=True,
+        summary="SUMMARY_REACHED 20:00",
+        details={"summary_reached": True, "time": "20:00"},
+    )
+    calls = _wire(monkeypatch, sent, [crashed, good])
+
+    async def fake_upsert(phone, name=None, email=None, prefs=None):
+        pass
+
+    monkeypatch.setattr(memory, "upsert_profile", fake_upsert)
+    pipeline._resolved["p1"] = {"name": "הדסון", "url": "http://x", "platform": "ontopo"}
+    asyncio.run(
+        pipeline.run_booking("p1", {"restaurant": "הדסון", "time": "20:00", "party_size": 2})
+    )
+    assert len(calls) == 2  # ניסיון + retry
+    assert (calls[1].get("resume") or {}).get("session_id") == "sid-9"  # המשיך, לא מאפס
+
+
 def test_broken_page_twice_gets_specific_message(monkeypatch):
     """גם ה-retry נכשל → הודעת broken_page ספציפית, לא 'משהו לא זרם' הגנרית."""
     _reset()

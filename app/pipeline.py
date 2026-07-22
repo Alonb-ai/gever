@@ -246,6 +246,9 @@ _pending_commit: dict = {}
 # pause-resume: phone -> סשן דפדפן חי (keepAlive) שעצר על שאלה ללקוח ומחכה לתשובה —
 # {"restaurant","url","platform","session_id","recap"}. הריצה הבאה ממשיכה מאותו מסך.
 _resume: dict = {}
+# ה-recap שנשלח ל-agent כשממשיכים סשן שנפל על קריסת דפדפן (CDP מת) ולא על שאלה
+# ללקוח — אין לנו מה שהלקוח השלים, רק "המשך מאיפה שנקטעת".
+_CRASH_RECAP = "הריצה נקטעה טכנית באמצע. המשך מהמסך שמולך, אל תתחיל מחדש."
 # הסניף שנבחר לאחרונה (אחרי דיסאמביגואציה) — phone -> {"name","url","platform"}.
 # נצפה חי: retry ("תנסה בראשון") שלח את השם הקצר → resolve החזיר many → הלקוח
 # נאלץ לבחור סניף שוב. שם מבוקש שמוכל בבחירה האחרונה = אותו סניף, בלי resolve.
@@ -2969,7 +2972,15 @@ async def run_booking(phone: str, fields: dict) -> None:
                         ),
                     ),
                 )
-                res = await _attempt(used_url, used_platform, None)
+                # CDP מת אבל סשן ה-keepAlive לרוב עדיין חי — ממשיכים מהמסך שבו נפל
+                # במקום להתחיל מאפס (דקות → שניות). סשן שכבר מת: _bb_live_connect_url
+                # מחזיר None ו-book_table_bu נופל לריצה טרייה לבד, אז זה בטוח.
+                crashed_sid = (res.details or {}).get("session_id")
+                res = await _attempt(
+                    used_url,
+                    used_platform,
+                    {"session_id": crashed_sid, "recap": _CRASH_RECAP} if crashed_sid else None,
+                )
         finally:
             hb.cancel()
             if intake:
