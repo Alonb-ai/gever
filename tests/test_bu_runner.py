@@ -70,6 +70,17 @@ def test_restaurant_task_click_sequence_rule_in_both_variants():
         assert "האלמנט הלחיץ" in task and "עטיפה" in task and "אזור אחר" in task
 
 
+def test_wait_discipline_rule_lives_in_step_diet_and_reaches_task():
+    """#5 (זירוז): לצמצם wait-ים וולונטריים — הכלל נמצא ב-_STEP_DIET (הבית המשותף
+    למסעדה/קולנוע/הופעות), ומגיע לפרומפט בפועל. שומר את החריג: wait מוצדק רק אחרי
+    פעולת-שרת שהרגע יזמת (כדי לא לבטל את המתנת-העיבוד הלגיטימית שאחרי שליחה)."""
+    from app.automation.bu_runner import _STEP_DIET
+
+    assert "לחכות שהדף ייטען" in _STEP_DIET  # הכלל קיים
+    assert "פעולת-שרת" in _STEP_DIET  # החריג הלגיטימי נשמר
+    assert _STEP_DIET in _build_task({**_JOB, "dry_run": True})  # ומגיע לפרומפט
+
+
 def test_markers_only_from_last_line_case_sensitive():
     # R1: פרוזת כישלון באנגלית עם 'booked' באותיות קטנות — לא הזמנה.
     r = _parse_result("The restaurant is fully booked for tonight", commit=True)
@@ -182,6 +193,8 @@ def test_browserbase_profile_keeps_browser_alive_for_resume():
     assert "keep_alive" not in local
     # record_dir ריק = בלי הקלטה (ה-fallback ל-/tmp כבר עקץ אותנו פעם).
     assert "record_video_dir" not in _profile_kwargs({"cdp_url": "w", "record_dir": ""})
+    # זירוז 22.7: ביטול ציור מסגרות-ההדגשה בכל צעד (בהֶדלֶס אין מי שרואה אותן).
+    assert bb["highlight_elements"] is False
 
 
 def test_missing_choice_carries_real_page_options():

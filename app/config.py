@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     # Browserbase — תשתית דפדפן (stealth/captcha/proxy) למצב bu_browser=browserbase
     browserbase_api_key: str = ""
     browserbase_project_id: str = ""
+    # אזור הדפדפן ב-Browserbase — פרנקפורט הקרוב לישראל (מדידת RTT 22.7: ~×6 מהיר
+    # מ-us-west-2, שאף נכשל לטעון את הוט 3/3). 4 אזורים בלבד; זה הקרוב ביותר ל-IL.
+    browserbase_region: str = "eu-central-1"
     # תג בעלות על סשנים (userMetadata.owner): ה-sweep בעליית השרת משחרר רק סשנים שלו.
     # ברירת מחדל prod (Coolify לא מגדיר כלום); במכונות פיתוח: BB_SESSION_OWNER=dev.
     bb_session_owner: str = "prod"
