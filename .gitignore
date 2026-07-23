@@ -32,3 +32,4 @@ supabase/.temp/
 # סימלינקים של venv בתוך worktrees (התבנית .venv/ לא תופסת symlink)
 .venv
 .venv-bu
+.claude/settings.local.json
