@@ -200,9 +200,3 @@ def test_late_answer_after_run_ended_goes_to_converse(monkeypatch):
 
     asyncio.run(main())
     assert convs == ["בפנים"]  # state≠working — התשובה המאוחרת זורמת לשיחה
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

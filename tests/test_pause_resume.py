@@ -348,9 +348,3 @@ def test_answer_with_different_restaurant_releases_stale_session(monkeypatch):
     assert "resolve" in calls  # מסעדה חדשה → resolve רגיל
     books = [c for c in calls if isinstance(c, tuple)]
     assert books[0][1] is None  # בלי resume
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

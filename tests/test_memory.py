@@ -33,10 +33,3 @@ def test_fernet_roundtrip():
     token = memory._encrypt(plaintext)
     assert token != plaintext
     assert memory._decrypt(token) == plaintext
-
-
-if __name__ == "__main__":
-    test_get_profile_disabled_returns_none()
-    test_recent_bookings_disabled_returns_empty()
-    test_fernet_roundtrip()
-    print("ok")

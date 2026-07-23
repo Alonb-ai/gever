@@ -426,9 +426,3 @@ def test_events_schema_and_extract_know_events():
     assert "venue" in pipeline._SCHEMA["properties"]
     assert "task_type='events'" in pipeline._EXTRACT
     assert "time אינו שדה" in pipeline._EXTRACT
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

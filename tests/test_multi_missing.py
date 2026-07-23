@@ -411,9 +411,3 @@ def test_single_missing_via_run_booking_unchanged(monkeypatch):
     pend = pipeline._await_answer["p1"]
     assert pend["field"] == "seating_area" and pend["options"] == ["בפנים", "מרפסת מעשנים"]
     assert "remaining" not in pipeline._booking["p1"]
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

@@ -551,9 +551,3 @@ def test_cinema_chain_contract_aligned_with_resolve_and_schema():
     # מיפוי הוט סינמה בפרומפט (משתמשת בטא אמיתית) + הזהירות: 'הוט' לבד = טלקום
     assert "'הוט סינמה'" in pipeline._EXTRACT and "hot-cinema" in pipeline._EXTRACT
     assert "'הוט' " in pipeline._EXTRACT  # האזהרה על המותג הדו-משמעי קיימת
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

@@ -180,9 +180,3 @@ def test_is_approved_caches_and_approve_invalidates(monkeypatch):
         assert await memory.is_approved("c1")  # TTL פג → קורא DB ורואה את האישור
 
     asyncio.run(go())
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

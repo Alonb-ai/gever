@@ -119,9 +119,3 @@ def test_startup_apologizes_to_orphans(monkeypatch):
 
     assert cleared == ["972500000000"]
     assert len(sent) == 1 and "נפלתי באמצע" in sent[0][1] and "גרקו" in sent[0][1]
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

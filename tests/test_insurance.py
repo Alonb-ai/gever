@@ -738,9 +738,3 @@ def test_failure_reply_carries_named_company_without_9912():
         assert hit is not None, reason
         assert "*9912" not in hit[1], reason
         assert not character_leaks(hit[1])
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

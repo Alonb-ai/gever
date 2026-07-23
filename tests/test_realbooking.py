@@ -1582,12 +1582,6 @@ def test_run_booking_failure_does_not_leak_raw_agent_text(monkeypatch):
     assert "גרקו" in sent[-1]  # הודעת דמות בעברית שנוקבת בשם המסעדה
 
 
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))
-
-
 def test_safe_option_dedupes_consecutive_words():
     """'גרקו הרצליה הרצליה' (כותרת אונטופו הרשמית, נצפה חי 15.7) → נקי ללקוח."""
     assert pipeline._safe_option("גרקו הרצליה הרצליה") == "גרקו הרצליה"

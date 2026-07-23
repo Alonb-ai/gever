@@ -12,7 +12,6 @@ import sys
 import time
 from unittest.mock import AsyncMock
 
-import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -81,7 +80,3 @@ def test_real_disclosure_leak_still_bridges(monkeypatch):
     joined = "\n".join(sent)
     assert "בינה מלאכותית" not in joined  # הדליפה לא הגיעה ללקוח
     assert "מודל שפה" not in joined
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-v"]))

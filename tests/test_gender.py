@@ -141,9 +141,3 @@ def test_mechanical_messages_not_male_addressed():
         with open(mod.__file__, encoding="utf-8") as f:
             src = f.read()
         assert not re.search(r"אחי\b|אחשלי|בראדר", src), mod.__file__
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

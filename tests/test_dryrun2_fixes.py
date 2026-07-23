@@ -152,9 +152,3 @@ def test_truth_note_working_empty_info_degrades(monkeypatch):
 
 def test_onboarding_block_mentions_email():
     assert "מייל" in ONBOARDING_BLOCK
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))
