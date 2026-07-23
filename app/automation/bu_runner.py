@@ -893,6 +893,29 @@ PAGE_READY_TIMEOUT_S = 3.0  # במקום 8 הקשיחות של browser-use — S
 MAX_ACTIONS_PER_STEP = 8  # במקום 5 — ראה ההערה ב-_run (41% מהריצות נגעו בתקרה)
 
 
+def _fast_email_input() -> None:
+    """לבר #5-Lite: browser-use מקליד שדות טקסט תו-אחר-תו (3 קריאות CDP לכל תו) —
+    בכוונה, כדי להפעיל מאזיני keydown (מסכות, השלמה, ולידציה חיה). אבל ל-browser-use
+    כבר יש מסלול מהיר (_set_value_directly, ששולח input+change) שהוא בוחר לפי
+    _requires_direct_value_assignment — היום רק לתאריכים/צבע/datepickers. שדה email
+    כמעט אף פעם לא ממוסך או תלוי-keydown, אז מרחיבים את ה-predicate לכסות אותו →
+    הזנה מהירה. שאר השדות (טלפון/ת"ז שעלולים להיות ממוסכים) נשארים char-by-char
+    הבטוח. עטיפה על המנגנון המובנה והנבדק שלהם — לא מסלול הקלדה חדש."""
+    from browser_use.browser.watchdogs.default_action_watchdog import DefaultActionWatchdog
+
+    orig = DefaultActionWatchdog._requires_direct_value_assignment
+
+    def _wide(self, element_node) -> bool:
+        if orig(self, element_node):
+            return True
+        attrs = element_node.attributes or {}
+        return (element_node.tag_name or "").lower() == "input" and attrs.get(
+            "type", ""
+        ).lower() == "email"
+
+    DefaultActionWatchdog._requires_direct_value_assignment = _wide
+
+
 def _shorten_page_readiness() -> None:
     """מקצר את ה-Page readiness timeout של הניווט מ-8 שנ' ל-3.
 
@@ -997,6 +1020,7 @@ async def _run(job: dict) -> dict:
     from browser_use import Agent, BrowserProfile
 
     _shorten_page_readiness()
+    _fast_email_input()
     _widen_dom_window(float(job.get("dom_window_s") or 0))
     key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if key:

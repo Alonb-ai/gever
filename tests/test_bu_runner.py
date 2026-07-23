@@ -850,3 +850,26 @@ def test_stabilize_polls_only_on_url_change_and_exits_early():
     state2 = {"first": False, "url": "https://x/a"}
     aio.run(_stabilize(cdp2, state2, 4.0))
     assert not any("readyState" in c for c in cdp2.calls)  # לא נגע ב-poll בכלל
+
+
+def test_fast_email_input_widens_direct_value_to_email_only():
+    """לבר #5-Lite: email עובר להזנה ישירה מהירה (המסלול המובנה של browser-use
+    ששולח input+change), שאר השדות נשארים char-by-char הבטוח (מסכות/keydown)."""
+    from browser_use.browser.watchdogs.default_action_watchdog import DefaultActionWatchdog
+
+    from app.automation.bu_runner import _fast_email_input
+
+    orig = DefaultActionWatchdog._requires_direct_value_assignment
+    try:
+        _fast_email_input()
+        pred = DefaultActionWatchdog._requires_direct_value_assignment
+
+        def node(tag, typ):
+            return type("N", (), {"tag_name": tag, "attributes": {"type": typ}})()
+
+        assert pred(None, node("input", "email")) is True  # email → מהיר
+        assert pred(None, node("input", "text")) is False  # טקסט רגיל → char-by-char
+        assert pred(None, node("input", "tel")) is False  # טלפון (מסכה) → char-by-char
+        assert pred(None, node("input", "date")) is True  # תאריך → מהיר (התנהגות מקורית)
+    finally:
+        DefaultActionWatchdog._requires_direct_value_assignment = orig
