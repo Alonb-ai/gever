@@ -38,7 +38,7 @@ developers.facebook.com → WhatsApp → Configuration → Webhook:
 
 ## הפתרון לפרודקשן: Coolify (בלי tunnel בכלל)
 היעד הסופי — deploy ל-Coolify (88.198.116.222) עם URL ציבורי קבוע, בלי tunnel. דורש
-שגם שם יהיו `.venv-bu` + Chrome (Linux) ל-browser-use. ראה roadmap. עד אז — ngrok לפיתוח.
+שגם שם יהיו `.venv-bu` + Chrome (Linux) ל-browser-use. ראה `docs/ops-coolify.md`. עד אז — ngrok לפיתוח.
 
 ## אם בכל זאת "גבר לא עונה"
 ראה ה-diagnostic playbook ב-[`retro-dryrun1.md`](retro-dryrun1.md): קודם בדוק שה-Callback

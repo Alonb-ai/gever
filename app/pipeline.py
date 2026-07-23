@@ -2,7 +2,7 @@
 ה-pipeline של גבר להודעה נכנסת: phone+text → שיחה (Gemini) → תשובה,
 וכשמוכן → resolve + book, עם סטטוס אמיתי שנשלח חזרה ב-WhatsApp.
 
-מצב שיחה נשמר per-phone בזיכרון (MVP; Supabase מאוחר יותר — ראה roadmap זרוע 4).
+מצב שיחה נשמר per-phone בזיכרון (MVP; Supabase מאוחר יותר).
 ההזמנה רצה ברקע (book_table איטי) ושולחת עדכונים תוך כדי.
 """
 
