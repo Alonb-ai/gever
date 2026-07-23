@@ -692,34 +692,36 @@ async def _phone_hint(name: str, raw: list[dict]) -> str | None:
         return None
 
 
-def _select(name: str, pool: list[dict]) -> tuple[str | None, dict | None, dict | None]:
-    """בחירה פלטפורמה-פלטפורמה לפי סדר התיעדוף. (kind, picked, fallback):
-    kind=many → picked מוכן לשאלת הבהרה; kind=one → picked + fallback מהפלטפורמה
-    הבאה (לניסיון שני); kind=None → אין match חזק בשום פלטפורמה."""
+def _disambiguate(
+    name: str, candidates: list[dict], platform_names, *, drop_listings: bool
+) -> tuple[dict | None, dict | None, dict | None]:
+    """ליבת הדיסאמביגואציה פלטפורמה-פלטפורמה לפי סדר התיעדוף — משותפת למסעדות
+    (_select) ולקולנוע/הופעות (_pick_cinema). מחזיר (primary, fallback, many):
+    - primary/fallback: התאמות 'one' מהפלטפורמה הראשונה והבאה (fallback לניסיון שני).
+    - many: dict מוכן לשאלת הבהרה כשפלטפורמה מוקדמת נתנה 'many' (זהה בשני הקוראים).
+    שלושתם None → אין match חזק בשום פלטפורמה. drop_listings: סינון דילים/שוברים
+    (מסעדות תמיד; קולנוע/הופעות לא — ה-regex שם כבר מדויק)."""
     primary, fallback = None, None
-    for platform in _PLATFORM_ORDER:
-        plat = [c for c in pool if c["platform"] == platform]
+    for platform in platform_names:
+        plat = [c for c in candidates if c["platform"] == platform]
         if not plat:
             continue
-        # סינון דילים/שוברים/חבילות לפני הדיסאמביגואציה — אלה מבלבלים את הלקוח.
-        # אם הסינון מרוקן הכל, נשארים עם הסט המקורי (fallback).
-        plat = [c for c in plat if not _is_listing(c["title"])] or plat
+        if drop_listings:
+            # סינון דילים/שוברים/חבילות לפני הדיסאמביגואציה — אלה מבלבלים את הלקוח.
+            # אם הסינון מרוקן הכל, נשארים עם הסט המקורי (fallback).
+            plat = [c for c in plat if not _is_listing(c["title"])] or plat
         status, chosen_title, good = _match_restaurant(name, [c["title"] for c in plat])
         if status == "one":
             url = next(c["url"] for c in plat if c["title"] == chosen_title)
             if primary is None:
-                primary = {
-                    "status": "one",
-                    "url": url,
-                    "platform": platform,
-                    "candidates": plat,
-                }
+                primary = {"status": "one", "url": url, "platform": platform, "candidates": plat}
             else:
                 fallback = {"url": url, "platform": platform}
                 break
         elif status == "many" and primary is None:
             return (
-                "many",
+                None,
+                None,
                 {
                     "status": "many",
                     "url": None,
@@ -727,9 +729,18 @@ def _select(name: str, pool: list[dict]) -> tuple[str | None, dict | None, dict 
                     "candidates": [c for c in plat if c["title"] in good],
                     "fallback": None,
                 },
-                None,
             )
         # אין match חזק בפלטפורמה הזו → מנסים את הבאה בתור.
+    return primary, fallback, None
+
+
+def _select(name: str, pool: list[dict]) -> tuple[str | None, dict | None, dict | None]:
+    """בחירה למסעדות: עטיפה דקה על _disambiguate שמחזירה (kind, picked, fallback):
+    kind=many → picked מוכן לשאלת הבהרה; kind=one → picked + fallback מהפלטפורמה
+    הבאה (לניסיון שני); kind=None → אין match חזק בשום פלטפורמה."""
+    primary, fallback, many = _disambiguate(name, pool, _PLATFORM_ORDER, drop_listings=True)
+    if many is not None:
+        return ("many", many, None)
     return ("one", primary, fallback) if primary else (None, None, None)
 
 
@@ -994,36 +1005,15 @@ async def resolve_event_url(artist: str, venue: str = "") -> dict:
 
 
 def _pick_cinema(name: str, candidates: list[dict], platforms, *, drop_listings: bool) -> dict:
-    """דיסאמביגואציה פלטפורמה-פלטפורמה לפי סדר התיעדוף — ליבת ה-resolver של
-    קולנוע והופעות. (המסעדות גדלו למסלול דו-שלבי משלהן — _select + לולאת
-    דף-הרפאים ב-_pick — ולא עוברות כאן; העולמות מופרדים בכוונה עד ריצה חיה
-    על ליבה משותפת.) drop_listings: סינון דילים/שוברים (רלוונטי למסעדות בלבד)."""
-    primary, fallback = None, None
-    for platform, _, _ in platforms:
-        plat = [c for c in candidates if c["platform"] == platform]
-        if not plat:
-            continue
-        if drop_listings:
-            # סינון דילים/שוברים/חבילות לפני הדיסאמביגואציה — אלה מבלבלים את הלקוח.
-            # אם הסינון מרוקן הכל, נשארים עם הסט המקורי (fallback).
-            plat = [c for c in plat if not _is_listing(c["title"])] or plat
-        status, chosen_title, good = _match_restaurant(name, [c["title"] for c in plat])
-        if status == "one":
-            url = next(c["url"] for c in plat if c["title"] == chosen_title)
-            if primary is None:
-                primary = {"status": "one", "url": url, "platform": platform, "candidates": plat}
-            else:
-                fallback = {"url": url, "platform": platform}
-                break
-        elif status == "many" and primary is None:
-            return {
-                "status": "many",
-                "url": None,
-                "platform": platform,
-                "candidates": [c for c in plat if c["title"] in good],
-                "fallback": None,
-            }
-        # אין match חזק בפלטפורמה הזו → מנסים את הבאה בתור.
+    """דיסאמביגואציה לקולנוע/הופעות: עטיפה על הליבה המשותפת _disambiguate. שלא
+    כמסעדות (מסלול דו-שלבי עם לולאת דף-הרפאים ב-_pick), כאן בלי match חזק לעולם
+    לא בוחרים לבד — שואלים את הלקוח (many) או none. drop_listings: לרוב False
+    (ה-regex של קולנוע/הופעות כבר מדויק); נשמר לתאימות ולקריאה מפורשת."""
+    primary, fallback, many = _disambiguate(
+        name, candidates, [p[0] for p in platforms], drop_listings=drop_listings
+    )
+    if many is not None:
+        return many
     if primary:
         return {**primary, "fallback": fallback}
     # אף פלטפורמה לא נתנה match חזק → לעולם לא לבחור לבד. לשאול את הלקוח (many) או none.
