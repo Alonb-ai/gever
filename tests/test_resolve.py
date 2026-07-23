@@ -349,16 +349,6 @@ def test_resolve_tabit_only_works(monkeypatch):
     assert res["fallback"] is None  # פלטפורמה אחת בלבד — אין ניסיון שני
 
 
-if __name__ == "__main__":
-    test_match_one()
-    test_match_many()
-    test_match_one_prefers_real_page_over_deal()
-    test_match_none()
-    test_page_matches()
-    test_page_no_match()
-    print("ok")
-
-
 def test_og_title_extracts_both_page_formats():
     """og:title בדפי Ontopo: גם meta-tag קלאסי וגם JSON מוטמע (הפורמט שנצפה חי)."""
     meta = '<meta data-hid="og:title" property="og:title" content="A.K.A תל אביב-יפו: הזמנת מקום | אונטופו">'

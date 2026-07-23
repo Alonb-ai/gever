@@ -423,12 +423,6 @@ def test_parse_result_no_pipe_means_no_seats_restaurant_regression():
     assert r["options"] == ["רגיל", "IMAX", "4DX"]
 
 
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))
-
-
 # --- הופעות: _build_concert_task (דרך _build_task) — אותם markers, מחיר במקטע ה-| ---
 
 _EJOB = {

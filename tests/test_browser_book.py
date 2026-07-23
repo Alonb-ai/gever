@@ -204,12 +204,6 @@ def test_release_session_gives_up_quietly_after_three(monkeypatch):
     assert len(calls) == 3
 
 
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))
-
-
 def test_browser_crash_reports_and_releases_session(monkeypatch, tmp_path):
     """QA ביטוח 18.7 (#1): מות-דפדפן (browser_error) השאיר סשן Browserbase ‏RUNNING
     ומחויב, ו-details.session_id חזר null — אף שכבה לא יכלה לשחרר. עכשיו: browser_book

@@ -188,9 +188,3 @@ def test_in_process_memory_without_keys(monkeypatch):
     asyncio.run(pipeline.converse(phone, "שלום"))
     asyncio.run(pipeline.converse(phone, "עוד"))
     assert len(fake.chats.last_history) == 2  # תור 2 ראה את תור 1 מהזיכרון-בתהליך
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

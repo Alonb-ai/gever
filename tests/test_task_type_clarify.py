@@ -117,9 +117,3 @@ def test_unsure_ready_from_converse_gated(monkeypatch, _patch_io):
     assert called["resolve"] is False and called["book"] is False
     assert any("מסעדה" in m and "סרט" in m for m in sent)
     assert "u3" not in pipeline._booking
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

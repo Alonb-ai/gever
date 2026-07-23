@@ -252,9 +252,3 @@ def test_contact_pair_parsing():
     assert pipeline._contact_pair("דנה לוי") == {"name": "דנה לוי"}
     assert pipeline._contact_pair("alon@example.com") == {"email": "alon@example.com"}
     assert pipeline._contact_pair("למה אתה צריך את זה בכלל?") == {}
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

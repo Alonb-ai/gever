@@ -113,9 +113,3 @@ def test_profile_block_injects_facts():
     )
     for needle in ["אלון", "a@b.com", "בזוגיות", "תל אביב", "טייזו"]:
         assert needle in block
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

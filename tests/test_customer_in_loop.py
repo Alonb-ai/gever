@@ -267,9 +267,3 @@ def test_sensitive_value_never_persisted(monkeypatch):
     assert CODE not in (pipeline._resume[PHONE]["recap"] or "")  # ה-recap המותמד סוכך
     assert CODE not in pipeline._booking[PHONE].get("tail", "")  # וגם זנב יומן-הצעדים
     assert CODE not in json.dumps(pipeline._await_answer.get(PHONE) or {}, ensure_ascii=False)
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

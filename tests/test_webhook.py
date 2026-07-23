@@ -33,14 +33,6 @@ def test_wrong_or_missing_signature():
     assert main._valid_signature(BODY, None) is False
 
 
-if __name__ == "__main__":
-    test_no_secret_skips()
-    test_correct_signature()
-    test_wrong_or_missing_signature()
-    settings.whatsapp_app_secret = ""
-    print("ok")
-
-
 def test_duplicate_message_id_handled_once():
     """Meta retry/כפילות: אותו msg id פעמיים → עיבוד אחד (נצפה חי 15.7: תשובת
     סיום כפולה כי ה-200 חיכה לכל העיבוד ומטא שלחה שוב)."""

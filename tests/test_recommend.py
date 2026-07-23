@@ -543,7 +543,3 @@ def test_recommend_results_validator_blocks_source_and_numbers():
     # "מפסיקים" זו לא הסגרת מפס — הרגקס תחום מילה
     ok = "Hudson — לא מפסיקים לדבר עליו\nPOMO — קלאסיקה\nלסגור לך אחת מהם?"
     assert pipeline._say_violations("recommend_results", ctx, ok) == []
-
-
-if __name__ == "__main__":
-    raise SystemExit(pytest.main([__file__, "-q"]))
