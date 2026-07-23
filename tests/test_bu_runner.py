@@ -746,3 +746,107 @@ def test_runner_enables_coordinate_clicking_after_agent_build():
     build = src.index("agent = Agent(**agent_kwargs)")
     enable = src.index("agent.tools.set_coordinate_clicking(True)")
     assert build < enable < src.index("await agent.run(")
+
+
+def test_dom_window_widens_only_the_build_window_and_is_off_by_default():
+    """לבר #1 (זירוז 22.7): _get_all_trees מחכה 10 שנ', מבטל, ויורה retry של 2 —
+    והביטול לא מבטל בדפדפן, אז ה-retry מכפיל עבודה על ערוץ חנוק והתוצאה היא
+    'minimal state' וצעד עיוור. העטיפה מרחיבה *רק* את החלון הראשון (timeout==10.0),
+    ממוקדת למודול הזה בלבד, ומכבדת seconds=0 = התנהגות המקור."""
+    import asyncio as _asyncio
+
+    from browser_use.dom import service as dom_service
+
+    from app.automation.bu_runner import _widen_dom_window
+
+    original = dom_service.asyncio
+    try:
+        _widen_dom_window(0)  # כבוי — אסור לגעת
+        assert dom_service.asyncio is original
+
+        seen: list = []
+
+        async def fake_wait(aws, *, timeout=None, return_when=_asyncio.ALL_COMPLETED):
+            seen.append(timeout)
+            return set(), set()
+
+        class _Probe:
+            wait = staticmethod(fake_wait)
+            ALL_COMPLETED = _asyncio.ALL_COMPLETED
+
+            def __getattr__(self, name):
+                return getattr(_asyncio, name)
+
+        dom_service.asyncio = _Probe()
+        _widen_dom_window(20.0)
+
+        async def drive():
+            await dom_service.asyncio.wait([], timeout=10.0)  # חלון הבנייה → מורחב
+            await dom_service.asyncio.wait([], timeout=2.0)  # ה-retry → נשאר כשהיה
+            await dom_service.asyncio.wait([], timeout=None)  # המתנות אחרות → לא נגועות
+
+        _asyncio.run(drive())
+        assert seen == [20.0, 2.0, None]
+    finally:
+        dom_service.asyncio = original
+
+
+def test_max_actions_per_step_raised_above_bu_default():
+    """לבר #2 (זירוז 22.7): ברירת המחדל 5 של browser-use נמדדה כתקרה חיה —
+    26 מתוך 63 ריצות נגעו ב-[5/5], כלומר מסך נסגר בשני צעדים במקום אחד.
+    הערך עובר ל-Agent ככל kwarg רגיל (agent/service.py:177), בלי monkeypatch."""
+    from app.automation.bu_runner import MAX_ACTIONS_PER_STEP
+
+    assert MAX_ACTIONS_PER_STEP > 5  # מעל ברירת המחדל של browser-use
+    assert MAX_ACTIONS_PER_STEP <= 10  # ולא תור אינסופי — עצירות MISSING חייבות להישאר חדות
+
+
+def test_stabilize_polls_only_on_url_change_and_exits_early():
+    """לבר #3: המתנת התייצבות פועלת *רק* כשה-URL השתנה מהצעד הקודם, ויוצאת מוקדם
+    ברגע שהדף מוכן (poll, לא sleep קבוע). אותו מסך → אפס המתנה. מחליף את כלל
+    ה-wait שנמחק. (בודק את _stabilize ישירות עם CDP מזויף.)"""
+    import asyncio as aio
+
+    from app.automation.bu_runner import _stabilize
+
+    class FakeCDP:
+        def __init__(self, script):
+            self.script = list(script)  # רשימת (expr_substr, value) לפי סדר קריאה
+            self.calls = []
+
+        class _Client:
+            def __init__(self, outer):
+                self.outer = outer
+
+            class _Runtime:
+                def __init__(self, outer):
+                    self.outer = outer
+
+                async def evaluate(self, params, session_id):
+                    self.outer.calls.append(params["expression"])
+                    _, val = self.outer.script.pop(0)
+                    return {"result": {"value": val}}
+
+            @property
+            def send(self):
+                rt = FakeCDP._Client._Runtime(self.outer)
+                return type("S", (), {"Runtime": type("R", (), {"evaluate": rt.evaluate})()})()
+
+        @property
+        def cdp_client(self):
+            return FakeCDP._Client(self)
+
+        session_id = "sid"
+
+    # מסך שהשתנה: location.href חדש, ואז readyState complete מיד → יציאה אחרי poll אחד
+    cdp = FakeCDP([("location.href", "https://x/a"), (_STAB := "readyState", True)])
+    state = {"first": False, "url": "https://x/OLD"}
+    aio.run(_stabilize(cdp, state, 4.0))
+    assert state["url"] == "https://x/a"
+    assert sum(1 for c in cdp.calls if "readyState" in c) == 1  # יצא מוקדם, לא ביזבז את התקציב
+
+    # אותו מסך: location.href זהה ולא first → return מיד, בלי שום poll
+    cdp2 = FakeCDP([("location.href", "https://x/a")])
+    state2 = {"first": False, "url": "https://x/a"}
+    aio.run(_stabilize(cdp2, state2, 4.0))
+    assert not any("readyState" in c for c in cdp2.calls)  # לא נגע ב-poll בכלל

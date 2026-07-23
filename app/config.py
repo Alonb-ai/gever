@@ -35,6 +35,13 @@ class Settings(BaseSettings):
     bu_venv_path: str = ".venv-bu/bin/python"
     bu_browser: str = "local"  # local (Chrome מקומי, חינם) | browserbase (stealth/captcha)
     bu_headless: bool = True
+    # חלון בניית-ה-DOM של browser-use (שנ'). 0 = התנהגות המקור (10 + ביטול + retry 2).
+    # ערך > 0 מרחיב לחלון יחיד ומדלג על ה-retry — ראה _widen_dom_window ב-bu_runner.
+    # מדד ההכרעה: שיעור 'using minimal state' לריצה, לא זמן-קיר.
+    bu_dom_window_s: float = 0
+    # לבר #3: תקציב המתנה להתייצבות SPA אחרי מעבר-URL (שנ'), לפני דגימת ה-state.
+    # 0 = כבוי. poll עם יציאה מוקדמת — מחליף את כלל ה-wait שנמחק. ראה _stabilize.
+    bu_stabilize_s: float = 0
     bu_chrome_path: str = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
     bu_record_dir: str = "bu_recordings"  # וידאו+GIF+הנמקת-agent לכל ריצה
 

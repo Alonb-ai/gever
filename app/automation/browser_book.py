@@ -267,6 +267,8 @@ async def book_table_bu(
         "result_path": result_path,
         "steps_path": steps_path,
         "max_steps": _max_steps(task_type),
+        "dom_window_s": settings.bu_dom_window_s,
+        "stabilize_s": settings.bu_stabilize_s,
     }
     session_id: str | None = None
     if settings.bu_browser == "browserbase":

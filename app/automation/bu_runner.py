@@ -821,16 +821,30 @@ def _parse_result(final: str, *, commit: bool) -> dict:
     }
 
 
-def _il_tz_hook(resume: bool):
-    """on_step_start: שעון ישראל לדפדפן (Emulation.setTimezoneOverride).
+_STABILIZE_JS = (
+    "document.readyState==='complete' && !!document.body "
+    "&& document.body.innerText.trim().length>40"
+)
 
-    הדפדפן של Browserbase רץ בחו"ל, ואתר שמרנדר שעות ב-JS לפי שעון הדפדפן מציג
-    ללקוח שעה אמריקאית — נצפה חי בסבב 3 של ההופעות (לאן, אירוע 5237): הדף הציג
-    "13:00" (17:00 UTC בשעון החוף המזרחי) למופע שמתחיל 20:00 שעון ישראל.
+
+def _il_tz_hook(resume: bool, stabilize_s: float = 0):
+    """on_step_start: שעון ישראל לדפדפן (Emulation.setTimezoneOverride) +
+    (לבר #3) המתנה קצרה להתייצבות SPA אחרי מעבר-URL, לפני שה-state נדגם.
+
+    שעון: הדפדפן של Browserbase רץ בחו"ל, ואתר שמרנדר שעות ב-JS לפי שעון הדפדפן
+    מציג ללקוח שעה אמריקאית — נצפה חי בסבב 3 של ההופעות (לאן, אירוע 5237): הדף
+    הציג "13:00" (17:00 UTC בשעון החוף המזרחי) למופע שמתחיל 20:00 שעון ישראל.
     ההזרקה רצה בכל צעד (idempotent, מילישניות) כי טאבים/targets מתחלפים; reload
     חד-פעמי כי הדף הראשון כבר רונדר לפני ה-override — אבל לא ב-resume, שם המסך
-    החי מחזיק בחירות (מושבים) ש-reload היה מוחק."""
-    state = {"first": True}
+    החי מחזיק בחירות (מושבים) ש-reload היה מוחק.
+
+    התייצבות (stabilize_s>0): ה-state נבנה מיד ב-on_step_start, ולפעמים לפני שה-SPA
+    סיים לרנדר אחרי ניווט — ה-agent רואה מסך ריק ומוציא צעד שכולו wait (נמדד:
+    38/63 ריצות, 65 צעדי-wait). כאן, *רק כשה-URL השתנה מהצעד הקודם*, ממתינים עד
+    stabilize_s לכך שה-readyState=='complete' והדף כבר טעון תוכן — poll עם יציאה
+    מוקדמת (250 מ"ש), לא sleep קבוע, כדי לא לשלם מס על כל צעד. מחליף את כלל ה-wait
+    שהיה בפרומפט ונמדד כלא-יעיל (22.7)."""
+    state = {"first": True, "url": None}
 
     async def hook(agent) -> None:
         try:
@@ -840,6 +854,8 @@ def _il_tz_hook(resume: bool):
             )
             if state["first"] and not resume:
                 await s.cdp_client.send.Page.reload(session_id=s.session_id)
+            if stabilize_s:
+                await _stabilize(s, state, stabilize_s)
             state["first"] = False
         except Exception:  # noqa: BLE001 — best-effort: שעה שגויה עדיפה על ריצה שמתה
             pass
@@ -847,7 +863,34 @@ def _il_tz_hook(resume: bool):
     return hook
 
 
+async def _eval_js(cdp_session, expr: str):
+    """Runtime.evaluate על ה-session הנוכחי → הערך, או None בכשל."""
+    res = await cdp_session.cdp_client.send.Runtime.evaluate(
+        params={"expression": expr, "returnByValue": True},
+        session_id=cdp_session.session_id,
+    )
+    return (res.get("result") or {}).get("value")
+
+
+async def _stabilize(cdp_session, state: dict, budget_s: float) -> None:
+    """אם ה-URL השתנה מאז הצעד הקודם (או הצעד הראשון / אחרי reload) — המתן עד
+    budget_s לכך שהדף מוכן ובעל תוכן, ב-poll של 250 מ"ש עם יציאה מוקדמת."""
+    import asyncio as _asyncio
+    import time as _time
+
+    url = await _eval_js(cdp_session, "location.href")
+    if url is not None and url == state["url"] and not state["first"]:
+        return  # אותו מסך — הצעד לא ניווט, אין מה לחכות לו
+    deadline = _time.monotonic() + budget_s
+    while _time.monotonic() < deadline:
+        if await _eval_js(cdp_session, _STABILIZE_JS) is True:
+            break
+        await _asyncio.sleep(0.25)
+    state["url"] = url if url is not None else state["url"]
+
+
 PAGE_READY_TIMEOUT_S = 3.0  # במקום 8 הקשיחות של browser-use — SPA לא יורה 'load' לעולם
+MAX_ACTIONS_PER_STEP = 8  # במקום 5 — ראה ההערה ב-_run (41% מהריצות נגעו בתקרה)
 
 
 def _shorten_page_readiness() -> None:
@@ -872,6 +915,41 @@ def _shorten_page_readiness() -> None:
         )
 
     BrowserSession._navigate_and_wait = _fast
+
+
+def _widen_dom_window(seconds: float) -> None:
+    """חלון בניית-DOM אחד ארוך במקום 10 שנ' → ביטול → retry של 2 שנ'.
+
+    ב-0.13.1 ‏DomService._get_all_trees‏ יורה 4 קריאות CDP במקביל, מחכה 10 שנ',
+    **מבטל** את מה שלא הספיק, יוצר משימות חדשות ומחכה עוד 2 — ואם עדיין לא,
+    ‏TimeoutError‏ → ‏selector_map‏ ריק → ה-agent מקבל 'minimal state' ומוציא צעד
+    עיוור. הביטול מבטל רק בצד הלקוח: הדפדפן ממשיך לחשב, אז ה-retry מכפיל עבודה
+    על ערוץ שכבר חנוק (נצפו 479 'duplicate response'). דפים כבדים (הוט, טופס
+    הביטוח) נופלים לזה הכי הרבה.
+
+    התיקון: להרחיב את החלון הראשון פעם אחת, כך שברוב המקרים ‏pending‏ ריק וכל
+    בלוק ה-retry לא רץ כלל. עוטפים את ‏asyncio‏ **רק בתוך המודול הזה** (לא
+    גלובלית), וממקדים לפי ה-timeout המדויק — אם גרסה עתידית תשנה את הליטרל,
+    העטיפה פשוט לא תתפוס ותתנהג כמו היום. seconds=0 → כבוי לגמרי.
+    """
+    if not seconds:
+        return
+    from browser_use.dom import service as dom_service
+
+    real = dom_service.asyncio
+
+    class _ScopedAsyncio:
+        """פרוקסי ל-asyncio שמרחיב רק את חלון-הבנייה של _get_all_trees."""
+
+        def __getattr__(self, name):
+            return getattr(real, name)
+
+        async def wait(self, aws, *, timeout=None, return_when=real.ALL_COMPLETED):
+            if timeout == 10.0:  # החלון הראשון של _get_all_trees, ולא שום המתנה אחרת
+                timeout = seconds
+            return await real.wait(aws, timeout=timeout, return_when=return_when)
+
+    dom_service.asyncio = _ScopedAsyncio()
 
 
 def _profile_kwargs(job: dict) -> dict:
@@ -919,6 +997,7 @@ async def _run(job: dict) -> dict:
     from browser_use import Agent, BrowserProfile
 
     _shorten_page_readiness()
+    _widen_dom_window(float(job.get("dom_window_s") or 0))
     key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if key:
         os.environ["GOOGLE_API_KEY"] = key
@@ -945,6 +1024,12 @@ async def _run(job: dict) -> dict:
         # use_judge=False: מדלג על קריאת LLM-שופט נוספת בסוף הריצה — ה-markers של
         # _parse_result הם השופט שלנו ממילא.
         "use_judge": False,
+        # max_actions_per_step: ברירת המחדל 5 (agent/views.py:71) נמדדה כתקרה חיה —
+        # 26 מתוך 63 ריצות (41%) נגעו ב-[5/5], כלומר מסך שאפשר לסגור בצעד אחד
+        # מתפצל לשניים, וכל צעד עולה 12-22 שנ'. הערך מוזרק גם לפרומפט המערכת, אז
+        # המודל מגביל את עצמו לפי הוא. 8 נותן מרווח לטופס רב-שדות בלי לפתוח תור
+        # ארוך מדי (חוקי העצירה על MISSING/קיר-כרטיס לא משתנים).
+        "max_actions_per_step": MAX_ACTIONS_PER_STEP,
     }
     if job.get("resume"):
         # ברירת המחדל של browser-use מנווטת אוטומטית לכל URL שמופיע ב-task —
@@ -961,7 +1046,7 @@ async def _run(job: dict) -> dict:
     agent.tools.set_coordinate_clicking(True)
     history = await agent.run(
         max_steps=job.get("max_steps", 40),
-        on_step_start=_il_tz_hook(bool(job.get("resume"))),
+        on_step_start=_il_tz_hook(bool(job.get("resume")), float(job.get("stabilize_s") or 0)),
     )
     final = (history.final_result() or "").strip()
     return _parse_result(final, commit=not job.get("dry_run", True))
