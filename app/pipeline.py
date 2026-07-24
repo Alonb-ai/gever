@@ -30,7 +30,10 @@ from app.automation.browser_book import (
 from app import live_link
 from app.automation.resolve import (
     INSURANCE_COMPANIES,
+    _BRAVE_GAP_S,
     _brand_token,
+    _brave_raw,
+    _clean,
     _has_token,
     _norm,
     _phone_hint as _resolve_phone_hint,
@@ -270,6 +273,15 @@ _await_answer: dict = {}
 # לשם המדויק בלי המצאות, ואת run_recommend כדי ש"מה עוד יש?" יגיש את הבאות בתור
 # במקום "אין לי עוד" (נצפה חי — רק 3 נשמרו והשאר נזרקו).
 _recs: dict = {}
+# "נפסלו כבר" (באג חי 23.7): phone -> שמות המקומות שנכשלו/לא נמצאו בשיחה הזאת.
+# _failed_place מחזיק רק את הכשל *האחרון* — וגבר המליץ על הגזטה אחרי שכבר נאמר
+# שהיא לא זמינה. הרשימה נצברת לאורך השיחה, מותמדת ב-_flow (שורדת redeploy),
+# מסננת את זרימת ההמלצות, ומתאפסת ב"דף חדש" יחד עם _recs.
+_rejected: dict = {}
+# מנעול in-flight להמלצות (באג חי 23.7): phone -> ה-task החי של run_recommend.
+# בלעדיו שני טריגרים (למשל ready שנורה גם על תור ההבהרה וגם על התשובה לה) רצים
+# במקביל ושולחים שתי רשימות שונות. בקשה חדשה מבטלת את הרצה — רשימה אחת ללקוח.
+_rec_inflight: dict = {}
 # טיוטת חבילת הביטוח שנצברת על פני תורות: phone -> {"fields", "ts"}. נצפה חי
 # (סבב 4): ה-extract הפיל בתור ה-ready שדות שנמסרו תור קודם (travelers/return_date)
 # והריצה יצאה עם "0 נוסעים" — הצבירה כאן דטרמיניסטית, לא סומכת על זיכרון המודל.
@@ -294,19 +306,61 @@ def _error_detail(exc, *, session_id: str | None = None) -> str:
 
 _TITLE_NOISE = re.compile(r"הזמנת[ -]מקום|אונטופו|Ontopo|טאביט|Tabit", re.IGNORECASE)
 
+# טקסט-כפתור שזולג לכותרות תוצאות חיפוש ("Book now הכוֹסית-ורמוטריה..." — נצפה חי
+# 23.7: שם המועמד יצא ללקוח עם הכפתור). ביטויים שלמים בלבד — "The Book Bar" נשאר.
+_BUTTON_TEXT = re.compile(
+    r"\b(?:book now|book online|book a table|order online|order now|reserve now"
+    r"|reserve online|buy tickets)\b"
+    r"|הזמן עכשיו|הזמינו עכשיו|הזמנה אונליין|להזמנה אונליין|לרכישת כרטיסים|לחצו כאן",
+    re.IGNORECASE,
+)
+
 
 _URLISH = re.compile(r"https?\b|://|www\.|\.com|\.co\.il|[/?=]")
 
 
 def _option_label(title: str) -> str:
     """כותרת תוצאת חיפוש → תווית בחירה נקייה ללקוח: מפרקים לפי | ו-:, מנקים את
-    רעשי הפלטפורמה, ולוקחים את הקטע המשמעותי ("התאילנדית בסמטת סיני תל אביב-יפו").
-    כותרת שהיא URL (Brave מחזיר כאלה) לא הופכת לתווית — נצפה חי: הלקוח קיבל
-    שורת רשימה '//.com/he/il/page/…' אחרי שמנקה-הרעשים מחק את שם הפלטפורמה
-    מתוך הדומיין. אין קטע טקסטואלי → "" (המועמד לא יוצג)."""
-    parts = [_TITLE_NOISE.sub("", p).strip(" -–—") for p in re.split(r"[|:]", title)]
+    רעשי הפלטפורמה וטקסטי-כפתור, ולוקחים את הקטע המשמעותי ("התאילנדית בסמטת סיני
+    תל אביב-יפו"). כותרת שהיא URL (Brave מחזיר כאלה) לא הופכת לתווית — נצפה חי:
+    הלקוח קיבל שורת רשימה '//.com/he/il/page/…' אחרי שמנקה-הרעשים מחק את שם
+    הפלטפורמה מתוך הדומיין. אין קטע טקסטואלי → "" (המועמד לא יוצג)."""
+    parts = [
+        _BUTTON_TEXT.sub("", _TITLE_NOISE.sub("", p)).strip(" -–—")
+        for p in re.split(r"[|:]", title)
+    ]
     parts = [" ".join(p.split()) for p in parts if p.strip() and not _URLISH.search(p)]
     return max(parts, key=len) if parts else ""
+
+
+# ─── גארד האופציות (באגים 1+2, נצפה חי 23.7): המודל פרפרז רשימת שעות/תאריכים
+# והמציא ערכים (כולל שעות שכבר עברו). הטוקנים שמותר להזכיר = האופציות האמיתיות
+# מהדף + מה שהלקוח עצמו ביקש; כל טוקן אחר נפסל דטרמיניסטית. ─────────────────
+_TIME_TOK = re.compile(r"\b(\d{1,2}):(\d{2})\b")
+_DATE_TOK = re.compile(r"\b(\d{1,2})\.(\d{1,2})(?:\.\d{2,4})?\b")
+
+
+def _option_tokens(texts) -> set[str]:
+    """טוקני שעה/תאריך מנורמלים ("21:30", "25.7") מתוך רשימת טקסטים."""
+    out: set[str] = set()
+    for t in texts:
+        for h, m in _TIME_TOK.findall(t or ""):
+            out.add(f"{int(h)}:{m}")
+        for d, mo in _DATE_TOK.findall(t or ""):
+            out.add(f"{int(d)}.{int(mo)}")
+    return out
+
+
+def _foreign_option_tokens(text: str, allowed: set) -> list[str]:
+    """טוקני שעה/תאריך בטקסט שאינם ברשימה המותרת — עדות להמצאה."""
+    return sorted(_option_tokens([text]) - set(allowed))
+
+
+def _filter_invented_lines(reply: str, allowed: set) -> str:
+    """מסנן מהתשובה החופשית שורות שמכילות שעה/תאריך מומצאים — בלי לגעת בשאר
+    (מוחקים שורת-אופציה מומצאת, לא זורקים תשובה שלמה ולא את הרשימה המכנית)."""
+    kept = [ln for ln in reply.split("\n") if not _foreign_option_tokens(ln, allowed)]
+    return "\n".join(kept).strip()
 
 
 def _safe_option(s: str) -> str:
@@ -392,6 +446,7 @@ async def _save_flow(phone: str) -> None:
         "resolved": _resolved.get(phone),
         "pending_pick": _pending_pick.get(phone),
         "await_answer": _await_answer.get(phone),
+        "rejected": _rejected.get(phone),
         "ts": time.time(),
     }
     prof = await memory.get_profile(phone)
@@ -429,6 +484,21 @@ def _restore_flow(phone: str, flow: dict | None) -> None:
     if flow.get("pending_pick"):
         # JSON החזיר רשימות — הקוד מצפה ל-(url, platform)
         _pending_pick[phone] = {k: tuple(v) for k, v in flow["pending_pick"].items()}
+    if flow.get("rejected"):
+        _rejected[phone] = list(flow["rejected"])
+
+
+REJECTED_MAX = 10  # תקרת רשימת הנפסלים לשיחה — מספיק לכל שיחה אמיתית
+
+
+def _mark_rejected(phone: str, name: str) -> None:
+    """רישום מקום שנפסל בשיחה (לא נמצא / הריצה עליו נכשלה) — לסינון ההמלצות."""
+    if not name:
+        return
+    names = _rejected.setdefault(phone, [])
+    if not any(_same_place(name, n) for n in names):
+        names.append(name)
+        del names[:-REJECTED_MAX]
 
 
 # 75 שנ' היה צפוף: כמעט כל ריצה קיבלה שתי פעימות, וזה הפך לתבנית שחוזרת בכל
@@ -1289,7 +1359,13 @@ def _say_prompt(intent: str, ctx: dict) -> tuple[str, str]:
     + ההקשר + החוקים הקשיחים. פונקציה טהורה — נבדקת בלי מודל."""
     card = INTENTS[intent]
     system = VOICE_CORE + "\n" + gender_line(ctx.get("gender"))
-    lines = [f"{k}: {v}" for k, v in ctx.items() if k != "gender" and v not in (None, "")]
+    # מפתחות _פנימיים (כמו _allowed_tokens של גארד ההמצאות) הם לוולידטור בלבד —
+    # לא מודלפים לפרומפט.
+    lines = [
+        f"{k}: {v}"
+        for k, v in ctx.items()
+        if k != "gender" and not k.startswith("_") and v not in (None, "")
+    ]
     anchors = [str(ctx[k]) for k in card.get("must_ctx", ()) if ctx.get(k)]
     # עוגני must מתורגמים למילים למודל — בלעדיהם הוא מנסח יפה ונפסל (eval 17.7:
     # nudge_question 0/8 כי "תשובה" לא הוזכרה). regex פשוטים בלבד במפה — לכן ההמרה טקסטואלית.
@@ -1326,6 +1402,11 @@ def _say_violations(intent: str, ctx: dict, reply: str) -> list[str]:
         for k in card.get("must_ctx", ())
         if ctx.get(k) and str(ctx[k]) not in reply
     ]
+    # גארד ההמצאות (באג חי 23.7): כשאתר הקריאה מספק _allowed_tokens — כל שעה/תאריך
+    # בפלט שאינם בו הם המצאה (המודל פרפרז את רשימת האופציות) → פסילה ונפילה למאגר.
+    allowed = ctx.get("_allowed_tokens")
+    if allowed is not None:
+        probs += [f"invented:{t}" for t in _foreign_option_tokens(reply, allowed)]
     return probs
 
 
@@ -2072,9 +2153,13 @@ _WEEKDAYS = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "ש
 
 def _today_line() -> str:
     """שורת 'היום' לזרע — בלעדיה המודל לא יכול לחשב 'מחר'/'שישי הקרוב' לתאריך.
-    שעון ישראל (ה-container רץ UTC — בערב זה כבר יום אחר בישראל)."""
+    שעון ישראל (ה-container רץ UTC — בערב זה כבר יום אחר בישראל). גם השעה
+    הנוכחית (באג חי 23.7): בלעדיה המודל הציע שעות שכבר עברו (20:00 ב-20:45)."""
     now = datetime.now(ZoneInfo("Asia/Jerusalem"))
-    return f"\n\nהיום: יום {_WEEKDAYS[now.weekday()]}, {now.day}.{now.month}.{now.year}."
+    return (
+        f"\n\nהיום: יום {_WEEKDAYS[now.weekday()]}, {now.day}.{now.month}.{now.year}, "
+        f"השעה {now:%H:%M}. אל תציע שעה שכבר עברה היום."
+    )
 
 
 def _seed_from(profile: dict | None, bookings: list) -> str:
@@ -2135,6 +2220,7 @@ async def _chat_for(phone: str) -> tuple:
     if fresh:
         turns: list = []
         _recs.pop(phone, None)  # דף חדש — המלצות ישנות כבר לא "הרגע"
+        _rejected.pop(phone, None)  # והנפסלים של השיחה הקודמת כבר לא רלוונטיים
     else:
         turns = _turns.get(phone)
         if turns is None:  # זיכרון-בתהליך ריק (restart/worker חדש) — שחזור מ-Supabase
@@ -2246,6 +2332,12 @@ def _truth_note(phone: str) -> str:
                 "מה כן אפשרי, אלו התשובות; אל תמציא אחרות. בחר אחת מהן → זו בקשה "
                 "מלאה מחדש עם הערך הנבחר (ready=true)."
             )
+            if any("רשימת המתנה" in o or "רשימת ההמתנה" in o for o in opts):
+                alt += (
+                    " אופציה שמסומנת 'רשימת המתנה' היא לא 'מלא' — היא הצעה אמיתית "
+                    "להצטרף לרשימת ההמתנה: הצג אותה כך ('להכניס אותך לרשימת ההמתנה?'), "
+                    "ואם הלקוח בוחר בה ממשיכים איתה כרגיל."
+                )
         return (
             f"[אמת-למערכת בלבד: הטופס דורש שדה חובה שחסר לי ('{info}').{alt} אל תמציא אותו ואל "
             "תמציא שסגרת — בקש מהלקוח את הפרט הזה במפורש וחכה לתשובה.]\n\n"
@@ -2407,6 +2499,49 @@ async def _send_rec_batch(
     )
 
 
+# אימות קיום להמלצות (באג חי 23.7: "Château Shuál" / "Foster Bar" — ספק אם
+# קיימים): לפני שליחה, כל שם עובר בדיקת Brave דרך מנגנון ה-resolve הקיים. עדיף
+# לשלוח פחות המלצות מאומתות מאשר הרבה מפוקפקות; כשל רשת/אין מפתח → fail-open
+# (האימות משפר אמון, לא שער). תקרת בדיקות פר-סבב שומרת על עלות/זמן.
+REC_VERIFY_MAX = 5
+
+
+async def _rec_exists(name: str, area: str) -> bool:
+    """קיום בסיסי: חיפוש Brave על השם (+האזור) מחזיר תוצאה שתואמת את מילת המותג
+    — אותה לוגיקת התאמה של ה-resolver (_brand_token/_has_token, כולל תעתיק)."""
+    brand = _brand_token(_norm(name))
+    if not brand:
+        return True  # אין מה להשוות — לא פוסלים
+    try:
+        raw = await _brave_raw(" ".join(p for p in (name, area) if p))
+    except Exception:  # noqa: BLE001 — אימות הוא best-effort; כשל לא מפיל המלצות
+        return True
+    return any(
+        _has_token(brand, _norm(_clean(f"{r.get('title') or ''} {r.get('description') or ''}")))
+        for r in raw
+    )
+
+
+async def _verified_batch(items: list[dict], area: str) -> tuple[list[dict], list[dict]]:
+    """(עד 3 מאומתים לשליחה, items בלי הלא-מאומתים). בודק עד REC_VERIFY_MAX שמות;
+    מרווח _BRAVE_GAP_S בין קריאות (תקרת הקצב של ה-tier החינמי)."""
+    batch: list[dict] = []
+    dropped: set[str] = set()
+    checked = 0
+    for p in items:
+        if len(batch) == 3 or checked >= REC_VERIFY_MAX:
+            break
+        if checked and settings.brave_api_key:
+            await asyncio.sleep(_BRAVE_GAP_S)
+        checked += 1
+        if await _rec_exists(p["name"], area):
+            batch.append(p)
+        else:
+            dropped.add(p["name"])
+            log.info("recommend: unverified place dropped: %s", p["name"])
+    return batch, [p for p in items if p["name"] not in dropped]
+
+
 async def run_recommend(phone: str, fields: dict) -> None:
     """רץ ברקע על task_type='recommend': בדיקת דירוגים אמיתית (Maps/Search
     grounding) → 2-3 המלצות בקול חופשי: שמות המקומות עוגני-אמת מילה-במילה,
@@ -2427,37 +2562,48 @@ async def run_recommend(phone: str, fields: dict) -> None:
     )
     # נצפה חי (גרקו הרצליה): ההזמנה נכשלה, גבר הציע חלופות — ואחת מהן הייתה גרקו
     # עצמו. מקום שהרגע לא הסתדר לא חוזר כהמלצה; רשימה שהתרוקנה → הכנות הקיימת.
-    avoid = _failed_place(phone)
+    # באג חי 23.7 (הגזטה): לא רק הכשל האחרון — *כל* הנפסלים של השיחה (_rejected).
+    avoided = list(_rejected.get(phone) or [])
+    fp = _failed_place(phone)
+    if fp and not any(_same_place(fp, n) for n in avoided):
+        avoided.append(fp)
+    avoid = " / ".join(avoided)  # לתצוגה בהקשר הניסוח
+
+    def _is_avoided(nm: str) -> bool:
+        return any(_rec_excluded(nm, a) for a in avoided)
+
+    verify = not movies and not shows  # קטלוג/פורמט-כפוי לא צריכים אימות קיום
     key = (category.casefold(), area.casefold(), constraints.casefold())
     rec = _recs.get(phone)
     cont = bool(rec) and rec["key"] == key  # אותה בקשה שוב = "מה עוד יש?"
     if cont:
         pool = rec["items"][rec["shown"] :]
-        if avoid:
-            pool = [p for p in pool if not _rec_excluded(p["name"], avoid)]
-            rec["items"] = rec["items"][: rec["shown"]] + pool
-        if pool:  # יש עוד בבאפר — מגישים את הבאות בתור, בלי קריאת grounding
-            batch = pool[:3]
+        if avoided:
+            pool = [p for p in pool if not _is_avoided(p["name"])]
+        batch, pool = (await _verified_batch(pool, area)) if verify else (pool[:3], pool)
+        rec["items"] = rec["items"][: rec["shown"]] + pool
+        if batch:  # יש עוד בבאפר — מגישים את הבאות בתור, בלי קריאת grounding
             rec["shown"] += len(batch)
             await _send_rec_batch(phone, category, batch, avoid, more=True)
             return
     shown = _recs_shown(phone) if cont else []
     t0 = time.monotonic()
+    excl = (shown + avoided) or None  # גם הנפסלים לא מוזמנים לחזור מה-grounding
     try:
         items = await asyncio.wait_for(
             recommend_movies(constraints, exclude=shown or None)
             if movies
             else recommend_shows(area)  # קטלוג פנימי; הישנוֹת מסוננות דטרמיניסטית למטה
             if shows
-            else recommend_places(category, area, constraints, exclude=shown or None),
+            else recommend_places(category, area, constraints, exclude=excl),
             timeout=REC_TIMEOUT_S,
         )
     except Exception:
         log.exception("recommend failed for %s", phone)
         items = []
     log.info("run_recommend: %s -> %d items in %.1fs", phone, len(items), time.monotonic() - t0)
-    if avoid:
-        items = [p for p in items if not _rec_excluded(p["name"], avoid)]
+    if avoided:
+        items = [p for p in items if not _is_avoided(p["name"])]
     if shown:  # ה-exclude בפרומפט הוא בקשה — הסינון כאן דטרמיניסטי
         seen = {n.casefold() for n in shown}
         items = [p for p in items if p["name"].casefold() not in seen]
@@ -2473,7 +2619,11 @@ async def run_recommend(phone: str, fields: dict) -> None:
     if not items:
         await _send_and_record(phone, await _say("recommend_failed", {"category": category}))
         return
-    batch = items[:3]
+    # אימות קיום לפני שליחה (באג 23.7): לא-מאומת לא נשלח ולא נשאר בבאפר של "עוד".
+    batch, items = (await _verified_batch(items, area)) if verify else (items[:3], items)
+    if not batch:  # הכל נפסל באימות → הכנות הקיימת, בלי שמות מפוקפקים
+        await _send_and_record(phone, await _say("recommend_failed", {"category": category}))
+        return
     if cont:  # סבב המשך: הישנות נשארות בבאפר — כולן עדיין ניתנות לבחירה
         rec["items"] = rec["items"][: rec["shown"]] + items
         rec["shown"] += len(batch)
@@ -3309,23 +3459,44 @@ async def run_booking(phone: str, fields: dict) -> None:
                     ctx={"field": _human},
                 )
                 return
+            # ענף ה-waitlist (באג חי 23.7): אופציות "רשימת המתנה" נוסחו כ"הכל מלא".
+            # שורה דטרמיניסטית שמציפה את הרשימה כהצעה אמיתית — הבחירה בהן ממשיכה
+            # את הזרימה הקיימת בדיוק כמו כל אופציה אחרת.
+            wl_line = (
+                "\n"
+                + _vary(
+                    "שים לב — האופציות עם רשימת המתנה הן לא סגירה מיידית: "
+                    "בוחרים אחת ואני מכניס אותך לרשימת ההמתנה",
+                    "חלק מהאופציות הן רשימת המתנה — בוחרים כזאת ואני מכניס אותך לרשימה 🤙",
+                    "יש גם רשימת המתנה — אם זה מתאים, בוחרים אופציה כזאת ואני מכניס אותך לרשימה",
+                )
+                if any("רשימת המתנה" in o or "רשימת ההמתנה" in o for o in real)
+                else ""
+            )
             requested_time = (fields.get("time") or "").strip()
             if field == "time" and real and requested_time:
                 # השעה שביקש תפוסה אבל יש חלופות אמיתיות — מציעים לסגור, לא "נכשלתי":
                 # חלופה אחת = שאלת סגירה ישירה; כמה = רשימת טאפ. עוגנים: השעה המבוקשת,
                 # החלופות, ו"לסגור". הבחירה חוזרת כטקסט וממשיכה באותו סשן (resume).
+                # _allowed_tokens: כל שעה שאינה מהדף/מהבקשה נפסלת (גארד ההמצאות).
+                allowed_toks = _option_tokens([requested_time, *real])
                 if len(real) == 1:
                     await _send_and_record(
                         phone,
                         await _say(
                             "alt_time_offer",
-                            {"requested": requested_time, "offered": real[0]},
+                            {
+                                "requested": requested_time,
+                                "offered": real[0],
+                                "_allowed_tokens": allowed_toks,
+                            },
                             fallback=(
                                 f"ה-{requested_time} תפוס, אבל {real[0]} פנוי — לסגור?",
                                 f"אין {requested_time} 😮‍💨 יש {real[0]} — לסגור לך?",
                                 f"{requested_time} נחטף, {real[0]} כן פנוי. לסגור אותו?",
                             ),
-                        ),
+                        )
+                        + wl_line,
                     )
                 else:
                     # כותרת לרשימה: offered לא מועבר (החלופות בשורות הרשימה עצמן,
@@ -3334,13 +3505,18 @@ async def run_booking(phone: str, fields: dict) -> None:
                         phone,
                         await _say(
                             "alt_time_offer",
-                            {"requested": requested_time, "n_options": len(real)},
+                            {
+                                "requested": requested_time,
+                                "n_options": len(real),
+                                "_allowed_tokens": allowed_toks,
+                            },
                             fallback=(
                                 f"ה-{requested_time} תפוס 😮‍💨 אלו השעות שכן פנויות — לסגור אחת?",
                                 f"אין {requested_time}, אבל יש חלופות פנויות — איזו לסגור?",
                                 f"{requested_time} נחטף. אלו השעות הפנויות — איזו לסגור?",
                             ),
-                        ),
+                        )
+                        + wl_line,
                         real,
                     )
                 _arm_nudge(phone, "question", ctx={"field": "שעה"})  # שאלה פתוחה — תזכורת אחת
@@ -3351,6 +3527,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                 # הראה ימים שכן זמינים — מדווחים מה כן יש ומציעים לסגור שם, במקום
                 # "אין" יבש. הבחירה חוזרת כטקסט מדויק, נכנסת ל-date וממשיכה
                 # באותו סשן (resume) אם הוא עוד חי.
+                allowed_toks = _option_tokens([requested_date, *real])
                 if len(real) == 1:
                     await _send_and_record(
                         phone,
@@ -3361,6 +3538,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                                 "task_type": task_type,
                                 "requested": requested_date,
                                 "offered": real[0],
+                                "_allowed_tokens": allowed_toks,
                             },
                             fallback=(
                                 f"ב-{requested_date} אין כלום, אבל ב-{real[0]} כן יש — לסגור שם?",
@@ -3379,6 +3557,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                                 "task_type": task_type,
                                 "requested": requested_date,
                                 "n_options": len(real),
+                                "_allowed_tokens": allowed_toks,
                             },
                             fallback=(
                                 f"ב-{requested_date} אין כלום 😮‍💨 אלו הימים שכן יש — לסגור אחד?",
@@ -3403,7 +3582,8 @@ async def run_booking(phone: str, fields: dict) -> None:
                             f"יש פה כמה אפשרויות ל{base} — מה מתאים לך?",
                             f"עצרתי על {base} — בחירה שלך ואני ממשיך:",
                         ),
-                    ),
+                    )
+                    + wl_line,
                     real,
                 )
             else:
@@ -3499,6 +3679,10 @@ async def run_booking(phone: str, fields: dict) -> None:
             tail = _scrub((res.details or {}).get("steps_tail") or "", secret)
             if tail:
                 b["tail"] = tail
+        # "נפסלו כבר" (באג 23.7): מקום שלא נמצא/נכשל נרשם לשיחה — ההמלצות מסננות
+        # את *כולם*, לא רק את האחרון (גבר המליץ על הגזטה אחרי שכבר נפסלה).
+        if isinstance(b, dict) and b.get("state") in ("none", "failed"):
+            _mark_rejected(phone, name)
         await _save_flow(phone)  # המצב התייצב — שורד redeploy מכאן
         log.info("run_booking done: %s -> state=%s", phone, _booking.get(phone, {}).get("state"))
 
@@ -4099,6 +4283,28 @@ async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = 
                     "אני באמצע משהו קטן, עוד רגע אצלך 🔄",
                 ),
             )
+    # גארד ההמצאות על תשובת הפרסונה (באג חי 23.7): בעצירת MISSING עם אופציות
+    # אמיתיות מהדף, שעה/תאריך בתשובה שאינם באופציות (או במה שהלקוח ביקש) הם
+    # פרפרזה ממציאה — השורות האלו מסוננות; הרשימה המכנית עצמה לא נגעה בה.
+    opt_pend = _await_answer.get(phone) or {}
+    if opt_pend.get("options") and _booking.get(phone, {}).get("state") == "missing":
+        af = opt_pend.get("fields") or {}
+        now_il = datetime.now(_IL_TZ)
+        allowed = _option_tokens(
+            [
+                *opt_pend["options"],
+                af.get("time") or "",
+                af.get("date") or "",
+                f"{now_il.day}.{now_il.month}",  # "היום 23.7" לגיטימי
+                f"{now_il:%H:%M}",
+            ]
+        )
+        foreign = _foreign_option_tokens(reply, allowed)
+        if foreign:
+            log.warning("invented options suppressed for %s: %s", phone, foreign)
+            reply = _filter_invented_lines(reply, allowed) or (
+                "מה שיש בפועל:\n" + "\n".join(opt_pend["options"][:6]) + "\nמה מהן לוקחים?"
+            )
     # וואטסאפ אמיתי = כמה הודעות קצרות, לא פסקה: כל שורה ב-reply נשלחת כהודעה
     # נפרדת (הפרסונה מונחית לכתוב ככה). מעל 4 שורות — השאר מתאחד לאחרונה.
     # בין הודעות: 'מקליד…' + השהיה לפי אורך ההודעה הבאה — פרץ הודעות באותה שנייה
@@ -4128,7 +4334,25 @@ async def _handle_inbound_inner(phone: str, text: str, message_id: str | None = 
         if (result.get("task_type") or "") == "recommend":
             # המלצות: בדיקה אמיתית ברקע — בלי resolve/booking, בלי לגעת ב-gate של
             # הזמנה ממתינה (בקשת המלצה לא נוטשת סגירה פתוחה) ובלי דרישת שם/מייל.
-            _spawn(run_recommend(phone, result))
+            # מנעול in-flight (שורש הירי הכפול, 23.7): לזרימת ההמלצות לא היה guard
+            # כמו state="working" של ההזמנות — טריגר שני בזמן שהראשון עוד רץ (ready
+            # שנורה גם על תור ההבהרה) שלח שתי רשימות שונות. הבקשה החדשה גוברת:
+            # מבטלים את הרצה ויורים אחת — רשימה אחת ללקוח, תמיד לפי הבקשה העדכנית.
+            prev = _rec_inflight.get(phone)
+            if prev and not prev.done():
+                prev.cancel()
+            task = asyncio.create_task(run_recommend(phone, result))
+            _rec_inflight[phone] = task
+            _pending.add(task)  # strong ref, כמו _spawn
+
+            def _rec_done(t: asyncio.Task, phone: str = phone) -> None:
+                _pending.discard(t)
+                if _rec_inflight.get(phone) is t:
+                    del _rec_inflight[phone]
+                if not t.cancelled() and t.exception() is not None:
+                    log.error("recommend task died: %r", t.exception())
+
+            task.add_done_callback(_rec_done)
             return
         stale = _pending_commit.pop(phone, None)  # התחלת/שינוי הזמנה — נוטשים gate ישן
         if stale and stale.get("session_id"):
