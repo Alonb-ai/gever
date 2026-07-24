@@ -193,11 +193,13 @@ _LAT_FOLD = str.maketrans({"c": "k", "q": "k", "z": "s", "w": "v", "f": "p"})
 
 def _skeleton(word: str) -> str:
     """שלד עיצורים להשוואת מילה עברית מול לטינית: אסה→as, ASA→as; הדסון→dsn, Hudson→dsn.
-    תנועת פתיחה נשמרת כ-a כדי ש"אסה" לא יתמזג עם כל מילה שמכילה s."""
+    תנועת פתיחה נשמרת כ-a כדי ש"אסה" לא יתמזג עם כל מילה שמכילה s.
+    עיצור כפול מקופל לאחד (Gazzetta→gst כמו גזטה→gst) — בלטינית מכפילים, בעברית לא
+    (נצפה חי 23.7: ההדרה של 'הגזטה' פספסה את Gazzetta בגלל ה-zz/tt)."""
     w = word.lower()
     lead = "a" if w and (w[0] in "אע" or w[0] in "aeiou") else ""
     body = "".join(_HE2LAT.get(ch, ch) for ch in w).translate(_LAT_FOLD)
-    return lead + "".join(ch for ch in body if ch not in "aeiouh")
+    return re.sub(r"(.)\1+", r"\1", lead + "".join(ch for ch in body if ch not in "aeiouh"))
 
 
 def _has_token(word: str, ntitle: str) -> bool:

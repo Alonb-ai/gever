@@ -25,6 +25,15 @@ def _no_real_backends(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _fresh_conversation_state():
+    """מצב per-phone שנצבר לאורך שיחה (רשימת הנפסלים, מנעול ההמלצות) מתאפס בין
+    טסטים — ריצת run_booking כושלת בקובץ אחד לא תסנן המלצות בקובץ אחר."""
+    pipeline._rejected.clear()
+    pipeline._rec_inflight.clear()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _say_offline(monkeypatch):
     """הקול החופשי לא מחולל בטסטים: _say_model נכשל מיד וכל _say נופל דטרמיניסטית
     (ובאפס לטנציה/רשת) למאגר ה-fallback — כך כל הטסטים הקיימים נועלים את מסלול
