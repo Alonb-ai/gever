@@ -1145,16 +1145,17 @@ INTENTS: dict[str, dict] = {
         "goal": (
             "השעה שביקש תפוסה אבל יש שעות פנויות אמיתיות מהדף — הצע לסגור "
             "חלופה: אחת (offered) → שאלת סגירה ישירה; כמה (n_options) → כותרת "
-            "קצרה לרשימה שתישלח מתחת בלי להמציא שעות — ובשני המקרים סיים "
-            "בשאלה אם לסגור"
+            "קצרה לרשימה שתישלח מתחת בלי להמציא שעות. ההצעה היא תמיד לבחור "
+            "ולסגור מהרשימה שכבר מולו — לא 'לבדוק שעות אחרות' — ובשני המקרים "
+            "סיים בשאלה אם לסגור"
         ),
-        "ctx": ("requested", "offered", "n_options"),
+        "ctx": ("requested", "offered", "n_options", "waitlist"),
         "forbid": _NOT_DONE,
         "must": (r"סגור|סוגר", r"\?"),
         "must_ctx": ("requested", "offered"),
         "fallback": None,
         "site": "run_booking (MISSING:time עם אופציות, inline ×2)",
-        "test": "tests/test_alt_times.py",
+        "test": "tests/test_alt_times.py, tests/test_conversation_layer.py",
     },
     "alt_date_offer": {
         "goal": (
@@ -1407,6 +1408,9 @@ def _say_violations(intent: str, ctx: dict, reply: str) -> list[str]:
     allowed = ctx.get("_allowed_tokens")
     if allowed is not None:
         probs += [f"invented:{t}" for t in _foreign_option_tokens(reply, allowed)]
+    # איסורים per-קריאה (ctx פנימי, לא מגיע לפרומפט): waitlist ≠ "הכל מלא",
+    # מקום שנפסל לא מוזכר בהמלצות — נאכפים דטרמיניסטית באתר הקריאה שיודע מה אסור.
+    probs += [f"forbid_ctx:{p}" for p in ctx.get("_forbid", ()) if re.search(p, reply)]
     return probs
 
 
@@ -2464,6 +2468,9 @@ async def _send_rec_batch(
     ctx = {"category": category}
     if avoid:
         ctx["avoid"] = avoid
+        # אכיפה דטרמיניסטית של "אסור להזכיר" (eval 24.7: המודל פתח ב"עזוב אותך
+        # מהגזטה" למרות ההנחיה) — אזכור של מקום שנפסל פוסל את הפלט → fallback נקי.
+        ctx["_forbid"] = tuple(re.escape(a) for a in avoid.split(" / ") if a)
     if more:
         ctx["more"] = "כן — הלקוח ביקש עוד, אלו הבאות בתור אחרי סבב קודם"
     for i, p in enumerate(batch, 1):
@@ -3480,6 +3487,17 @@ async def run_booking(phone: str, fields: dict) -> None:
                 # החלופות, ו"לסגור". הבחירה חוזרת כטקסט וממשיכה באותו סשן (resume).
                 # _allowed_tokens: כל שעה שאינה מהדף/מהבקשה נפסלת (גארד ההמצאות).
                 allowed_toks = _option_tokens([requested_time, *real])
+                # waitlist בהקשר הניסוח: המודל יודע שיש רשימת המתנה (ולא "הכל
+                # מלא"); "_forbid" אוכף את זה דטרמיניסטית (eval 24.7 תפס את הניסוח).
+                wl_ctx = (
+                    {
+                        "waitlist": "חלק מהאופציות הן הצטרפות לרשימת המתנה — "
+                        "זו הצעה אמיתית, אל תציג את המצב כ'הכל מלא'",
+                        "_forbid": (r"הכל מלא",),
+                    }
+                    if wl_line
+                    else {}
+                )
                 if len(real) == 1:
                     await _send_and_record(
                         phone,
@@ -3489,6 +3507,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                                 "requested": requested_time,
                                 "offered": real[0],
                                 "_allowed_tokens": allowed_toks,
+                                **wl_ctx,
                             },
                             fallback=(
                                 f"ה-{requested_time} תפוס, אבל {real[0]} פנוי — לסגור?",
@@ -3509,6 +3528,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                                 "requested": requested_time,
                                 "n_options": len(real),
                                 "_allowed_tokens": allowed_toks,
+                                **wl_ctx,
                             },
                             fallback=(
                                 f"ה-{requested_time} תפוס 😮‍💨 אלו השעות שכן פנויות — לסגור אחת?",

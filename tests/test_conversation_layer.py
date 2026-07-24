@@ -336,7 +336,48 @@ def test_waitlist_pick_continues_flow(monkeypatch, sent):
     assert fired.get("time") == "21:30 (מרפסת - רשימת המתנה)"
 
 
+def test_say_violations_forbid_ctx():
+    """איסור per-קריאה (_forbid): waitlist קיים → 'הכל מלא' נפסל דטרמיניסטית."""
+    ctx = {"_forbid": (r"הכל מלא",)}
+    assert any(
+        p.startswith("forbid_ctx")
+        for p in pipeline._say_violations("heartbeat", ctx, "הכל מלא שם, עוד רגע איתך")
+    )
+    assert pipeline._say_violations("heartbeat", ctx, "עוד עובד על זה, לא נעלמתי") == []
+
+
 # ─── באג 5: זיכרון "נפסלו כבר" מסנן המלצות ─────────────────────────────────
+
+
+def test_rec_batch_blocks_mentioning_avoided(monkeypatch, sent):
+    """eval 24.7: המודל פתח ב'עזוב אותך מהגזטה' למרות הנחיית avoid — אזכור של
+    מקום שנפסל פוסל את הפלט והמאגר הבטוח נשלח במקומו."""
+
+    async def mention(intent, ctx):
+        return "עזוב אותך מהגזטה, שחרר\nTirza wine bar — אש\nCÔTE — סטייל\nלסגור לך אחת?"
+
+    monkeypatch.setattr(pipeline, "_say_model", mention)
+    batch = [
+        {
+            "name": "Tirza wine bar",
+            "rating": 4.6,
+            "reviews": 900,
+            "open_now": True,
+            "uri": "",
+            "place_id": "",
+        },
+        {
+            "name": "CÔTE",
+            "rating": 4.5,
+            "reviews": 700,
+            "open_now": True,
+            "uri": "",
+            "place_id": "",
+        },
+    ]
+    asyncio.run(pipeline._send_rec_batch("p10", "wine bar", batch, "הגזטה", False))
+    msg = sent[-1][1]
+    assert "הגזטה" not in msg and "Tirza wine bar" in msg, msg
 
 
 def _fail_booking(monkeypatch, name, reason="no_online_booking"):
