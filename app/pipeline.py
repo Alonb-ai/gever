@@ -418,8 +418,25 @@ async def _send_and_record(phone: str, text: str) -> None:
     await _persist_chat(phone)
 
 
-async def _send_list_and_record(phone: str, body: str, labels: list) -> None:
-    """כמו _send_and_record לרשימת בחירה — הרשימה נרשמת כטקסט אחד."""
+async def _send_list_and_record(
+    phone: str, body: str, labels: list, *, allow_tokens: set | frozenset = frozenset()
+) -> None:
+    """כמו _send_and_record לרשימת בחירה — הרשימה נרשמת כטקסט אחד.
+
+    מקור-אמת-יחיד (באג חי 24.7): הטקסט טען "יש מקום רק ב-19:15, 21:30" בזמן
+    שהרשימה הציגה 18:30/18:45. גוף ההודעה והשורות יוצאים כאן יחד, אטומית — לכן
+    זה שער-הגבול: שורת-גוף עם שעה/תאריך שאינם בשורות הרשימה (או ב-allow_tokens
+    שאתר הקריאה סיפק — למשל השעה שהלקוח ביקש) מסוננת. שורות הרשימה לא נגעות."""
+    row_toks = _option_tokens(labels)
+    if row_toks:
+        allowed = row_toks | set(allow_tokens)
+        foreign = _foreign_option_tokens(body, allowed)
+        if foreign:
+            log.warning("list body/rows mismatch for %s — dropped tokens %s", phone, foreign)
+            body = _filter_invented_lines(body, allowed) or _vary(
+                "אלו האפשרויות שיש בפועל — מה לוקחים?",
+                "מה שקיים באמת זה האפשרויות האלה — מה בוחרים?",
+            )
     await send_list(phone, body, labels)
     _record_out(phone, body + "\n" + "\n".join(f"· {lbl}" for lbl in labels))
     await _persist_chat(phone)
@@ -3538,6 +3555,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                         )
                         + wl_line,
                         real,
+                        allow_tokens=allowed_toks,
                     )
                 _arm_nudge(phone, "question", ctx={"field": "שעה"})  # שאלה פתוחה — תזכורת אחת
                 return
@@ -3586,6 +3604,7 @@ async def run_booking(phone: str, fields: dict) -> None:
                             ),
                         ),
                         real,
+                        allow_tokens=allowed_toks,
                     )
                 _arm_nudge(phone, "question", ctx={"field": "תאריך"})  # שאלה פתוחה — תזכורת אחת
                 return

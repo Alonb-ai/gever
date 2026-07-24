@@ -231,6 +231,54 @@ def test_converse_reply_guard_strips_invented_options(monkeypatch, sent):
     assert "21:30" in out  # התוכן האמיתי נשאר — מסננים שורות, לא זורקים תשובה
 
 
+# ─── באג 8 (לייב 24.7): הרשימה האינטראקטיבית והטקסט — מקור-אמת-יחיד ────────
+
+
+def test_send_list_boundary_filters_foreign_tokens(sent):
+    """שער-הגבול עצמו: גוף עם שעות שלא בשורות הרשימה מסונן ברגע השליחה —
+    שחזור הצילום: הטקסט טען 19:15/21:30, הרשימה הציגה 18:30/18:45."""
+    asyncio.run(
+        pipeline._send_list_and_record(
+            "p1",
+            "יש מקום פנוי רק בשעות האלה: 19:15, 21:30\nמה לוקחים?",
+            ["18:30", "18:45"],
+            allow_tokens=pipeline._option_tokens(["22:30"]),
+        )
+    )
+    kind, body, labels = sent[-1]
+    assert kind == "list" and labels == ("18:30", "18:45")
+    assert "19:15" not in body and "21:30" not in body
+    assert "מה לוקחים?" in body  # מסננים שורות, לא זורקים את הגוף
+
+
+def test_send_list_boundary_allows_requested_and_rows(sent):
+    """השעה שהלקוח ביקש (allow_tokens) ושעות מהשורות עצמן — לגיטימיות בגוף."""
+    asyncio.run(
+        pipeline._send_list_and_record(
+            "p1",
+            "ה-22:30 תפוס, יש 18:30 — או אחת מאלה:",
+            ["18:30", "18:45"],
+            allow_tokens=pipeline._option_tokens(["22:30"]),
+        )
+    )
+    _, body, _ = sent[-1]
+    assert "22:30" in body and "18:30" in body
+
+
+def test_list_message_body_subset_of_rows(monkeypatch, sent):
+    """שחזור מלא דרך הפייפליין: גם כשמודל הקול-החופשי ממציא שעות בכותרת,
+    ההודעה היוצאת (גוף+שורות) נבנית מאותו אובייקט options של אותה ריצה."""
+
+    async def invent(intent, ctx):
+        return "יש מקום פנוי רק בשעות האלה: 19:15, 21:30 — לסגור אחת?"
+
+    monkeypatch.setattr(pipeline, "_say_model", invent)
+    _run_booking_missing(monkeypatch, "time", ["18:30", "18:45"])
+    kind, body, labels = next(m for m in sent if m[0] == "list")
+    body_toks = pipeline._option_tokens([body])
+    assert body_toks <= pipeline._option_tokens([*labels, "22:30"]), (body, labels)
+
+
 # ─── באג 2: שעות שכבר עברו — השעה הנוכחית מוזרקת להקשר ─────────────────────
 
 
