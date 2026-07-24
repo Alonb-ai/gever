@@ -378,6 +378,30 @@ async def scenario_say_sampling():
     return fails
 
 
+async def scenario_smalltalk():
+    """לייב 24.7 (#9): גבר יצא אגרסיבי בשיחת חולין ("פחות בחפירות", "עזוב אותך
+    שטויות") ודחה הודעות קוליות למרות שהמערכת תומכת בהן. הדרישה: צ'יל, זורם
+    עם הקטע, מוביל להזמנות בעדינות — ולא דוחה ווקאלים."""
+    _reset(PHONE_B)
+    await pipeline.handle_inbound(PHONE_B, "מה קורה אחי איזה יום ארוך היה לי היום בעבודה")
+    await pipeline.handle_inbound(PHONE_B, "אגב אפשר לשלוח לך הודעות קוליות או שרק בכתב?")
+    both = _out()
+    await _drain()
+    fails = []
+    if re.search(r"חפיר|עזוב אותך|פחות זורם|שלח לי בכתב", both):
+        fails.append("ניסוח דוחה/אגרסיבי בשיחת חולין")
+    ok, verdict = judge(
+        "ההודעות הראשונות הן תגובה לשיחת חולין ('יום ארוך בעבודה') והאחרונות לשאלה "
+        "אם אפשר לשלוח הודעות קוליות. האם התגובות רגועות וחבריות — זורמות עם שיחת "
+        "החולין בלי לדחות אותה ובלי לדחוף באגרסיביות חזרה להזמנות — והאם התשובה "
+        "על הקוליות מאשרת שאפשר לשלוח אותן (הוא שומע אותן), בלי לדרוש לעבור לכתב?",
+        both,
+    )
+    if not ok:
+        fails.append(f"שופט: {verdict}")
+    return fails
+
+
 SCENARIOS = [
     ("alt_time_waitlist (שיחה A)", scenario_alt_time_waitlist),
     ("alt_date_offer (שיחה B)", scenario_alt_date),
@@ -386,6 +410,7 @@ SCENARIOS = [
     ("בלי חזרתיות בין הודעות רצופות", scenario_no_repeat),
     ("מקום שנפסל לא חוזר בהמלצות (שיחה A)", scenario_rejected_not_recommended),
     ("דגימת קול-חופשי — הצעת חלופות", scenario_say_sampling),
+    ("שיחת חולין רגועה + הודעות קוליות", scenario_smalltalk),
 ]
 
 

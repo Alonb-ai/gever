@@ -574,6 +574,21 @@ def test_rec_exists_fails_open_without_brave():
     assert asyncio.run(pipeline._rec_exists("Hudson", "Tel Aviv")) is True
 
 
+# ─── באג 9 (לייב 24.7): שיחת חולין רגועה + הודעות קוליות ───────────────────
+
+
+def test_persona_smalltalk_calm_and_voice_friendly():
+    """הפרסונה: שיחת חולין היא חלק מהדמות (צ'יל, בלי לדחוף להזמנות), והודעות
+    קוליות נשמעות כרגיל — לא נדחות לכתב. character-driven: אין רשימת ביטויים."""
+    from app.llm.intent import SYSTEM_PROMPT
+
+    assert "שיחת חולין" in SYSTEM_PROMPT
+    assert "איש מכירות" in SYSTEM_PROMPT  # מה שהוא *לא* — ההצעה מגיעה טבעית
+    assert "הודעות קוליות" in SYSTEM_PROMPT
+    # הדוגמאות האגרסיביות הישנות ("מה החפירה") הוסרו מהדמות
+    assert "החפירה" not in SYSTEM_PROMPT
+
+
 # ─── באג 7: סניטציה של שמות מועמדים (טקסט כפתור) ───────────────────────────
 
 
